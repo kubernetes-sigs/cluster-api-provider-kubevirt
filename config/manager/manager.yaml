@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+  labels:
+    control-plane: controller-manager
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - "--leader-elect"
+        - "--metrics-bind-addr=127.0.0.1:8080"
+        - "--feature-gates=MachinePool=${EXP_MACHINE_POOL:=false}"
+        image: controller:latest
+        name: manager
+        env:
+        - name: NO_PROXY
+          value: 127.0.0.1,localhost
+        ports:
+        - containerPort: 9440
+          name: healthz
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: healthz
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+        volumeMounts:
+          - mountPath: /var/run/docker.sock
+            name: dockersock
+        securityContext:
+          privileged: true
+      terminationGracePeriodSeconds: 10
+      serviceAccountName: manager
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
