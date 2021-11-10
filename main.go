@@ -28,7 +28,6 @@ import (
 
 	"github.com/spf13/pflag"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -36,6 +35,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	kubevirtv1 "kubevirt.io/client-go/api/v1"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/feature"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,6 +55,7 @@ var (
 	healthAddr           string
 	webhookPort          int
 	webhookCertDir       string
+	watchNamespace       string
 )
 
 func init() {
@@ -82,6 +83,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Webhook Server port")
 	fs.StringVar(&webhookCertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
 		"Webhook cert dir, only used when webhook-port is specified.")
+	fs.StringVar(&watchNamespace, "namespace", "",
+		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
 
 	feature.MutableGates.AddFlag(fs)
 }
@@ -96,6 +99,10 @@ func main() {
 
 	ctrl.SetLogger(klogr.New())
 
+	if watchNamespace != "" {
+		setupLog.Info("Watching cluster-api objects only in namespace for reconciliation", "namespace", watchNamespace)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 myscheme,
 		MetricsBindAddress:     metricsBindAddr,
@@ -105,6 +112,7 @@ func main() {
 		HealthProbeBindAddress: healthAddr,
 		Port:                   webhookPort,
 		CertDir:                webhookCertDir,
+		Namespace:              watchNamespace,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
