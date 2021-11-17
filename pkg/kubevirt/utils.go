@@ -41,8 +41,9 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext) *kubevirt
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
 		Spec: kubevirtv1.VirtualMachineSpec{
-			RunStrategy: &runAlways,
-			Template:    vmiTemplate,
+			RunStrategy:         &runAlways,
+			Template:            vmiTemplate,
+			DataVolumeTemplates: ctx.KubevirtMachine.Spec.DataVolumeTemplates,
 		},
 	}
 

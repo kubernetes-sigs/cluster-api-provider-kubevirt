@@ -32,6 +32,10 @@ const (
 type KubevirtMachineSpec struct {
 	VMSpec kubevirtv1.VirtualMachineInstanceSpec `json:"vmSpec,omitempty"`
 
+	// dataVolumeTemplates is a list of dataVolumes that the VirtualMachineInstance template can reference.
+	// DataVolumes in this list are dynamically created for the VirtualMachine and are tied to the VirtualMachine's life-cycle.
+	DataVolumeTemplates []kubevirtv1.DataVolumeTemplateSpec `json:"dataVolumeTemplates,omitempty"`
+
 	// ProviderID TBD what to use for Kubevirt
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
