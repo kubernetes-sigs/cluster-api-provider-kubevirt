@@ -1,3 +1,8 @@
+# THIS IS A TEMPORARY FORK OF https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt
+
+You very likely want to contribute to https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt. :)
+The purpose of this fork are some experiments by some people of the kubevirt project.
+
 # Kubernetes Template Project
 
 The Kubernetes Template Project is a template for starting new projects in the GitHub organizations owned by Kubernetes. All Kubernetes projects, at minimum, must have the following files:
