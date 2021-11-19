@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# Usage:
+#
+# ./kubevirtci up # start a cluster with kubevirt, cert-manager and capi
+# ./kubevirtci sync # build and deploy current capik
+# ./kubevirtci kubectl get pods --all-namespaces # interact with the cluster
+# ./kubevirtci clusterctl create cluster # run clusterctl commands against the cluster
+# ./kubevirtci oc get pods --all-namespaces # interact with the HOSTED cluster
+# ./kubevirtci down # destroy the cluster
+
+set -e
+
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.21}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2110251848-8198e9c}
+export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+export KUBEVIRT_DEPLOY_PROMETHEUS=false
+export KUBEVIRT_DEPLOY_CDI=false
+export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
+export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
+
+_kubectl=cluster-up/cluster-up/kubectl.sh
+
+_action=$1
+shift
+
+function kubevirtci::fetch_kubevirtci() {
+	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
+	(cd cluster-up && git checkout ${KUEVIRTCI_TAG})
+}
+
+function kubevirtci::up() {
+	make cluster-up -C cluster-up
+	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+	echo "installing kubevirt..."
+	LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/latest)
+	${_kubectl} apply -f https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${LATEST}/kubevirt-operator.yaml
+	${_kubectl} apply -f https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${LATEST}/kubevirt-cr.yaml
+	echo "installing capi..."
+	clusterctl init
+	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
+	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
+}
+
+function kubevirtci::down() {
+	make cluster-down -C cluster-up
+}
+
+function kubevirtci::build() {
+	export REGISTRY="localhost:$(cluster-up/cluster-up/cli.sh ports registry)"
+	make manager
+	make docker-build
+	make docker-push
+}
+
+function kubevirtci::install() {
+	export MANIFEST_IMG="registry:5000/capk-manager-amd64"
+	export MANIFEST_TAG="dev"
+	make generate-manifests
+	make set-manifest-image
+	${_kubectl} kustomize config/default | ${_kubectl} delete -f -
+	${_kubectl} kustomize config/default | ${_kubectl} apply -f -
+}
+
+function kubevirtci::create_cluster() {
+	export NODE_VM_IMAGE_TEMPLATE=quay.io/dvossel/fedora-kubeadm:35
+	export IMAGE_REPO=k8s.gcr.io
+	clusterctl generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+}
+
+kubevirtci::fetch_kubevirtci
+
+case ${_action} in
+"up")
+	kubevirtci::up
+	;;
+"down")
+	kubevirtci::down
+	;;
+"sync")
+	kubevirtci::build
+	kubevirtci::install
+	;;
+"kubectl")
+	${_kubectl} "$@"
+	;;
+"clusterctl")
+	clusterctl "$@"
+	;;
+"create-cluster")
+	kubevirtci::create_cluster
+	;;
+*)
+	echo "No command provided, known commands are 'up', 'down', 'sync', 'kubectl', 'clusterctl', 'create-cluster'"
+	exit 1
+	;;
+esac
