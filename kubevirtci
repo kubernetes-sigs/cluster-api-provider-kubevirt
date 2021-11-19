@@ -58,7 +58,7 @@ function kubevirtci::install() {
 	export MANIFEST_TAG="dev"
 	make generate-manifests
 	make set-manifest-image
-	${_kubectl} kustomize config/default | ${_kubectl} delete -f -
+	${_kubectl} kustomize config/default | ${_kubectl} delete -f - || true
 	${_kubectl} kustomize config/default | ${_kubectl} apply -f -
 }
 
