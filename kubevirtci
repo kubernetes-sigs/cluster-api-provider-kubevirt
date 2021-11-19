@@ -55,6 +55,11 @@ function kubevirtci::build() {
 	make docker-push
 }
 
+
+function kubevirtci::refresh() {
+	${_kubectl} delete pods --all -n capk-system
+}
+
 function kubevirtci::install() {
 	export MANIFEST_IMG="registry:5000/capk-manager-amd64"
 	export MANIFEST_TAG="dev"
@@ -79,6 +84,10 @@ case ${_action} in
 	;;
 "down")
 	kubevirtci::down
+	;;
+"refresh")
+	kubevirtci::build
+	kubevirtci::refresh
 	;;
 "sync")
 	kubevirtci::build
