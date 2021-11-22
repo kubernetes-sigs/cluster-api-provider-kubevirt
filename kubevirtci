@@ -19,6 +19,8 @@ export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 
+export CLUSTERCTL_PATH=${CLUSTERCTL_PATH:-clusterctl}
+
 _kubectl=cluster-up/cluster-up/kubectl.sh
 
 _action=$1
@@ -37,7 +39,7 @@ function kubevirtci::up() {
 	${_kubectl} apply -f https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${LATEST}/kubevirt-operator.yaml
 	${_kubectl} apply -f https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${LATEST}/kubevirt-cr.yaml
 	echo "installing capi..."
-	clusterctl init
+	$CLUSTERCTL_PATH init
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
 	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
 }
@@ -53,6 +55,11 @@ function kubevirtci::build() {
 	make docker-push
 }
 
+
+function kubevirtci::refresh() {
+	${_kubectl} delete pods --all -n capk-system
+}
+
 function kubevirtci::install() {
 	export MANIFEST_IMG="registry:5000/capk-manager-amd64"
 	export MANIFEST_TAG="dev"
@@ -63,9 +70,10 @@ function kubevirtci::install() {
 }
 
 function kubevirtci::create_cluster() {
-	export NODE_VM_IMAGE_TEMPLATE=quay.io/dvossel/fedora-kubeadm:35
+	export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
 	export IMAGE_REPO=k8s.gcr.io
-	clusterctl generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+	export CRI_PATH="/var/run/crio/crio.sock"
+	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
 }
 
 kubevirtci::fetch_kubevirtci
@@ -77,6 +85,10 @@ case ${_action} in
 "down")
 	kubevirtci::down
 	;;
+"refresh")
+	kubevirtci::build
+	kubevirtci::refresh
+	;;
 "sync")
 	kubevirtci::build
 	kubevirtci::install
@@ -85,7 +97,7 @@ case ${_action} in
 	${_kubectl} "$@"
 	;;
 "clusterctl")
-	clusterctl "$@"
+	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
 	kubevirtci::create_cluster
