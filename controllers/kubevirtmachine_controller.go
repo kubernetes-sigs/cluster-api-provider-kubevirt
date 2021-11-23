@@ -276,6 +276,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 			Type:    clusterv1.MachineExternalIP,
 			Address: externalMachine.Address(),
 		},
+		{
+			Type:    clusterv1.MachineInternalDNS,
+			Address: ctx.KubevirtMachine.Name,
+		},
 	}
 
 	// Patch node with provider id.
