@@ -267,6 +267,12 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	// Update the condition BootstrapExecSucceededCondition
 	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition)
 
+	ipAddress := externalMachine.Address()
+	ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got ipAddress <%s>", ctx.KubevirtMachine.Name, ipAddress))
+	if ipAddress == "" {
+		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
+		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
 	ctx.KubevirtMachine.Status.Addresses = []clusterv1.MachineAddress{
 		{
 			Type:    clusterv1.MachineHostName,
@@ -274,11 +280,11 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		},
 		{
 			Type:    clusterv1.MachineInternalIP,
-			Address: externalMachine.Address(),
+			Address: ipAddress,
 		},
 		{
 			Type:    clusterv1.MachineExternalIP,
-			Address: externalMachine.Address(),
+			Address: ipAddress,
 		},
 		{
 			Type:    clusterv1.MachineInternalDNS,
