@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/util"
 	clusterutil "sigs.k8s.io/cluster-api/util"
@@ -154,16 +155,19 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Handle non-deleted machines
-	return r.reconcileNormal(machineContext)
+	if !machineContext.KubevirtMachine.Status.Ready {
+		return r.reconcileNormal(machineContext)
+	} else {
+		// Update the providerID on the Node
+		// The ProviderID on the Node and the providerID on  the KubevirtMachine are used to set the NodeRef
+		// This code is needed here as long as there is no Kubevirt cloud provider setting the providerID in the node
+		return r.updateNodeProviderID(machineContext)
+	}
 }
 
 func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext) (res ctrl.Result, retErr error) {
 	// If the machine is already provisioned, return
-	if ctx.KubevirtMachine.Spec.ProviderID != nil {
-		// ensure ready state is set.
-		// This is required after move, because status is not moved to the target cluster.
-		ctx.KubevirtMachine.Status.Ready = true
-		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+	if ctx.KubevirtMachine.Status.Ready {
 		return ctrl.Result{}, nil
 	}
 
@@ -282,10 +286,27 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		},
 	}
 
-	// Patch node with provider id.
-	// Usually a cloud provider will do this, but there is no cloud provider for KubeVirt.
-	ctx.Logger.Info("Patching node with provider id...")
-	var providerID string
+	providerID, err := externalMachine.GenerateProviderID()
+	if err != nil {
+		ctx.Logger.Error(err, "Failed to patch node with provider id...")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// Set ProviderID so the Cluster API Machine Controller can pull it.
+	ctx.KubevirtMachine.Spec.ProviderID = &providerID
+
+	// KubevirtMachine is ready! Set the status and the condition.
+	ctx.KubevirtMachine.Status.Ready = true
+	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+
+	return ctrl.Result{}, nil
+}
+
+func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineContext) (ctrl.Result, error) {
+	// If the provider ID is already updated on the Node, return
+	if ctx.KubevirtMachine.Status.NodeUpdated {
+		return ctrl.Result{}, nil
+	}
 
 	workloadClusterClient, err := r.reconcileWorkloadClusterClient(ctx)
 	if err != nil {
@@ -297,17 +318,29 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	}
 
-	if providerID, err = externalMachine.SetProviderID(workloadClusterClient); err != nil {
-		ctx.Logger.Error(err, "Failed to patch node with provider id...")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	// using workload cluster client, get the corresponding cluster node
+	workloadClusterNode := &corev1.Node{}
+	workloadClusterNodeKey := client.ObjectKey{Namespace: ctx.KubevirtMachine.Namespace, Name: ctx.KubevirtMachine.Name}
+	if err := workloadClusterClient.Get(ctx, workloadClusterNodeKey, workloadClusterNode); err != nil {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, errors.Wrapf(err, "failed to fetch workload cluster node")
 	}
 
-	// Set ProviderID so the Cluster API Machine Controller can pull it.
-	ctx.KubevirtMachine.Spec.ProviderID = &providerID
+	if workloadClusterNode.Spec.ProviderID == *ctx.KubevirtMachine.Spec.ProviderID {
+		// Node is already updated, return
+		return ctrl.Result{}, nil
+	}
 
-	// KubevirtMachine is ready! Set the status and the condition.
-	ctx.KubevirtMachine.Status.Ready = true
-	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+	// Patch node with provider id.
+	// Usually a cloud provider will do this, but there is no cloud provider for KubeVirt.
+	ctx.Logger.Info("Patching node with provider id...")
+
+	// using workload cluster client, patch cluster node
+	patchStr := fmt.Sprintf(`{"spec": {"providerID": "%s"}}`, *ctx.KubevirtMachine.Spec.ProviderID)
+	mergePatch := client.RawPatch(types.MergePatchType, []byte(patchStr))
+	if err := workloadClusterClient.Patch(gocontext.TODO(), workloadClusterNode, mergePatch); err != nil {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, errors.Wrapf(err, "failed to patch workload cluster node")
+	}
+	ctx.KubevirtMachine.Status.NodeUpdated = true
 
 	return ctrl.Result{}, nil
 }

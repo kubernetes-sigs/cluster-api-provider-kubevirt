@@ -60,6 +60,10 @@ type KubevirtMachineStatus struct {
 	// Conditions defines current service state of the KubevirtMachine.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+
+	// NodeUpdated denotes that the ProviderID is updated on Node of this KubevirtMachine
+	// +optional
+	NodeUpdated bool `json:"nodeupdated"`
 }
 
 // +kubebuilder:resource:path=kubevirtmachines,scope=Namespaced,categories=cluster-api

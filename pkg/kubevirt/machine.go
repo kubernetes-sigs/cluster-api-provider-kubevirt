@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -143,27 +142,13 @@ func (m *Machine) IsBootstrapped(executor CommandExecutor) bool {
 	return true
 }
 
-// SetProviderID sets the KubeVirt provider ID for this kubernetes node.
-func (m *Machine) SetProviderID(workloadClusterClient client.Client) (string, error) {
+// GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
+func (m *Machine) GenerateProviderID() (string, error) {
 	if m.vmInstance == nil {
 		return "", errors.New("Underlying Kubevirt VM is NOT running")
 	}
 
 	providerID := fmt.Sprintf("kubevirt://%s", m.machineContext.KubevirtMachine.Name)
-
-	// using workload cluster client, get the corresponding cluster node
-	workloadClusterNode := &corev1.Node{}
-	workloadClusterNodeKey := client.ObjectKey{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
-	if err := workloadClusterClient.Get(m.machineContext, workloadClusterNodeKey, workloadClusterNode); err != nil {
-		return "", errors.Wrapf(err, "failed to fetch workload cluster node")
-	}
-
-	// using workload cluster client, patch cluster node
-	patchStr := fmt.Sprintf(`{"spec": {"providerID": "%s"}}`, providerID)
-	mergePatch := client.RawPatch(types.MergePatchType, []byte(patchStr))
-	if err := workloadClusterClient.Patch(gocontext.TODO(), workloadClusterNode, mergePatch); err != nil {
-		return "", errors.Wrapf(err, "failed to patch workload cluster node")
-	}
 
 	return providerID, nil
 }
