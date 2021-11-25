@@ -7,6 +7,7 @@ require (
 	github.com/emicklei/go-restful v2.10.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-logr/logr v0.4.0
+	github.com/golang/mock v1.4.3
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.11.0
 	github.com/pkg/errors v0.9.1

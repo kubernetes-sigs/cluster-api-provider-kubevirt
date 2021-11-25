@@ -20,9 +20,10 @@ import (
 	gocontext "context"
 	"encoding/base64"
 	"fmt"
-	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"time"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
@@ -50,6 +51,7 @@ import (
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
 type KubevirtMachineReconciler struct {
 	client.Client
+	WorkloadCluster workloadcluster.WorkloadCluster
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
@@ -314,7 +316,7 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 		return ctrl.Result{}, nil
 	}
 
-	workloadClusterClient, err := r.reconcileWorkloadClusterClient(ctx)
+	workloadClusterClient, err := r.WorkloadCluster.GenerateWorkloadClusterClient(ctx)
 	if err != nil {
 		ctx.Logger.Error(err, "Workload cluster client is not available")
 	}
@@ -496,47 +498,6 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	}
 
 	return nil
-}
-
-// getKubeconfigForWorkloadCluster fetches kubeconfig for workload cluster from the corresponding secret.
-func (r *KubevirtMachineReconciler) getKubeconfigForWorkloadCluster(ctx *context.MachineContext) (string, error) {
-	// workload cluster kubeconfig can be found in a secret with suffix "-kubeconfig"
-	kubeconfigSecret := &corev1.Secret{}
-	kubeconfigSecretKey := client.ObjectKey{Namespace: ctx.KubevirtCluster.Namespace, Name: ctx.KubevirtCluster.Name + "-kubeconfig"}
-	if err := r.Client.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
-		return "", errors.Wrapf(err, "failed to fetch kubeconfig for workload cluster")
-	}
-
-	// read kubeconfig
-	value, ok := kubeconfigSecret.Data["value"]
-	if !ok {
-		return "", errors.New("error retrieving kubeconfig data: secret value key is missing")
-	}
-
-	return string(value), nil
-}
-
-// reconcileWorkloadClusterClient creates a client for workload cluster.
-func (r *KubevirtMachineReconciler) reconcileWorkloadClusterClient(ctx *context.MachineContext) (client.Client, error) {
-	// get workload cluster kubeconfig
-	kubeConfig, err := r.getKubeconfigForWorkloadCluster(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get kubeconfig for workload cluster")
-	}
-
-	// generate REST config
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeConfig))
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create REST config")
-	}
-
-	// create the client
-	workloadClusterClient, err := client.New(restConfig, client.Options{Scheme: r.Client.Scheme()})
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create workload cluster client")
-	}
-
-	return workloadClusterClient, nil
 }
 
 // usersCloudConfig generates 'users' cloud config for capk user with a given ssh public key
