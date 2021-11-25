@@ -17,24 +17,29 @@ limitations under the License.
 package ssh
 
 import (
+	ecdsa "crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 )
 
 // generateKeys generates a pair of public and private keys
 func generateKeys() (pub, key []byte, err error) {
-	bitSize := 4096
+	ec := elliptic.P384()
 
-	privateKey, err := generatePrivateKey(bitSize)
+	privateKey, err := generatePrivateKey(ec)
 	if err != nil {
 		return nil, nil, err
 	}
-	privateKeyBytes := encodePrivateKeyToPEM(privateKey)
+	privateKeyBytes, err := encodePrivateKeyToPEM(privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	publicKeyBytes, err := generatePublicKey(&privateKey.PublicKey)
 	if err != nil {
@@ -44,16 +49,10 @@ func generateKeys() (pub, key []byte, err error) {
 	return publicKeyBytes, privateKeyBytes, nil
 }
 
-// generatePrivateKey creates a RSA Private Key of specified byte size
-func generatePrivateKey(bitSize int) (*rsa.PrivateKey, error) {
+// generatePrivateKey creates an ECDSA Private Key of specified byte size
+func generatePrivateKey(c elliptic.Curve) (*ecdsa.PrivateKey, error) {
 	// create key
-	privateKey, err := rsa.GenerateKey(rand.Reader, bitSize)
-	if err != nil {
-		return nil, err
-	}
-
-	// validate key
-	err = privateKey.Validate()
+	privateKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
@@ -61,14 +60,17 @@ func generatePrivateKey(bitSize int) (*rsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-// encodePrivateKeyToPEM encodes Private Key from RSA to PEM format
-func encodePrivateKeyToPEM(privateKey *rsa.PrivateKey) []byte {
+// encodePrivateKeyToPEM encodes Private Key from ECDSA to PEM format
+func encodePrivateKeyToPEM(privateKey *ecdsa.PrivateKey) ([]byte, error) {
 	// get ASN.1 DER format
-	privDER := x509.MarshalPKCS1PrivateKey(privateKey)
+	privDER, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return nil, err
+	}
 
 	// pem.Block
 	privBlock := pem.Block{
-		Type:    "RSA PRIVATE KEY",
+		Type:    "EC PRIVATE KEY",
 		Headers: nil,
 		Bytes:   privDER,
 	}
@@ -76,18 +78,18 @@ func encodePrivateKeyToPEM(privateKey *rsa.PrivateKey) []byte {
 	// private key in PEM format
 	privatePEM := pem.EncodeToMemory(&privBlock)
 
-	return privatePEM
+	return privatePEM, nil
 }
 
-// generatePublicKey takes a rsa.PublicKey and returns bytes suitable for writing to .pub file
-// returns in the format "ssh-rsa ..."
-func generatePublicKey(privateKey *rsa.PublicKey) ([]byte, error) {
-	publicRsaKey, err := ssh.NewPublicKey(privateKey)
+// generatePublicKey takes a ecdsa.PublicKey and returns bytes suitable for writing to .pub file
+// returns in the format "ssh-ecdsa ..."
+func generatePublicKey(privateKey *ecdsa.PublicKey) ([]byte, error) {
+	publicECKey, err := ssh.NewPublicKey(privateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	pubKeyBytes := ssh.MarshalAuthorizedKey(publicRsaKey)
+	pubKeyBytes := ssh.MarshalAuthorizedKey(publicECKey)
 
 	return pubKeyBytes, nil
 }
