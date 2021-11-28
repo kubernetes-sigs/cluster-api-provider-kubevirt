@@ -26,7 +26,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
@@ -57,9 +56,8 @@ var (
 		KubevirtMachine: kubevirtMachine,
 	}
 
-	fakeClient                client.Client
-	fakeVMCommandExecutor     FakeVMCommandExecutor
-	fakeWorkloadClusterClient client.Client
+	fakeClient            client.Client
+	fakeVMCommandExecutor FakeVMCommandExecutor
 )
 
 var _ = Describe("Without KubeVirt VM running", func() {
@@ -110,10 +108,10 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(externalMachine.IsBootstrapped(fakeVMCommandExecutor)).To(BeFalse())
 	})
 
-	It("SetProviderID should fail", func() {
+	It("GenerateProviderID should fail", func() {
 		externalMachine, err := NewMachine(machineContext, fakeClient)
 		Expect(err).NotTo(HaveOccurred())
-		providerId, err := externalMachine.SetProviderID(fakeClient)
+		providerId, err := externalMachine.GenerateProviderID()
 		Expect(err).To(HaveOccurred())
 		Expect(providerId).To(Equal(""))
 	})
@@ -132,19 +130,6 @@ var _ = Describe("With KubeVirt VM running", func() {
 		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
 
 		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
-
-		workloadClusterObjects := []client.Object{
-			&corev1.Node{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Node",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: kubevirtMachine.Namespace,
-					Name:      kubevirtMachine.Name,
-				},
-			},
-		}
-		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(workloadClusterObjects...).Build()
 	})
 
 	AfterEach(func() {})
@@ -181,19 +166,13 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(externalMachine.IsBootstrapped(fakeVMCommandExecutor)).To(BeTrue())
 	})
 
-	It("SetProviderID should succeed", func() {
+	It("GenerateProviderID should succeed", func() {
 		expectedProviderId := fmt.Sprintf("kubevirt://%s", kubevirtMachineName)
 
 		externalMachine, err := NewMachine(machineContext, fakeClient)
 		Expect(err).NotTo(HaveOccurred())
-		providerId, err := externalMachine.SetProviderID(fakeWorkloadClusterClient)
+		providerId, err := externalMachine.GenerateProviderID()
 		Expect(providerId).To(Equal(expectedProviderId))
-
-		workloadClusterNode := &corev1.Node{}
-		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(workloadClusterNode.Spec.ProviderID).To(Equal(expectedProviderId))
 	})
 })
 
