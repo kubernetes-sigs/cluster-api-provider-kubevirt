@@ -32,6 +32,7 @@ shift
 function kubevirtci::fetch_kubevirtci() {
 	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
 	(cd cluster-up && git checkout ${KUEVIRTCI_TAG})
+	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
 		echo >&2 "Downloading clusterctl ..."
 		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v0.4.4/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
@@ -40,7 +41,6 @@ function kubevirtci::fetch_kubevirtci() {
 	if [ ! -f "${_default_virtctl_path}" ]; then
 		echo >&2 "Downloading virtctl ..."
 		LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-		echo $LATEST
 		curl -L https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/virtctl-${LATEST}-linux-amd64 -o ${_default_virtctl_path}
 		chmod u+x ${_default_virtctl_path}
 	fi
