@@ -253,3 +253,7 @@ verify-gen: generate
 		git diff; \
 		echo "generated files are out of date, run make generate"; exit 1; \
 	fi
+
+.PHONY: functest
+functest:
+	./hack/functest.sh
