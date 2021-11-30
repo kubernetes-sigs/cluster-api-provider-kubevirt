@@ -4,7 +4,6 @@ go 1.16
 
 require (
 	cloud.google.com/go v0.60.0 // indirect
-	github.com/emicklei/go-restful v2.10.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/go-logr/logr v0.4.0
 	github.com/onsi/ginkgo v1.16.4
@@ -27,4 +26,7 @@ require (
 	sigs.k8s.io/kind v0.11.0
 )
 
-replace k8s.io/client-go => k8s.io/client-go v0.21.1
+replace (
+	k8s.io/client-go => k8s.io/client-go v0.21.1
+	kubevirt.io/containerized-data-importer-api => github.com/kubevirt/containerized-data-importer-api v1.41.1-0.20211122202922-53cdcf82a0bb
+)
