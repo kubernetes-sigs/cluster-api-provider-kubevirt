@@ -32,83 +32,77 @@ var (
 	clusterNodeSshKeys	ssh.ClusterNodeSshKeys
 )
 var _ = Describe("ClusterNodeSshKeys", func() {
-	var _ = Describe("test without ssh keys set", func() {
-		var (
-			fakeClient client.Client
-		)
-		Context("Generate new keys", func() {
-			BeforeEach(func() {
-				objects := []client.Object{
-					cluster,
-					kubevirtCluster,
-				}
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
-				clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
-					Client: fakeClient,
-					ClusterContext: clusterContext,
-				}
-			})
-			It("test generate new keys", func() {
-				err := clusterNodeSshKeys.GenerateNewKeys()
-				Expect(err).NotTo(HaveOccurred())
-			})
-			It("test persist keys", func() {
-				resp, errors := clusterNodeSshKeys.PersistKeysToSecret()
-				Expect(resp).To(BeNil())
-				Expect(errors).To(HaveOccurred())
-			})
-			It("test get keys", func() {
-				err, _ :=clusterNodeSshKeys.GetKeysDataSecret()
-				Expect(err).To(BeNil())
-			})
-			It("test is persisted false", func() {
-				result := clusterNodeSshKeys.IsPersistedToSecret()
-				Expect(result).To(BeFalse())
-			})
-			It("test fetch persisted keys from secret", func() {
-				err := clusterNodeSshKeys.FetchPersistedKeysFromSecret()
-				Expect(err).To(HaveOccurred())
-			})
+	var (
+		fakeClient client.Client
+	)
+	Context("when ssh keys have not been set to context yet", func() {
+		BeforeEach(func() {
+			objects := []client.Object{
+				cluster,
+				kubevirtCluster,
+			}
+			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
+				Client: fakeClient,
+				ClusterContext: clusterContext,
+			}
+		})
+		It("generate keys should successfully generate new keys", func() {
+			err := clusterNodeSshKeys.GenerateNewKeys()
+			Expect(err).NotTo(HaveOccurred())
+		})
+		It("persist keys fails to persist nil value to secret", func() {
+			resp, errors := clusterNodeSshKeys.PersistKeysToSecret()
+			Expect(resp).To(BeNil())
+			Expect(errors).To(HaveOccurred())
+		})
+		It("get keys does not return a value and there is no error", func() {
+			err, _ :=clusterNodeSshKeys.GetKeysDataSecret()
+			Expect(err).To(BeNil())
+		})
+		It("is persisted returns false", func() {
+			result := clusterNodeSshKeys.IsPersistedToSecret()
+			Expect(result).To(BeFalse())
+		})
+		It("fetch persisted keys from secret returns an error", func() {
+			err := clusterNodeSshKeys.FetchPersistedKeysFromSecret()
+			Expect(err).To(HaveOccurred())
 		})
 	})
-	var _ = Describe("test with ssh keys set", func() {
-		var (
-			fakeClient client.Client
-		)
-		Context("when SSHKey is set", func() {
-			BeforeEach(func() {
-				objects := []client.Object{
-					cluster,
-					kubevirtCluster,
-				}
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
-				clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
-					Client: fakeClient,
-					ClusterContext: clusterContext,
-				}
-			})
-			It("test persist keys", func() {
-				err := clusterNodeSshKeys.GenerateNewKeys()
-				Expect(err).NotTo(HaveOccurred())
-				sshKeysDataSecret, err := clusterNodeSshKeys.PersistKeysToSecret()
-				Expect(err).NotTo(HaveOccurred())
-				Expect(sshKeysDataSecret.Name).To(Equal("test-kubevirt-cluster-ssh-keys"))
-				clusterContext.KubevirtCluster.Spec.SshKeys = infrav1.SSHKeys{
-					ConfigRef: &corev1.ObjectReference{
-						APIVersion: sshKeysDataSecret.APIVersion,
-						Kind:       sshKeysDataSecret.Kind,
-						Name:       sshKeysDataSecret.Name,
-						Namespace:  sshKeysDataSecret.Namespace,
-						UID:        sshKeysDataSecret.UID,
-					},
-					DataSecretName: &sshKeysDataSecret.Name,
-				}
-				secret, _ :=clusterNodeSshKeys.GetKeysDataSecret()
-				Expect(secret).NotTo(BeNil())
-				result := clusterNodeSshKeys.IsPersistedToSecret()
-				Expect(result).To(BeTrue())
-				_ = clusterNodeSshKeys.FetchPersistedKeysFromSecret()
-			})
+
+	Context("when ssh keys is set to context", func() {
+		BeforeEach(func() {
+			objects := []client.Object{
+				cluster,
+				kubevirtCluster,
+			}
+			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
+				Client: fakeClient,
+				ClusterContext: clusterContext,
+			}
+		})
+		It("should generate, persist, fetch keys succeeds", func() {
+			err := clusterNodeSshKeys.GenerateNewKeys()
+			Expect(err).NotTo(HaveOccurred())
+			sshKeysDataSecret, err := clusterNodeSshKeys.PersistKeysToSecret()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sshKeysDataSecret.Name).To(Equal("test-kubevirt-cluster-ssh-keys"))
+			clusterContext.KubevirtCluster.Spec.SshKeys = infrav1.SSHKeys{
+				ConfigRef: &corev1.ObjectReference{
+					APIVersion: sshKeysDataSecret.APIVersion,
+					Kind:       sshKeysDataSecret.Kind,
+					Name:       sshKeysDataSecret.Name,
+					Namespace:  sshKeysDataSecret.Namespace,
+					UID:        sshKeysDataSecret.UID,
+				},
+				DataSecretName: &sshKeysDataSecret.Name,
+			}
+			secret, _ :=clusterNodeSshKeys.GetKeysDataSecret()
+			Expect(secret).NotTo(BeNil())
+			result := clusterNodeSshKeys.IsPersistedToSecret()
+			Expect(result).To(BeTrue())
+			_ = clusterNodeSshKeys.FetchPersistedKeysFromSecret()
 		})
 	})
 })
