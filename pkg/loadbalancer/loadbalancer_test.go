@@ -18,6 +18,7 @@ package loadbalancer_test
 
 import (
 	gocontext "context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -38,8 +39,8 @@ import (
 var (
 	clusterName         = "test-cluster"
 	kubevirtClusterName = "test-kubevirt-cluster"
-	kubevirtCluster     = newKubevirtCluster(clusterName, kubevirtClusterName)
-	cluster             = newCluster(clusterName, kubevirtCluster)
+	kubevirtCluster     = testing.NewKubevirtCluster(clusterName, kubevirtClusterName)
+	cluster             = testing.NewCluster(clusterName, kubevirtCluster)
 	loadBalancerService = newLoadBalancerService(kubevirtCluster)
 
 	clusterContext = &context.ClusterContext{
@@ -132,40 +133,6 @@ func setupScheme() *runtime.Scheme {
 		panic(err)
 	}
 	return s
-}
-
-func newCluster(clusterName string, kubevirtCluster *infrav1.KubevirtCluster) *clusterv1.Cluster {
-	cluster := &clusterv1.Cluster{
-		TypeMeta: metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: clusterName,
-		},
-	}
-	if kubevirtCluster != nil {
-		cluster.Spec.InfrastructureRef = &corev1.ObjectReference{
-			Name:       kubevirtCluster.Name,
-			Namespace:  kubevirtCluster.Namespace,
-			Kind:       kubevirtCluster.Kind,
-			APIVersion: kubevirtCluster.GroupVersionKind().GroupVersion().String(),
-		}
-	}
-	return cluster
-}
-
-func newKubevirtCluster(clusterName, kubevirtName string) *infrav1.KubevirtCluster {
-	return &infrav1.KubevirtCluster{
-		TypeMeta: metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: kubevirtName,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: clusterv1.GroupVersion.String(),
-					Kind:       "Cluster",
-					Name:       clusterName,
-				},
-			},
-		},
-	}
 }
 
 func newLoadBalancerService(kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
