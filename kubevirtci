@@ -78,9 +78,8 @@ function kubevirtci::install() {
 	export MANIFEST_IMG="registry:5000/capk-manager-amd64"
 	export MANIFEST_TAG="dev"
 	make generate-manifests
-	make set-manifest-image
-	${_kubectl} kustomize config/default | ${_kubectl} delete -f - || true
-	${_kubectl} kustomize config/default | ${_kubectl} apply -f -
+	${_kubectl} kustomize config/kubevirtci | ${_kubectl} delete -f - || true
+	${_kubectl} kustomize config/kubevirtci | ${_kubectl} apply -f -
 	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
 }
 
