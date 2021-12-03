@@ -68,10 +68,10 @@ spec:
       imageRepository: ${IMAGE_REPO}
     initConfiguration:
       nodeRegistration:
-        criSocket: /var/run/containerd/containerd.sock
+        criSocket: "${CRI_PATH}"
     joinConfiguration:
       nodeRegistration:
-        criSocket: /var/run/containerd/containerd.sock
+        criSocket: "{CRI_PATH}"
   version: "${KUBERNETES_VERSION}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
