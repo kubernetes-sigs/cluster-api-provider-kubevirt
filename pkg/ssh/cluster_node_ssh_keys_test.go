@@ -2,21 +2,23 @@ package ssh_test
 
 import (
 	gocontext "context"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kubevirtv1 "kubevirt.io/client-go/api/v1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
 var (
 	clusterName         = "test-cluster"
 	kubevirtClusterName = "test-kubevirt-cluster"
@@ -29,7 +31,7 @@ var (
 		Cluster:         cluster,
 		KubevirtCluster: kubevirtCluster,
 	}
-	clusterNodeSshKeys	ssh.ClusterNodeSshKeys
+	clusterNodeSshKeys ssh.ClusterNodeSshKeys
 )
 var _ = Describe("ClusterNodeSshKeys", func() {
 	var (
@@ -43,7 +45,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			}
 			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
 			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
-				Client: fakeClient,
+				Client:         fakeClient,
 				ClusterContext: clusterContext,
 			}
 		})
@@ -57,7 +59,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			Expect(errors).To(HaveOccurred())
 		})
 		It("get keys does not return a value and there is no error", func() {
-			err, _ :=clusterNodeSshKeys.GetKeysDataSecret()
+			err, _ := clusterNodeSshKeys.GetKeysDataSecret()
 			Expect(err).To(BeNil())
 		})
 		It("is persisted returns false", func() {
@@ -78,7 +80,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			}
 			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
 			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
-				Client: fakeClient,
+				Client:         fakeClient,
 				ClusterContext: clusterContext,
 			}
 		})
@@ -98,7 +100,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 				},
 				DataSecretName: &sshKeysDataSecret.Name,
 			}
-			secret, _ :=clusterNodeSshKeys.GetKeysDataSecret()
+			secret, _ := clusterNodeSshKeys.GetKeysDataSecret()
 			Expect(secret).NotTo(BeNil())
 			result := clusterNodeSshKeys.IsPersistedToSecret()
 			Expect(result).To(BeTrue())
@@ -106,6 +108,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 		})
 	})
 })
+
 func setupScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	if err := clusterv1.AddToScheme(s); err != nil {
