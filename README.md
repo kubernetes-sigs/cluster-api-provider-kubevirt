@@ -1,29 +1,57 @@
-# Kubernetes Template Project
+# Kubernetes Cluster API Provider Kubevirt
 
-The Kubernetes Template Project is a template for starting new projects in the GitHub organizations owned by Kubernetes. All Kubernetes projects, at minimum, must have the following files:
+Kubernetes-native declarative infrastructure for Kubevirt.
 
-- a `README.md` outlining the project goals, sponsoring sig, and community contact information
-- an `OWNERS` with the project leads listed as approvers ([docs on `OWNERS` files][owners])
-- a `CONTRIBUTING.md` outlining how to contribute to the project
-- an unmodified copy of `code-of-conduct.md` from this repo, which outlines community behavior and the consequences of breaking the code
-- a `LICENSE` which must be Apache 2.0 for code projects, or [Creative Commons 4.0] for documentation repositories, without any custom content
-- a `SECURITY_CONTACTS` with the contact points for the Product Security Team 
-  to reach out to for triaging and handling of incoming issues. They must agree to abide by the
-  [Embargo Policy](https://git.k8s.io/security/private-distributors-list.md#embargo-policy)
-  and will be removed and replaced if they violate that agreement.
+## What is the Cluster API Provider Kubevirt?
 
-## Community, discussion, contribution, and support
+The [Cluster API](https://github.com/kubernetes-sigs/cluster-api) brings declarative Kubernetes-style APIs to cluster creation, configuration and management. The API itself is shared across multiple cloud providers allowing for true Kubevirt hybrid deployments of Kubernetes.
 
-Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
+## Quick Start
 
-You can reach the maintainers of this project at:
+Checkout our [Cluster API Quick Start](https://cluster-api.sigs.k8s.io/user/quick-start.html) to create your first Kubernetes cluster.
 
-- [Slack](http://slack.k8s.io/)
-- [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
+## Getting Involved and Contributing
+
+Are you interested in contributing to cluster-api-provider-kubevirt? We, the maintainers and the community, would love your suggestions, support and contributions! The maintainers of the project can be contacted anytime to learn about how to get involved.
+
+In the interest of getting new people involved have issues marked as [`good-first-issues`](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/labels/good%20first%20issue). Although the issues have a smaller scope but are very helpful in getting accquintated with the codebase. For more see the [issue tracker](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues?q=is%3Aissue+is%3Aopen). If you're unsure where to start, feel free to reach out to discuss.
+
+See also: Our own [contributor guide](CONTRIBUTING.md) and the Kubernetes [community page](https://kubernetes.io/community).
+
+We also encourage ALL active community participants to act as if they are maintainers, even if you don't have 'official' written permissions. This is a community effort and we are here to serve the Kubernetes community. If you have an active interest and you want to get involved, you have real power!
+
+### Office hours
+
+- Join the [SIG Cluster Lifecycle](https://groups.google.com/g/kubernetes-sig-cluster-lifecycle) Google Group to documents and calendar.
+- Participate in the conversations on [Kubernetes Discuss](https://discuss.kubernetes.io/c/contributors/cluster-api/23)
+
+### Other ways to communicate with the maintainers
+
+Please check in with us in the [#cluster-api-kubevirt](https://sigs.k8s.io/cluster-api-provider-kubevirt). You can also join our [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
+
+## Github Issues
+
+### Bugs
+
+If you think you have found a bug please follow the instruction below.
+
+- Please give a small amount of time giving due diligence to the issue tracker. Your issue might be a duplicate.
+- Get the logs from the custom controllers and please paste them in the issue.
+- Open a bug report.
+- Remember users might be searching the issue in future, so please make sure to give it a meaningful title to help others.
+- Feel free to reach out to the community on slack.
+
+### Tracking new feature
+
+We also have a issue tracker to track features. If you think you have a feature idea, that could make Cluster API provider Kubevirt become even more awesome, then follow these steps.
+
+- Opem a feature request
+- Remember users might be searching for the issue in future, so please make sure to give it a meaningful title to help others.
+- Clearly define the use case with concrete examples. Example: type `this` and cluster-api-provider-kubevirt does `that`.
+- Some of our larger features will require some design. If you would like to include a techincal design to your feature, please go ahead.
+- After the new feature is well understood, and the design is agreed upon we can start coding the feature. We would love for you to code it. So please open up a **WIP** *(work in progress)* PR and happy coding!
 
 ### Code of conduct
 
 Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
 
-[owners]: https://git.k8s.io/community/contributors/guide/owners.md
-[Creative Commons 4.0]: https://git.k8s.io/website/LICENSE
