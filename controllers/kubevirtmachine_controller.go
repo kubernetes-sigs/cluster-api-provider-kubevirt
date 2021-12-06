@@ -210,7 +210,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	// Create a helper for managing the KubeVirt VM hosting the machine.
-	externalMachine, err := kubevirthandler.NewMachine(ctx, r.Client)
+	externalMachine, err := kubevirthandler.NewMachine(ctx, r.Client, clusterNodeSshKeys)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
@@ -223,14 +223,8 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		}
 	}
 
-	vmCommandExecutor := ssh.VMCommandExecutor{
-		IPAddress:  externalMachine.Address(),
-		PublicKey:  clusterNodeSshKeys.PublicKey,
-		PrivateKey: clusterNodeSshKeys.PrivateKey,
-	}
-
 	// Wait for VM to boot
-	if !externalMachine.IsBooted(vmCommandExecutor) {
+	if !externalMachine.IsBooted() {
 		ctx.Logger.Info("Waiting for underlying VM instance to boot...")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
@@ -257,7 +251,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	// Wait for VM to bootstrap with Kubernetes
 	if !ctx.KubevirtMachine.Spec.Bootstrapped {
-		if !externalMachine.IsBootstrapped(vmCommandExecutor) {
+		if !externalMachine.IsBootstrapped() {
 			ctx.Logger.Info("Waiting for underlying VM to bootstrap...")
 			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "VM not bootstrapped yet")
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -444,6 +438,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := client.ObjectKey{Namespace: ctx.Machine.GetNamespace(), Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 	if err := r.Client.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err == nil {
+		ctx.BootstrapDataSecret = bootstrapDataSecret
 		return nil
 	}
 
@@ -458,8 +453,10 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		return errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	ctx.Logger.Info("Adding users config to bootstrap data...")
-	updatedValue := []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
+	if ctx.HasCloudConfigUserData() {
+		ctx.Logger.Info("Adding users config to bootstrap data...")
+		value = []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
+	}
 
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -467,11 +464,12 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 			Namespace: ctx.Machine.GetNamespace(),
 		},
 	}
+	ctx.BootstrapDataSecret = newBootstrapDataSecret
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, newBootstrapDataSecret, func() error {
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
-			"userdata": updatedValue,
+			"userdata": value,
 		}
 
 		// set owner reference for secret

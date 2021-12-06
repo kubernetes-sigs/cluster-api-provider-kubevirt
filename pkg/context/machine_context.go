@@ -19,11 +19,13 @@ package context
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
@@ -31,11 +33,12 @@ import (
 // MachineContext is a Go context used with a KubeVirt machine.
 type MachineContext struct {
 	context.Context
-	Cluster         *clusterv1.Cluster
-	Machine         *clusterv1.Machine
-	KubevirtCluster *infrav1.KubevirtCluster
-	KubevirtMachine *infrav1.KubevirtMachine
-	Logger          logr.Logger
+	Cluster             *clusterv1.Cluster
+	Machine             *clusterv1.Machine
+	KubevirtCluster     *infrav1.KubevirtCluster
+	KubevirtMachine     *infrav1.KubevirtMachine
+	BootstrapDataSecret *corev1.Secret
+	Logger              logr.Logger
 }
 
 // String returns KubeVirt machine GroupVersionKind
@@ -65,4 +68,29 @@ func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 			infrav1.BootstrapExecSucceededCondition,
 		}},
 	)
+}
+
+func (c *MachineContext) HasInjectedCapkSSHKeys() bool {
+	// TODO get secret if it doesn't already exist
+	if c.BootstrapDataSecret == nil {
+		return false
+	}
+	value, ok := c.BootstrapDataSecret.Data["value"]
+	if !ok {
+		return false
+	}
+	// TODO actually look for ssh key in user data
+	return regexp.MustCompile(`gecos: CAPK User`).MatchString(string(value))
+}
+
+func (c *MachineContext) HasCloudConfigUserData() bool {
+	// TODO get secret if it doesn't already exist
+	if c.BootstrapDataSecret == nil {
+		return false
+	}
+	value, ok := c.BootstrapDataSecret.Data["value"]
+	if !ok {
+		return false
+	}
+	return regexp.MustCompile(`^#cloud-config`).MatchString(string(value))
 }
