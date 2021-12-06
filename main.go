@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/spf13/pflag"
@@ -148,7 +149,8 @@ func setupChecks(mgr ctrl.Manager) {
 
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	if err := (&controllers.KubevirtMachineReconciler{
-		Client: mgr.GetClient(),
+		Client:          mgr.GetClient(),
+		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {

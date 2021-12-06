@@ -17,29 +17,40 @@ limitations under the License.
 package controllers
 
 import (
+	"time"
+
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/pkg/errors"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var (
+	mockCtrl *gomock.Controller
+
 	clusterName         string
 	kubevirtClusterName string
 	kubevirtCluster     *infrav1.KubevirtCluster
 	cluster             *clusterv1.Cluster
 
-	machineName         string
-	kubevirtMachineName string
-	kubevirtMachine     *infrav1.KubevirtMachine
-	machine             *clusterv1.Machine
+	machineName             string
+	kubevirtMachineName     string
+	kubevirtMachine         *infrav1.KubevirtMachine
+	kubevirtMachineNotExist *infrav1.KubevirtMachine
+	machine                 *clusterv1.Machine
 
 	anotherMachineName         string
 	anotherKubevirtMachineName string
@@ -48,9 +59,11 @@ var (
 
 	fakeClient                client.Client
 	kubevirtMachineReconciler KubevirtMachineReconciler
+	fakeWorkloadClusterClient client.Client
 )
 
 var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
+
 	BeforeEach(func() {
 		clusterName = "test-cluster"
 		kubevirtClusterName = "test-kubevirt-cluster"
@@ -91,6 +104,90 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			machineNames[i] = out[i].Name
 		}
 		Expect(machineNames).To(ConsistOf("test-machine", "another-test-machine"))
+	})
+})
+
+var _ = Describe("updateNodeProviderID", func() {
+	mockCtrl = gomock.NewController(GinkgoT())
+	workloadClusterMock := mock.NewMockWorkloadCluster(mockCtrl)
+	expectedProviderId := "aa-66@test"
+	testLogger := ctrl.Log.WithName("test")
+
+	BeforeEach(func() {
+		machineName = "test-machine"
+		kubevirtMachineName = "test-kubevirt-machine"
+		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
+		kubevirtMachineNotExist = testing.NewKubevirtMachine("test-machine-2", machineName)
+
+		objects := []client.Object{
+			kubevirtMachine,
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		kubevirtMachineReconciler = KubevirtMachineReconciler{
+			Client:          fakeClient,
+			WorkloadCluster: workloadClusterMock,
+		}
+
+		workloadClusterObjects := []client.Object{
+			&corev1.Node{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Node",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: kubevirtMachine.Namespace,
+					Name:      kubevirtMachine.Name,
+				},
+			},
+		}
+		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(workloadClusterObjects...).Build()
+
+	})
+
+	AfterEach(func() {})
+
+	It("should set providerID to Node", func() {
+		kubevirtMachine.Spec.ProviderID = &expectedProviderId
+		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachine, Logger: testLogger}
+		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(fakeWorkloadClusterClient, nil)
+		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{}))
+		workloadClusterNode := &corev1.Node{}
+		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(workloadClusterNode.Spec.ProviderID).To(Equal(expectedProviderId))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(true))
+	})
+
+	It("GenerateWorkloadClusterClient failure", func() {
+		kubevirtMachine.Spec.ProviderID = &expectedProviderId
+		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachine, Logger: testLogger}
+		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(nil, errors.New("test error"))
+		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+		workloadClusterNode := &corev1.Node{}
+		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(workloadClusterNode.Spec.ProviderID).NotTo(Equal(expectedProviderId))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
+	})
+
+	It("Node doesn't exist", func() {
+		kubevirtMachine.Spec.ProviderID = &expectedProviderId
+		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachineNotExist, Logger: testLogger}
+		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(fakeWorkloadClusterClient, nil)
+		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
+		Expect(err).Should(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
+		workloadClusterNode := &corev1.Node{}
+		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(workloadClusterNode.Spec.ProviderID).NotTo(Equal(expectedProviderId))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
 	})
 })
 
