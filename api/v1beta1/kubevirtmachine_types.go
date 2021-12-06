@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha4
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 const (
@@ -35,6 +35,11 @@ type KubevirtMachineSpec struct {
 	// ProviderID TBD what to use for Kubevirt
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
+
+	// Bootstrapped is true when the kubeadm bootstrapping has been run
+	// against this machine
+	// +optional
+	Bootstrapped bool `json:"bootstrapped,omitempty"`
 }
 
 // KubevirtMachineStatus defines the observed state of KubevirtMachine.
@@ -63,6 +68,7 @@ type KubevirtMachineStatus struct {
 
 // +kubebuilder:resource:path=kubevirtmachines,scope=Namespaced,categories=cluster-api
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 
 // KubevirtMachine is the Schema for the kubevirtmachines API.

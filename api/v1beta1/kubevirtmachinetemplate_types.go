@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha4
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +27,7 @@ type KubevirtMachineTemplateSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=kubevirtmachinetemplates,scope=Namespaced,categories=cluster-api
+// +kubebuilder:storageversion
 
 // KubevirtMachineTemplate is the Schema for the kubevirtmachinetemplates API.
 type KubevirtMachineTemplate struct {

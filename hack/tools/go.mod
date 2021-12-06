@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-aws/hack/tools
 
-go 1.16
+go 1.17
 
 require (
 	github.com/kr/text v0.2.0 // indirect

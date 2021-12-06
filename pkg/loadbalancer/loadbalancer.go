@@ -23,7 +23,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	clusterutil "sigs.k8s.io/cluster-api/util"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"

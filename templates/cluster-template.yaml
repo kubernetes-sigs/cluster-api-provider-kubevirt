@@ -1,5 +1,5 @@
 ---
-apiVersion: cluster.x-k8s.io/v1alpha4
+apiVersion: cluster.x-k8s.io/v1beta1
 kind: Cluster
 metadata:
   name: "${CLUSTER_NAME}"
@@ -10,23 +10,23 @@ spec:
       cidrBlocks:
         - 10.244.0.0/16
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
     kind: KubevirtCluster
     name: '${CLUSTER_NAME}'
     namespace: "${NAMESPACE}"
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
     kind: KubeadmControlPlane
     name: '${CLUSTER_NAME}-control-plane'
     namespace: "${NAMESPACE}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: KubevirtCluster
 metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: KubevirtMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-control-plane"
@@ -51,7 +51,7 @@ spec:
             name: containervolume
 ---
 kind: KubeadmControlPlane
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha4
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
 metadata:
   name: "${CLUSTER_NAME}-control-plane"
   namespace: "${NAMESPACE}"
@@ -60,7 +60,7 @@ spec:
   machineTemplate:
     infrastructureRef:
       kind: KubevirtMachineTemplate
-      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+      apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
       name: "${CLUSTER_NAME}-control-plane"
       namespace: "${NAMESPACE}"
   kubeadmConfigSpec:
@@ -74,7 +74,7 @@ spec:
         criSocket: "{CRI_PATH}"
   version: "${KUBERNETES_VERSION}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: KubevirtMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-md-0"
@@ -98,7 +98,7 @@ spec:
               image: "${NODE_VM_IMAGE_TEMPLATE}"
             name: containervolume
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
 metadata:
   name: "${CLUSTER_NAME}-md-0"
@@ -110,7 +110,7 @@ spec:
         nodeRegistration:
           kubeletExtraArgs: {}
 ---
-apiVersion: cluster.x-k8s.io/v1alpha4
+apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
 metadata:
   name: "${CLUSTER_NAME}-md-0"
@@ -128,10 +128,10 @@ spec:
         configRef:
           name: "${CLUSTER_NAME}-md-0"
           namespace: "${NAMESPACE}"
-          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
           kind: KubeadmConfigTemplate
       infrastructureRef:
         name: "${CLUSTER_NAME}-md-0"
         namespace: "${NAMESPACE}"
-        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
         kind: KubevirtMachineTemplate

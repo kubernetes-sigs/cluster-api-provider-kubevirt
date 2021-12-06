@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
@@ -35,7 +35,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	clusterutil "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
