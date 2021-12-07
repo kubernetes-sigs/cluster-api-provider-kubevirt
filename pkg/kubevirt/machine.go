@@ -148,22 +148,20 @@ func (m *Machine) IsBooted() bool {
 		return false
 	}
 
-	// If the VM has ssh keys injected, also verify guest is
-	// accessible and reports expected hostname.
-	if m.machineContext.HasInjectedCapkSSHKeys() {
-		if m.Address() == "" {
-			return false
-		}
-
-		executor := m.getCommandExecutor(m.Address(), m.sshKeys)
-
-		output, err := executor.ExecuteCommand("hostname")
-		if err != nil || output != m.machineContext.KubevirtMachine.Name {
-			return false
-		}
-	}
-
 	return true
+}
+
+// SupportsCheckingIsBootstrapped checks if we have a method of checking
+// that this bootstrapper has completed.
+func (m *Machine) SupportsCheckingIsBootstrapped() bool {
+	// Right now, we can only check if bootstrapping has
+	// completed if we are using a bootstrapper that allows
+	// for us to inject ssh keys into the guest.
+
+	if m.sshKeys != nil {
+		return m.machineContext.HasInjectedCapkSSHKeys(m.sshKeys.PublicKey)
+	}
+	return false
 }
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
@@ -172,14 +170,11 @@ func (m *Machine) IsBootstrapped() bool {
 		return false
 	}
 
-	// If the VM has ssh keys injected, verify sentinel file was created
-	if m.machineContext.HasInjectedCapkSSHKeys() {
-		executor := m.getCommandExecutor(m.Address(), m.sshKeys)
+	executor := m.getCommandExecutor(m.Address(), m.sshKeys)
 
-		output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
-		if err != nil || output != "success" {
-			return false
-		}
+	output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
+	if err != nil || output != "success" {
+		return false
 	}
 	return true
 }

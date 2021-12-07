@@ -18,8 +18,9 @@ package context
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
-	"regexp"
+	"strings"
 
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -70,27 +71,21 @@ func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 	)
 }
 
-func (c *MachineContext) HasInjectedCapkSSHKeys() bool {
-	// TODO get secret if it doesn't already exist
-	if c.BootstrapDataSecret == nil {
+func (c *MachineContext) HasInjectedCapkSSHKeys(sshPublicKey []byte) bool {
+	if c.BootstrapDataSecret == nil || len(sshPublicKey) == 0 {
 		return false
 	}
-	value, ok := c.BootstrapDataSecret.Data["value"]
+	value, ok := c.BootstrapDataSecret.Data["userdata"]
 	if !ok {
 		return false
 	}
-	// TODO actually look for ssh key in user data
-	return regexp.MustCompile(`gecos: CAPK User`).MatchString(string(value))
-}
 
-func (c *MachineContext) HasCloudConfigUserData() bool {
-	// TODO get secret if it doesn't already exist
-	if c.BootstrapDataSecret == nil {
+	sshPublicKeyString := base64.StdEncoding.EncodeToString(sshPublicKey)
+	sshPublicKeyDecoded, err := base64.StdEncoding.DecodeString(sshPublicKeyString)
+
+	if err != nil {
 		return false
 	}
-	value, ok := c.BootstrapDataSecret.Data["value"]
-	if !ok {
-		return false
-	}
-	return regexp.MustCompile(`^#cloud-config`).MatchString(string(value))
+
+	return strings.Contains(string(value), string(sshPublicKeyDecoded))
 }
