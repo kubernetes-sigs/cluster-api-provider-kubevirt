@@ -21,6 +21,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
@@ -105,6 +106,16 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 		}
 		Expect(machineNames).To(ConsistOf("test-machine", "another-test-machine"))
 	})
+})
+
+var _ = Describe("utility functions", func() {
+	table.DescribeTable("should detect userdata is cloud-config", func(userData []byte, expected bool) {
+		Expect(isCloudConfigUserData(userData)).To(Equal(expected))
+	},
+		table.Entry("should detect cloud-config", []byte("#something\n\n#something else\n#cloud-config\nthe end"), true),
+		table.Entry("should not detect cloud-config", []byte("#something\n\n#something else\n#not-cloud-config\nthe end"), false),
+		table.Entry("should not detect cloud-config", []byte("#something\n\n#something else\n   #cloud-config\nthe end"), false),
+	)
 })
 
 var _ = Describe("updateNodeProviderID", func() {
