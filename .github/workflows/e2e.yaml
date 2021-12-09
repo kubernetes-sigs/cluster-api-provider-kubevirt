@@ -1,0 +1,22 @@
+on: [pull_request]
+name: e2e
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          repository: kubevirt/project-infra
+          path: project-infra
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: kubeconfig
+        run: 'echo -e "$KUBECONFIG" > $GITHUB_WORKSPACE/project-infra/.kubeconfig'
+        shell: bash
+        env:
+          KUBECONFIG: ${{secrets.KUBECONFIG}}
+      - name: Test
+        run: |
+          $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e --pull-number ${{github.event.number}} --kubeconfig $GITHUB_WORKSPACE/project-infra/.kubeconfig --trigger-job
