@@ -178,8 +178,6 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.KubevirtMachine.Status.Ready = true
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
 		return ctrl.Result{}, nil
-	} else {
-		ctx.Logger.Info("KubevirtMachine.Spec.ProviderID is not set -- will work on bootstrapping machine...")
 	}
 
 	ctx.Logger.Info("Checking Machine.Spec.Bootstrap.DataSecretName...")
@@ -212,7 +210,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
 	if err != nil {
-		ctx.Logger.Error(err, "Infra cluster client is NOT available.")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
 	if infraClusterClient == nil {
 		ctx.Logger.Info("Waiting for infra cluster client...")
@@ -384,7 +382,7 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext) (ctrl.Result, error) {
 	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
 	if err != nil {
-		ctx.Logger.Error(err, "Infra cluster client is not available.")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
 	if infraClusterClient == nil {
 		ctx.Logger.Info("Waiting for infra cluster client...")
@@ -393,17 +391,17 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 
 	ctx.Logger.Info("Deleting VM bootstrap secret...")
 	if err := r.deleteKubevirtBootstrapSecret(ctx, infraClusterClient, infraClusterNamespace); err != nil {
-		ctx.Logger.Error(err, "Failed to delete bootstrap secret.")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete bootstrap secret")
 	}
 
 	ctx.Logger.Info("Deleting VM...")
 	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, infraClusterNamespace)
 	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for externalMachine access")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
 	}
 	if externalMachine.Exists() {
 		if err := externalMachine.Delete(); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "Failed to delete VM.")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete VM")
 		}
 	}
 

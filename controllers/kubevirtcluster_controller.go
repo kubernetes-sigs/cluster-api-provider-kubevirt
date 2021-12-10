@@ -87,7 +87,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(clusterContext)
 	if err != nil {
-		clusterContext.Logger.Error(err, "Infra cluster client is not available.")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
 	if infraClusterClient == nil {
 		clusterContext.Logger.Info("Waiting for infra cluster client...")
