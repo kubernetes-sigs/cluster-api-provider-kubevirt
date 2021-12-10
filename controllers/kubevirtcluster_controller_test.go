@@ -22,14 +22,14 @@ import (
 )
 
 var (
-	mockCtrl *gomock.Controller
-	clusterName         string
-	kubevirtClusterName string
-	kubevirtCluster     *infrav1.KubevirtCluster
-	cluster             *clusterv1.Cluster
+	mockCtrl                  *gomock.Controller
+	clusterName               string
+	kubevirtClusterName       string
+	kubevirtCluster           *infrav1.KubevirtCluster
+	cluster                   *clusterv1.Cluster
 	fakeClient                client.Client
 	kubevirtClusterReconciler controllers.KubevirtClusterReconciler
-	fakeContext = goContext.TODO()
+	fakeContext               = goContext.TODO()
 )
 
 var _ = Describe("Reconcile", func() {
@@ -38,10 +38,10 @@ var _ = Describe("Reconcile", func() {
 	testLogger := ctrl.Log.WithName("test")
 	setupClient := func(objects []client.Object) {
 		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
-		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler {
-			Client:          fakeClient,
-			InfraCluster:    infraClusterMock,
-			Log: testLogger,
+		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
+			Client:       fakeClient,
+			InfraCluster: infraClusterMock,
+			Log:          testLogger,
 		}
 	}
 	Context("reconcile generic cluster", func() {

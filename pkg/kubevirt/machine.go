@@ -46,40 +46,51 @@ type Machine struct {
 	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
 }
 
-// NewMachine returns a new Machine service for the given context.
-func NewMachine(ctx *context.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
+// NewBasicMachine returns a new Machine service for the given context, only with some basic fields.
+func NewBasicMachine(ctx *context.MachineContext, client client.Client, namespace string) (*Machine, error) {
 	machine := &Machine{
-		client:             client,
-		namespace:          namespace,
-		machineContext:     ctx,
-		vmiInstance:        nil,
-		vmInstance:         nil,
-		sshKeys:            sshKeys,
-		getCommandExecutor: ssh.NewVMCommandExecutor,
+		client:         client,
+		namespace:      namespace,
+		machineContext: ctx,
 	}
 
 	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
 	vm := &kubevirtv1.VirtualMachine{}
-	vmi := &kubevirtv1.VirtualMachineInstance{}
-
-	// Get the active running VMI if it exists
-	err := client.Get(ctx.Context, namespacedName, vmi)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return nil, err
-		}
-	} else {
-		machine.vmiInstance = vmi
-	}
 
 	// Get the top level VM object if it exists
-	err = client.Get(ctx.Context, namespacedName, vm)
+	err := client.Get(ctx.Context, namespacedName, vm)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
 	} else {
 		machine.vmInstance = vm
+	}
+
+	return machine, nil
+}
+
+// NewMachine returns a new Machine service for the given context.
+func NewMachine(ctx *context.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
+	machine, err := NewBasicMachine(ctx, client, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	machine.sshKeys = sshKeys
+	machine.getCommandExecutor = ssh.NewVMCommandExecutor
+
+	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
+	vmi := &kubevirtv1.VirtualMachineInstance{}
+
+	// Get the active running VMI if it exists
+	err = client.Get(ctx.Context, namespacedName, vmi)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+	} else {
+		machine.vmiInstance = vmi
 	}
 
 	return machine, nil
