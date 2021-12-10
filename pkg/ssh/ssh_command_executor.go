@@ -19,6 +19,7 @@ package ssh
 import (
 	"bytes"
 	"fmt"
+	"github.com/go-logr/logr"
 	"net"
 	"strings"
 
@@ -29,6 +30,7 @@ type VMCommandExecutor struct {
 	IPAddress  string
 	PublicKey  []byte
 	PrivateKey []byte
+	Logger     logr.Logger
 }
 
 // ExecuteCommand runs command inside a VM, via SSH, and returns the command output.
@@ -48,26 +50,28 @@ func (e VMCommandExecutor) ExecuteCommand(command string) (string, error) {
 
 	hostAddress := strings.Join([]string{e.IPAddress, "22"}, ":")
 
+	e.Logger.Info(fmt.Sprintf("ssh: dialing VM `%s`...", hostAddress))
 	connection, err := ssh.Dial("tcp", hostAddress, sshConfig)
 	if err != nil {
-		return "", fmt.Errorf("failed to dial IP %s: %s", hostAddress, err)
+		return "", fmt.Errorf("ssh: failed to dial IP %s, error: %s", hostAddress, err.Error())
 	}
 
+	e.Logger.Info(fmt.Sprint("ssh: creating session..."))
 	session, err := connection.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %s", err)
+		return "", fmt.Errorf("ssh: failed to create session, error: %s", err.Error())
 	}
 	defer session.Close()
 
-	// ctx.Logger.Info(fmt.Sprintf("ssh: running command inside VM `%s`...", command))
+	e.Logger.Info(fmt.Sprintf("ssh: running command `%s`...", command))
 	var b bytes.Buffer
 	session.Stdout = &b
 	if err := session.Run(command); err != nil {
-		return "", fmt.Errorf("failed to run the command: " + err.Error())
+		return "", fmt.Errorf("ssh: failed to run command `%s`, error: %s", command, err.Error())
 	}
 
 	output := strings.Trim(b.String(), "\n")
-	// ctx.Logger.Info(fmt.Sprintf("ssh: command `%s` output is `%s`", command, output))
+	e.Logger.Info(fmt.Sprintf("ssh: command `%s` output: %s", command, output))
 
 	return output, nil
 }

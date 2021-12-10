@@ -22,12 +22,10 @@ import (
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
-	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -35,15 +33,16 @@ import (
 // Machine implement a service for managing the KubeVirt VM hosting a kubernetes node.
 type Machine struct {
 	client         client.Client
+	namespace      string
 	machineContext *context.MachineContext
 	vmInstance     *kubevirtv1.VirtualMachineInstance
 }
 
 // NewMachine returns a new Machine service for the given context.
-func NewMachine(ctx *context.MachineContext, client client.Client) (*Machine, error) {
-	machine := &Machine{client, ctx, nil}
+func NewMachine(ctx *context.MachineContext, client client.Client, namespace string) (*Machine, error) {
+	machine := &Machine{client, namespace, ctx, nil}
 
-	namespacedName := types.NamespacedName{Namespace: ctx.KubevirtMachine.Namespace, Name: ctx.KubevirtMachine.Name}
+	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
 	vmi := &kubevirtv1.VirtualMachineInstance{}
 
 	err := client.Get(ctx.Context, namespacedName, vmi)
@@ -69,24 +68,13 @@ func (m *Machine) Exists() bool {
 func (m *Machine) Create() error {
 	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
-	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext)
+	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
 
 	mutateFn := func() (err error) {
-		// Ensure the KubevirtMachine is marked as an owner of the VirtualMachine.
-		virtualMachine.SetOwnerReferences(util.EnsureOwnerRef(
-			virtualMachine.OwnerReferences,
-			metav1.OwnerReference{
-				APIVersion: m.machineContext.KubevirtMachine.APIVersion,
-				Kind:       m.machineContext.KubevirtMachine.Kind,
-				Name:       m.machineContext.KubevirtMachine.Name,
-				UID:        m.machineContext.KubevirtMachine.UID,
-			}))
-
-		// TODO: to remove those labels
 		if virtualMachine.Labels == nil {
 			virtualMachine.Labels = map[string]string{}
 		}
-		virtualMachine.Labels[clusterv1.ClusterLabelName] = "capk"
+		virtualMachine.Labels[clusterv1.ClusterLabelName] = m.machineContext.Cluster.Name
 
 		return nil
 	}
@@ -122,6 +110,9 @@ func (m *Machine) IsBooted(executor CommandExecutor) bool {
 
 	output, err := executor.ExecuteCommand("hostname")
 	if err != nil || output != m.machineContext.KubevirtMachine.Name {
+		if err != nil {
+			m.machineContext.Logger.Error(err, "Failed to run command 'hostname' via ssh.")
+		}
 		return false
 	}
 
@@ -136,6 +127,9 @@ func (m *Machine) IsBootstrapped(executor CommandExecutor) bool {
 
 	output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
 	if err != nil || output != "success" {
+		if err != nil {
+			m.machineContext.Logger.Error(err, "Failed to run command 'cat /run/cluster-api/bootstrap-success.complete' via ssh.")
+		}
 		return false
 	}
 
@@ -145,10 +139,30 @@ func (m *Machine) IsBootstrapped(executor CommandExecutor) bool {
 // GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
 func (m *Machine) GenerateProviderID() (string, error) {
 	if m.vmInstance == nil {
-		return "", errors.New("Underlying Kubevirt VM is NOT running")
+		return "", errors.New("Underlying Kubevirt VM is NOT running.")
 	}
 
 	providerID := fmt.Sprintf("kubevirt://%s", m.machineContext.KubevirtMachine.Name)
 
 	return providerID, nil
+}
+
+// Delete deletes VM for this machine.
+func (m *Machine) Delete() error {
+	m.machineContext.Logger.Info(fmt.Sprintf("Deleting VM..."))
+
+	namespacedName := types.NamespacedName{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
+	vm := &kubevirtv1.VirtualMachine{}
+	if err := m.client.Get(m.machineContext.Context, namespacedName, vm); err != nil {
+		if apierrors.IsNotFound(err) {
+			m.machineContext.Logger.Info(fmt.Sprintf("VM does not exist, nothing to do."))
+			return nil
+		}
+	}
+
+	if err := m.client.Delete(gocontext.Background(), vm); err != nil {
+		return errors.Wrapf(err, "failed to delete VM")
+	}
+
+	return nil
 }
