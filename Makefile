@@ -99,7 +99,7 @@ test-junit: $(GOTESTSUM) ## Run tests with verbose setting and generate a junit 
 
 .PHONY: manager
 manager: ## Build manager binary
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BIN_DIR)/manager
+	./hack/docker-builder.sh
 
 $(CONTROLLER_GEN): $(TOOLS_DIR)/go.mod # Build controller-gen from tools folder.
 	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/controller-gen sigs.k8s.io/controller-tools/cmd/controller-gen
