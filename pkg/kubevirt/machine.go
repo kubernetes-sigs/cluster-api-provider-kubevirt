@@ -142,8 +142,8 @@ func (m *Machine) Address() string {
 	return ""
 }
 
-// IsBooted checks if the VM is booted.
-func (m *Machine) IsBooted() bool {
+// IsReady checks if the VM is ready
+func (m *Machine) IsReady() bool {
 	if !m.hasReadyCondition() {
 		return false
 	}
@@ -166,7 +166,7 @@ func (m *Machine) SupportsCheckingIsBootstrapped() bool {
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
 func (m *Machine) IsBootstrapped() bool {
-	if !m.IsBooted() {
+	if !m.IsReady() {
 		return false
 	}
 

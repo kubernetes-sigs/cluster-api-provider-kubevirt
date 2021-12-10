@@ -225,7 +225,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	// Wait for VM to boot
-	if !externalMachine.IsBooted() {
+	if !externalMachine.IsReady() {
 		ctx.Logger.Info("Waiting for underlying VM instance to boot...")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}

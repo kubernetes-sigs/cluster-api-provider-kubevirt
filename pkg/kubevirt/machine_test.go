@@ -84,7 +84,7 @@ var _ = Describe("Without KubeVirt VM running", func() {
 	AfterEach(func() {})
 
 	It("NewMachine should have client and machineContext set, but vmInstance equal nil", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.client).To(Equal(fakeClient))
 		Expect(externalMachine.machineContext).To(Equal(machineContext))
@@ -92,37 +92,37 @@ var _ = Describe("Without KubeVirt VM running", func() {
 	})
 
 	It("Exists should return false", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.Exists()).To(BeFalse())
 	})
 
 	It("Address should return ''", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.Address()).To(Equal(""))
 	})
 
-	It("IsBooted should return false", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+	It("IsReady should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(externalMachine.IsBooted()).To(BeFalse())
+		Expect(externalMachine.IsReady()).To(BeFalse())
 	})
 
 	It("IsBootstrapped should return false", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return false", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.SupportsCheckingIsBootstrapped()).To(BeFalse())
 	})
 
 	It("GenerateProviderID should fail", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		providerId, err := externalMachine.GenerateProviderID()
 		Expect(err).To(HaveOccurred())
@@ -154,7 +154,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 	AfterEach(func() {})
 
 	It("NewMachine should have all client, machineContext and vmInstance NOT nil", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.client).ToNot(BeNil())
 		Expect(externalMachine.machineContext).To(Equal(machineContext))
@@ -162,31 +162,31 @@ var _ = Describe("With KubeVirt VM running", func() {
 	})
 
 	It("Exists should return true", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.Exists()).To(BeTrue())
 	})
 
 	It("Address should return non-empty IP", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.Address()).To(Equal(virtualMachineInstance.Status.Interfaces[0].IP))
 	})
 
-	It("IsBooted should return true", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+	It("IsReady should return true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
-		Expect(externalMachine.IsBooted()).To(BeTrue())
+		Expect(externalMachine.IsReady()).To(BeTrue())
 	})
 
 	It("IsBootstrapped should return true", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return true", func() {
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.SupportsCheckingIsBootstrapped()).To(BeTrue())
 	})
@@ -194,7 +194,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 	It("GenerateProviderID should succeed", func() {
 		expectedProviderId := fmt.Sprintf("kubevirt://%s", kubevirtMachineName)
 
-		externalMachine, err := FakeNewMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		providerId, err := externalMachine.GenerateProviderID()
 		Expect(providerId).To(Equal(expectedProviderId))
@@ -238,7 +238,7 @@ func (e FakeVMCommandExecutor) ExecuteCommand(command string) (string, error) {
 	}
 }
 
-func FakeNewMachine(ctx *context.MachineContext, client client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
+func defaultTestMachine(ctx *context.MachineContext, client client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
 
 	machine, err := NewMachine(ctx, client, &ssh.ClusterNodeSshKeys{PublicKey: sshPubKey})
 
