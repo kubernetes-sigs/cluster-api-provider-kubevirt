@@ -21,11 +21,13 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,11 +39,20 @@ type Machine struct {
 	client         client.Client
 	machineContext *context.MachineContext
 	vmInstance     *kubevirtv1.VirtualMachineInstance
+
+	sshKeys            *ssh.ClusterNodeSshKeys
+	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
 }
 
 // NewMachine returns a new Machine service for the given context.
-func NewMachine(ctx *context.MachineContext, client client.Client) (*Machine, error) {
-	machine := &Machine{client, ctx, nil}
+func NewMachine(ctx *context.MachineContext, client client.Client, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
+	machine := &Machine{
+		client:             client,
+		machineContext:     ctx,
+		vmInstance:         nil,
+		sshKeys:            sshKeys,
+		getCommandExecutor: ssh.NewVMCommandExecutor,
+	}
 
 	namespacedName := types.NamespacedName{Namespace: ctx.KubevirtMachine.Namespace, Name: ctx.KubevirtMachine.Name}
 	vmi := &kubevirtv1.VirtualMachineInstance{}
@@ -105,6 +116,23 @@ func (m *Machine) Create() error {
 	return nil
 }
 
+// Returns if VMI has ready condition or not.
+func (m *Machine) hasReadyCondition() bool {
+
+	if m.vmInstance == nil {
+		return false
+	}
+
+	for _, cond := range m.vmInstance.Status.Conditions {
+		if cond.Type == kubevirtv1.VirtualMachineInstanceReady &&
+			cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Address returns the IP address of the VM.
 func (m *Machine) Address() string {
 	if m.vmInstance != nil && len(m.vmInstance.Status.Interfaces) > 0 {
@@ -114,31 +142,40 @@ func (m *Machine) Address() string {
 	return ""
 }
 
-// IsBooted checks if the VM is booted.
-func (m *Machine) IsBooted(executor CommandExecutor) bool {
-	if m.Address() == "" {
-		return false
-	}
-
-	output, err := executor.ExecuteCommand("hostname")
-	if err != nil || output != m.machineContext.KubevirtMachine.Name {
+// IsReady checks if the VM is ready
+func (m *Machine) IsReady() bool {
+	if !m.hasReadyCondition() {
 		return false
 	}
 
 	return true
 }
 
+// SupportsCheckingIsBootstrapped checks if we have a method of checking
+// that this bootstrapper has completed.
+func (m *Machine) SupportsCheckingIsBootstrapped() bool {
+	// Right now, we can only check if bootstrapping has
+	// completed if we are using a bootstrapper that allows
+	// for us to inject ssh keys into the guest.
+
+	if m.sshKeys != nil {
+		return m.machineContext.HasInjectedCapkSSHKeys(m.sshKeys.PublicKey)
+	}
+	return false
+}
+
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
-func (m *Machine) IsBootstrapped(executor CommandExecutor) bool {
-	if !m.IsBooted(executor) {
+func (m *Machine) IsBootstrapped() bool {
+	if !m.IsReady() {
 		return false
 	}
+
+	executor := m.getCommandExecutor(m.Address(), m.sshKeys)
 
 	output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
 	if err != nil || output != "success" {
 		return false
 	}
-
 	return true
 }
 

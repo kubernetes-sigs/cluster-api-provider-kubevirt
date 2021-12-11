@@ -25,14 +25,26 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type VMCommandExecutor struct {
+type VMCommandExecutor interface {
+	ExecuteCommand(string) (string, error)
+}
+
+type vmCommandExecutor struct {
 	IPAddress  string
 	PublicKey  []byte
 	PrivateKey []byte
 }
 
+func NewVMCommandExecutor(address string, keys *ClusterNodeSshKeys) VMCommandExecutor {
+	return vmCommandExecutor{
+		IPAddress:  address,
+		PublicKey:  keys.PublicKey,
+		PrivateKey: keys.PrivateKey,
+	}
+}
+
 // ExecuteCommand runs command inside a VM, via SSH, and returns the command output.
-func (e VMCommandExecutor) ExecuteCommand(command string) (string, error) {
+func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 	// create signer
 	signer, err := signerFromPem(e.PrivateKey, []byte(""))
 

@@ -35,11 +35,6 @@ type KubevirtMachineSpec struct {
 	// ProviderID TBD what to use for Kubevirt
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
-
-	// Bootstrapped is true when the kubeadm bootstrapping has been run
-	// against this machine
-	// +optional
-	Bootstrapped bool `json:"bootstrapped,omitempty"`
 }
 
 // KubevirtMachineStatus defines the observed state of KubevirtMachine.
