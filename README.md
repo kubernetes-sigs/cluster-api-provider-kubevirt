@@ -45,7 +45,7 @@ If you think you have found a bug please follow the instruction below.
 
 We also have a issue tracker to track features. If you think you have a feature idea, that could make Cluster API provider Kubevirt become even more awesome, then follow these steps.
 
-- Opem a feature request
+- Open a feature request
 - Remember users might be searching for the issue in future, so please make sure to give it a meaningful title to help others.
 - Clearly define the use case with concrete examples. Example: type `this` and cluster-api-provider-kubevirt does `that`.
 - Some of our larger features will require some design. If you would like to include a techincal design to your feature, please go ahead.
