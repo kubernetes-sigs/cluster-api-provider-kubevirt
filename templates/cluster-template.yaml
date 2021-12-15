@@ -10,7 +10,7 @@ spec:
       cidrBlocks:
         - 10.244.0.0/16
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
     kind: KubevirtCluster
     name: '${CLUSTER_NAME}'
     namespace: "${NAMESPACE}"
@@ -20,13 +20,13 @@ spec:
     name: '${CLUSTER_NAME}-control-plane'
     namespace: "${NAMESPACE}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtCluster
 metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-control-plane"
@@ -60,7 +60,7 @@ spec:
   machineTemplate:
     infrastructureRef:
       kind: KubevirtMachineTemplate
-      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
       name: "${CLUSTER_NAME}-control-plane"
       namespace: "${NAMESPACE}"
   kubeadmConfigSpec:
@@ -74,7 +74,7 @@ spec:
         criSocket: "{CRI_PATH}"
   version: "${KUBERNETES_VERSION}"
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
 metadata:
   name: "${CLUSTER_NAME}-md-0"
@@ -133,5 +133,5 @@ spec:
       infrastructureRef:
         name: "${CLUSTER_NAME}-md-0"
         namespace: "${NAMESPACE}"
-        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha4
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
         kind: KubevirtMachineTemplate
