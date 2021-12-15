@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-kubevirt
 
-go 1.16
+go 1.17
 
 require (
 	cloud.google.com/go v0.60.0 // indirect
