@@ -35,7 +35,7 @@ function kubevirtci::fetch_kubevirtci() {
 	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
 		echo >&2 "Downloading clusterctl ..."
-		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v0.4.4/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
+		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.0.0/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
 		chmod u+x ${_default_clusterctl_path}
 	fi
 	if [ ! -f "${_default_virtctl_path}" ]; then
