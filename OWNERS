@@ -1,6 +1,14 @@
-# See the OWNERS docs at https://go.k8s.io/owners
+# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
 
 approvers:
-  - agradouski
-  - cchengleo
-  - sig-cluster-lifecycle-leads
+- rmohr
+- davidvossel
+- nunnatsa
+- nirarg
+options: {}
+reviewers:
+- rmohr
+- davidvossel
+- nunnatsa
+- nirarg
+
