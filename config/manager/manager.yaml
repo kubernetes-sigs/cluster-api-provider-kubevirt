@@ -16,11 +16,12 @@ spec:
         control-plane: controller-manager
     spec:
       containers:
-      - args:
+      - command:
+        - /manager
+        args:
         - "--leader-elect"
         - "--metrics-bind-addr=127.0.0.1:8080"
         - "--feature-gates=MachinePool=false"
-        command: ["/usr/bin/manager"]
         image: controller:latest
         name: manager
         env:
