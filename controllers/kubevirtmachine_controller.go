@@ -20,6 +20,7 @@ import (
 	gocontext "context"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"time"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
@@ -210,7 +211,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	// Create a helper for managing the KubeVirt VM hosting the machine.
-	externalMachine, err := kubevirthandler.NewMachine(ctx, r.Client)
+	externalMachine, err := kubevirthandler.NewMachine(ctx, r.Client, clusterNodeSshKeys)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
@@ -223,51 +224,13 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		}
 	}
 
-	vmCommandExecutor := ssh.VMCommandExecutor{
-		IPAddress:  externalMachine.Address(),
-		PublicKey:  clusterNodeSshKeys.PublicKey,
-		PrivateKey: clusterNodeSshKeys.PrivateKey,
-	}
-
 	// Wait for VM to boot
-	if !externalMachine.IsBooted(vmCommandExecutor) {
+	if !externalMachine.IsReady() {
 		ctx.Logger.Info("Waiting for underlying VM instance to boot...")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
-	// Update the VMProvisionedCondition condition
-	// NOTE: it is required to create the patch helper at this point, otherwise it won't surface if we issue a patch down in the code
-	// (because if we create patch helper after this point the VMProvisionedCondition=True exists both on before and after).
-	patchHelper, err := patch.NewHelper(ctx.KubevirtMachine, r.Client)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
-
-	// At, this stage, we are ready for bootstrap. However, if the BootstrapExecSucceededCondition is missing we add it and we
-	// issue an patch so the user can see the change of state before the bootstrap actually starts.
-	// NOTE: usually controller should not rely on status they are setting, but on the observed state; however
-	// in this case we are doing this because we explicitly want to give a feedback to users.
-	if !conditions.Has(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition) {
-		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrappingReason, clusterv1.ConditionSeverityInfo, "")
-		if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
-		}
-	}
-
-	// Wait for VM to bootstrap with Kubernetes
-	if !ctx.KubevirtMachine.Spec.Bootstrapped {
-		if !externalMachine.IsBootstrapped(vmCommandExecutor) {
-			ctx.Logger.Info("Waiting for underlying VM to bootstrap...")
-			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "VM not bootstrapped yet")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-
-		ctx.KubevirtMachine.Spec.Bootstrapped = true
-	}
-
-	// Update the condition BootstrapExecSucceededCondition
-	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition)
 
 	ipAddress := externalMachine.Address()
 	ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got ipAddress <%s>", ctx.KubevirtMachine.Name, ipAddress))
@@ -275,6 +238,18 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
+
+	if externalMachine.SupportsCheckingIsBootstrapped() && !conditions.IsTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition) {
+		if !externalMachine.IsBootstrapped() {
+			ctx.Logger.Info("Waiting for underlying VM to bootstrap...")
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "VM not bootstrapped yet")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		// Update the condition BootstrapExecSucceededCondition
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition)
+		ctx.Logger.Info("Underlying VM has boostrapped")
+	}
+
 	ctx.KubevirtMachine.Status.Addresses = []clusterv1.MachineAddress{
 		{
 			Type:    clusterv1.MachineHostName,
@@ -444,6 +419,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := client.ObjectKey{Namespace: ctx.Machine.GetNamespace(), Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 	if err := r.Client.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err == nil {
+		ctx.BootstrapDataSecret = bootstrapDataSecret
 		return nil
 	}
 
@@ -458,8 +434,10 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		return errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	ctx.Logger.Info("Adding users config to bootstrap data...")
-	updatedValue := []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
+	if isCloudConfigUserData(value) {
+		ctx.Logger.Info("Adding users and ssh config to bootstrap userdata...")
+		value = []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
+	}
 
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -467,11 +445,12 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 			Namespace: ctx.Machine.GetNamespace(),
 		},
 	}
+	ctx.BootstrapDataSecret = newBootstrapDataSecret
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, newBootstrapDataSecret, func() error {
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
-			"userdata": updatedValue,
+			"userdata": value,
 		}
 
 		// set owner reference for secret
@@ -498,6 +477,10 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	}
 
 	return nil
+}
+
+func isCloudConfigUserData(userData []byte) bool {
+	return regexp.MustCompile(`(?m)^#cloud-config`).MatchString(string(userData))
 }
 
 // usersCloudConfig generates 'users' cloud config for capk user with a given ssh public key
