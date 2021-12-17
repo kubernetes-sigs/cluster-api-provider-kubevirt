@@ -105,14 +105,6 @@ func (m *Machine) Create() error {
 		return err
 	}
 
-	namespacedName := types.NamespacedName{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
-	vmi := &kubevirtv1.VirtualMachineInstance{}
-	if err := m.client.Get(m.machineContext.Context, namespacedName, vmi); err != nil {
-		if apierrors.IsNotFound(err) {
-			return errors.New("failed to create VM instance")
-		}
-	}
-
 	return nil
 }
 
