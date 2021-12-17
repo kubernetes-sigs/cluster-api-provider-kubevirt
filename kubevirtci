@@ -65,7 +65,6 @@ function kubevirtci::down() {
 
 function kubevirtci::build() {
 	export REGISTRY="localhost:$(cluster-up/cluster-up/cli.sh ports registry)"
-	make manager
 	make docker-build
 	make docker-push
 }
