@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	gocontext "context"
 	"time"
 
 	"github.com/golang/mock/gomock"
@@ -57,6 +58,16 @@ var (
 	anotherKubevirtMachineName string
 	anotherKubevirtMachine     *infrav1.KubevirtMachine
 	anotherMachine             *clusterv1.Machine
+
+	vm  *kubevirtv1.VirtualMachine
+	vmi *kubevirtv1.VirtualMachineInstance
+
+	sshKeySecretName    string
+	bootstrapSecretName string
+
+	sshKeySecret            *corev1.Secret
+	bootstrapSecret         *corev1.Secret
+	bootstrapUserDataSecret *corev1.Secret
 
 	fakeClient                client.Client
 	kubevirtMachineReconciler KubevirtMachineReconciler
@@ -116,6 +127,181 @@ var _ = Describe("utility functions", func() {
 		table.Entry("should not detect cloud-config", []byte("#something\n\n#something else\n#not-cloud-config\nthe end"), false),
 		table.Entry("should not detect cloud-config", []byte("#something\n\n#something else\n   #cloud-config\nthe end"), false),
 	)
+})
+
+var _ = Describe("reconcile a kubevirt machine", func() {
+	mockCtrl = gomock.NewController(GinkgoT())
+	workloadClusterMock := mock.NewMockWorkloadCluster(mockCtrl)
+	testLogger := ctrl.Log.WithName("test")
+	var machineContext *context.MachineContext
+
+	BeforeEach(func() {
+
+		bootstrapSecretName = "bootstrap-secret"
+		sshKeySecretName = "ssh-keys"
+		clusterName = "kvcluster"
+		machineName = "test-machine"
+		kubevirtMachineName = "test-kubevirt-machine"
+		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
+		kubevirtCluster = testing.NewKubevirtCluster(clusterName, machineName)
+
+		cluster = testing.NewCluster(clusterName, kubevirtCluster)
+		machine = testing.NewMachine(clusterName, machineName, kubevirtMachine)
+
+		machine.Spec = clusterv1.MachineSpec{
+			Bootstrap: clusterv1.Bootstrap{
+				DataSecretName: &bootstrapSecretName,
+			},
+		}
+
+		kubevirtCluster.Spec.SshKeys = infrav1.SSHKeys{DataSecretName: &sshKeySecretName}
+
+		sshKeySecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: sshKeySecretName,
+			},
+			Data: map[string][]byte{
+				"pub": []byte("sha-rsa 1234"),
+				"key": []byte("sha-rsa 5678"),
+			},
+		}
+
+		bootstrapSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: bootstrapSecretName,
+			},
+			Data: map[string][]byte{
+				"value": []byte("shell-script"),
+			},
+		}
+
+		bootstrapUserDataSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: bootstrapSecretName + "-userdata",
+			},
+			Data: map[string][]byte{
+				"userdata": []byte("shell-script"),
+			},
+		}
+
+		vm = &kubevirtv1.VirtualMachine{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "VirtualMachine",
+				APIVersion: "kubevirt.io",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: kubevirtMachineName,
+			},
+		}
+
+		vmi = &kubevirtv1.VirtualMachineInstance{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "VirtualMachineInstance",
+				APIVersion: "kubevirt.io",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: kubevirtMachineName,
+			},
+		}
+
+	})
+
+	setupClient := func(objects []client.Object) {
+		machineContext = &context.MachineContext{
+			Context:         gocontext.Background(),
+			Cluster:         cluster,
+			KubevirtCluster: kubevirtCluster,
+			Machine:         machine,
+			KubevirtMachine: kubevirtMachine,
+			Logger:          testLogger,
+		}
+
+		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		kubevirtMachineReconciler = KubevirtMachineReconciler{
+			Client:          fakeClient,
+			WorkloadCluster: workloadClusterMock,
+		}
+
+	}
+	AfterEach(func() {})
+
+	It("should create KubeVirt VM", func() {
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		setupClient(objects)
+
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		// should expect to re-enqueue while waiting for VMI to come online
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+
+		// should expect VM to be created with expected name
+		vm := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Should expect kubevirt machine is still not ready
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+	})
+
+	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
+		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceReady,
+				Status: corev1.ConditionTrue,
+			},
+		}
+		vmi.Status.Interfaces = []kubevirtv1.VirtualMachineInstanceNetworkInterface{
+
+			{
+				IP: "1.1.1.1",
+			},
+		}
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+			vm,
+			vmi,
+		}
+
+		setupClient(objects)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		// should expect to re-enqueue while waiting for VMI to come online
+		Expect(out).To(Equal(ctrl.Result{}))
+
+		// should expect VM to be created with expected name
+		vm := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
+		Expect(*machineContext.KubevirtMachine.Spec.ProviderID).To(Equal("kubevirt://" + kubevirtMachineName))
+	})
+
 })
 
 var _ = Describe("updateNodeProviderID", func() {
