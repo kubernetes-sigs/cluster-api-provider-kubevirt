@@ -18,12 +18,15 @@ package context
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
@@ -31,11 +34,12 @@ import (
 // MachineContext is a Go context used with a KubeVirt machine.
 type MachineContext struct {
 	context.Context
-	Cluster         *clusterv1.Cluster
-	Machine         *clusterv1.Machine
-	KubevirtCluster *infrav1.KubevirtCluster
-	KubevirtMachine *infrav1.KubevirtMachine
-	Logger          logr.Logger
+	Cluster             *clusterv1.Cluster
+	Machine             *clusterv1.Machine
+	KubevirtCluster     *infrav1.KubevirtCluster
+	KubevirtMachine     *infrav1.KubevirtMachine
+	BootstrapDataSecret *corev1.Secret
+	Logger              logr.Logger
 }
 
 // ClusterContext returns cluster context from this machine context
@@ -75,4 +79,23 @@ func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 			infrav1.BootstrapExecSucceededCondition,
 		}},
 	)
+}
+
+func (c *MachineContext) HasInjectedCapkSSHKeys(sshPublicKey []byte) bool {
+	if c.BootstrapDataSecret == nil || len(sshPublicKey) == 0 {
+		return false
+	}
+	value, ok := c.BootstrapDataSecret.Data["userdata"]
+	if !ok {
+		return false
+	}
+
+	sshPublicKeyString := base64.StdEncoding.EncodeToString(sshPublicKey)
+	sshPublicKeyDecoded, err := base64.StdEncoding.DecodeString(sshPublicKeyString)
+
+	if err != nil {
+		return false
+	}
+
+	return strings.Contains(string(value), string(sshPublicKeyDecoded))
 }

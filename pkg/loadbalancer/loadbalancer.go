@@ -54,7 +54,6 @@ func NewLoadBalancer(ctx *context.ClusterContext, client runtimeclient.Client, n
 	if err := client.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
 		if apierrors.IsNotFound(err) {
 			loadBalancer = nil
-			ctx.Logger.Info("No load balancer found")
 		} else {
 			return nil, err
 		}
@@ -76,8 +75,6 @@ func (l *LoadBalancer) IsFound() bool {
 
 // Create creates a service of ClusterIP type to serve as a load-balancer for the cluster.
 func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
-	ctx.Logger.Info("Creating new load balancer service...")
-
 	// Skip creation if exists.
 	if l.IsFound() {
 		return fmt.Errorf("the load balancer service already exists")
@@ -137,8 +134,6 @@ func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 
 // Delete deletes load-balancer service.
 func (l *LoadBalancer) Delete(ctx *context.ClusterContext) error {
-	ctx.Logger.Info("Deleting load balancer service...")
-
 	if !l.IsFound() {
 		return nil
 	}

@@ -19,22 +19,32 @@ package ssh
 import (
 	"bytes"
 	"fmt"
-	"github.com/go-logr/logr"
 	"net"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
 
-type VMCommandExecutor struct {
+type VMCommandExecutor interface {
+	ExecuteCommand(string) (string, error)
+}
+
+type vmCommandExecutor struct {
 	IPAddress  string
 	PublicKey  []byte
 	PrivateKey []byte
-	Logger     logr.Logger
+}
+
+func NewVMCommandExecutor(address string, keys *ClusterNodeSshKeys) VMCommandExecutor {
+	return vmCommandExecutor{
+		IPAddress:  address,
+		PublicKey:  keys.PublicKey,
+		PrivateKey: keys.PrivateKey,
+	}
 }
 
 // ExecuteCommand runs command inside a VM, via SSH, and returns the command output.
-func (e VMCommandExecutor) ExecuteCommand(command string) (string, error) {
+func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 	// create signer
 	signer, err := signerFromPem(e.PrivateKey, []byte(""))
 
@@ -50,20 +60,17 @@ func (e VMCommandExecutor) ExecuteCommand(command string) (string, error) {
 
 	hostAddress := strings.Join([]string{e.IPAddress, "22"}, ":")
 
-	e.Logger.Info(fmt.Sprintf("ssh: dialing VM `%s`...", hostAddress))
 	connection, err := ssh.Dial("tcp", hostAddress, sshConfig)
 	if err != nil {
 		return "", fmt.Errorf("ssh: failed to dial IP %s, error: %s", hostAddress, err.Error())
 	}
 
-	e.Logger.Info(fmt.Sprint("ssh: creating session..."))
 	session, err := connection.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("ssh: failed to create session, error: %s", err.Error())
 	}
 	defer session.Close()
 
-	e.Logger.Info(fmt.Sprintf("ssh: running command `%s`...", command))
 	var b bytes.Buffer
 	session.Stdout = &b
 	if err := session.Run(command); err != nil {
@@ -71,7 +78,6 @@ func (e VMCommandExecutor) ExecuteCommand(command string) (string, error) {
 	}
 
 	output := strings.Trim(b.String(), "\n")
-	e.Logger.Info(fmt.Sprintf("ssh: command `%s` output: %s", command, output))
 
 	return output, nil
 }

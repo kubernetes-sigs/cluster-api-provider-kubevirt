@@ -18,6 +18,7 @@ package v1alpha4
 
 import (
 	"errors"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -38,18 +39,14 @@ var _ = Describe("Template Validation", func() {
 				oldTemplate: &KubevirtMachineTemplate{
 					Spec: KubevirtMachineTemplateSpec{
 						Template: KubevirtMachineTemplateResource{
-							Spec: KubevirtMachineSpec{
-								Bootstrapped: true,
-							},
+							Spec: KubevirtMachineSpec{},
 						},
 					},
 				},
 				newTemplate: &KubevirtMachineTemplate{
 					Spec: KubevirtMachineTemplateSpec{
 						Template: KubevirtMachineTemplateResource{
-							Spec: KubevirtMachineSpec{
-								Bootstrapped: true,
-							},
+							Spec: KubevirtMachineSpec{},
 						},
 					},
 				},
@@ -64,13 +61,14 @@ var _ = Describe("Template Validation", func() {
 	})
 	Context("Template comparison with errors", func() {
 		BeforeEach(func() {
+			providerID := "test"
 			tests = test{
 				name: "return no error if no modification",
 				oldTemplate: &KubevirtMachineTemplate{
 					Spec: KubevirtMachineTemplateSpec{
 						Template: KubevirtMachineTemplateResource{
 							Spec: KubevirtMachineSpec{
-								Bootstrapped: true,
+								ProviderID: nil,
 							},
 						},
 					},
@@ -79,7 +77,7 @@ var _ = Describe("Template Validation", func() {
 					Spec: KubevirtMachineTemplateSpec{
 						Template: KubevirtMachineTemplateResource{
 							Spec: KubevirtMachineSpec{
-								Bootstrapped: false,
+								ProviderID: &providerID,
 							},
 						},
 					},

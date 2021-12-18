@@ -21,10 +21,12 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,11 +38,21 @@ type Machine struct {
 	namespace      string
 	machineContext *context.MachineContext
 	vmInstance     *kubevirtv1.VirtualMachineInstance
+
+	sshKeys            *ssh.ClusterNodeSshKeys
+	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
 }
 
 // NewMachine returns a new Machine service for the given context.
-func NewMachine(ctx *context.MachineContext, client client.Client, namespace string) (*Machine, error) {
-	machine := &Machine{client, namespace, ctx, nil}
+func NewMachine(ctx *context.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
+	machine := &Machine{
+		client:             client,
+		namespace:          namespace,
+		machineContext:     ctx,
+		vmInstance:         nil,
+		sshKeys:            sshKeys,
+		getCommandExecutor: ssh.NewVMCommandExecutor,
+	}
 
 	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
 	vmi := &kubevirtv1.VirtualMachineInstance{}
@@ -82,15 +94,24 @@ func (m *Machine) Create() error {
 		return err
 	}
 
-	namespacedName := types.NamespacedName{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
-	vmi := &kubevirtv1.VirtualMachineInstance{}
-	if err := m.client.Get(m.machineContext.Context, namespacedName, vmi); err != nil {
-		if apierrors.IsNotFound(err) {
-			return errors.New("failed to create VM instance")
+	return nil
+}
+
+// Returns if VMI has ready condition or not.
+func (m *Machine) hasReadyCondition() bool {
+
+	if m.vmInstance == nil {
+		return false
+	}
+
+	for _, cond := range m.vmInstance.Status.Conditions {
+		if cond.Type == kubevirtv1.VirtualMachineInstanceReady &&
+			cond.Status == corev1.ConditionTrue {
+			return true
 		}
 	}
 
-	return nil
+	return false
 }
 
 // Address returns the IP address of the VM.
@@ -102,44 +123,47 @@ func (m *Machine) Address() string {
 	return ""
 }
 
-// IsBooted checks if the VM is booted.
-func (m *Machine) IsBooted(executor CommandExecutor) bool {
-	if m.Address() == "" {
-		return false
-	}
-
-	output, err := executor.ExecuteCommand("hostname")
-	if err != nil || output != m.machineContext.KubevirtMachine.Name {
-		if err != nil {
-			m.machineContext.Logger.Error(err, "Failed to run command 'hostname' via ssh.")
-		}
+// IsReady checks if the VM is ready
+func (m *Machine) IsReady() bool {
+	if !m.hasReadyCondition() {
 		return false
 	}
 
 	return true
 }
 
+// SupportsCheckingIsBootstrapped checks if we have a method of checking
+// that this bootstrapper has completed.
+func (m *Machine) SupportsCheckingIsBootstrapped() bool {
+	// Right now, we can only check if bootstrapping has
+	// completed if we are using a bootstrapper that allows
+	// for us to inject ssh keys into the guest.
+
+	if m.sshKeys != nil {
+		return m.machineContext.HasInjectedCapkSSHKeys(m.sshKeys.PublicKey)
+	}
+	return false
+}
+
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
-func (m *Machine) IsBootstrapped(executor CommandExecutor) bool {
-	if !m.IsBooted(executor) {
+func (m *Machine) IsBootstrapped() bool {
+	if !m.IsReady() {
 		return false
 	}
+
+	executor := m.getCommandExecutor(m.Address(), m.sshKeys)
 
 	output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
 	if err != nil || output != "success" {
-		if err != nil {
-			m.machineContext.Logger.Error(err, "Failed to run command 'cat /run/cluster-api/bootstrap-success.complete' via ssh.")
-		}
 		return false
 	}
-
 	return true
 }
 
 // GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
 func (m *Machine) GenerateProviderID() (string, error) {
 	if m.vmInstance == nil {
-		return "", errors.New("Underlying Kubevirt VM is NOT running.")
+		return "", errors.New("Underlying Kubevirt VM is NOT running")
 	}
 
 	providerID := fmt.Sprintf("kubevirt://%s", m.machineContext.KubevirtMachine.Name)
@@ -149,8 +173,6 @@ func (m *Machine) GenerateProviderID() (string, error) {
 
 // Delete deletes VM for this machine.
 func (m *Machine) Delete() error {
-	m.machineContext.Logger.Info(fmt.Sprintf("Deleting VM..."))
-
 	namespacedName := types.NamespacedName{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
 	vm := &kubevirtv1.VirtualMachine{}
 	if err := m.client.Get(m.machineContext.Context, namespacedName, vm); err != nil {
