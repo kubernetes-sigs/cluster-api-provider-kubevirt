@@ -101,7 +101,6 @@ func NewVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine) *kubevi
 }
 
 func NewBootstrapDataSecret(userData []byte) *corev1.Secret {
-
 	s := &corev1.Secret{}
 	s.Data = make(map[string][]byte)
 	s.Data["userdata"] = userData

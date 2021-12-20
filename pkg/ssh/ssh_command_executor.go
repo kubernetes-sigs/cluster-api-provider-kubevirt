@@ -62,24 +62,22 @@ func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 
 	connection, err := ssh.Dial("tcp", hostAddress, sshConfig)
 	if err != nil {
-		return "", fmt.Errorf("failed to dial IP %s: %s", hostAddress, err)
+		return "", fmt.Errorf("ssh: failed to dial IP %s, error: %s", hostAddress, err.Error())
 	}
 
 	session, err := connection.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %s", err)
+		return "", fmt.Errorf("ssh: failed to create session, error: %s", err.Error())
 	}
 	defer session.Close()
 
-	// ctx.Logger.Info(fmt.Sprintf("ssh: running command inside VM `%s`...", command))
 	var b bytes.Buffer
 	session.Stdout = &b
 	if err := session.Run(command); err != nil {
-		return "", fmt.Errorf("failed to run the command: " + err.Error())
+		return "", fmt.Errorf("ssh: failed to run command `%s`, error: %s", command, err.Error())
 	}
 
 	output := strings.Trim(b.String(), "\n")
-	// ctx.Logger.Info(fmt.Sprintf("ssh: command `%s` output is `%s`", command, output))
 
 	return output, nil
 }

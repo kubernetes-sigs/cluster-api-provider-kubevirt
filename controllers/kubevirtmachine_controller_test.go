@@ -27,7 +27,8 @@ import (
 	"github.com/pkg/errors"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
+	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
+	workloadclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -131,7 +132,8 @@ var _ = Describe("utility functions", func() {
 
 var _ = Describe("reconcile a kubevirt machine", func() {
 	mockCtrl = gomock.NewController(GinkgoT())
-	workloadClusterMock := mock.NewMockWorkloadCluster(mockCtrl)
+	workloadClusterMock := workloadclustermock.NewMockWorkloadCluster(mockCtrl)
+	infraClusterMock := infraclustermock.NewMockInfraCluster(mockCtrl)
 	testLogger := ctrl.Log.WithName("test")
 	var machineContext *context.MachineContext
 
@@ -220,6 +222,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
+			InfraCluster:    infraClusterMock,
 		}
 
 	}
@@ -237,6 +240,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		}
 
 		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -284,6 +290,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(objects)
 
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -306,7 +315,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 var _ = Describe("updateNodeProviderID", func() {
 	mockCtrl = gomock.NewController(GinkgoT())
-	workloadClusterMock := mock.NewMockWorkloadCluster(mockCtrl)
+	workloadClusterMock := workloadclustermock.NewMockWorkloadCluster(mockCtrl)
+	infraClusterMock := infraclustermock.NewMockInfraCluster(mockCtrl)
 	expectedProviderId := "aa-66@test"
 	testLogger := ctrl.Log.WithName("test")
 
@@ -323,6 +333,7 @@ var _ = Describe("updateNodeProviderID", func() {
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
+			InfraCluster: infraClusterMock,
 		}
 
 		workloadClusterObjects := []client.Object{
@@ -337,7 +348,6 @@ var _ = Describe("updateNodeProviderID", func() {
 			},
 		}
 		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(workloadClusterObjects...).Build()
-
 	})
 
 	AfterEach(func() {})

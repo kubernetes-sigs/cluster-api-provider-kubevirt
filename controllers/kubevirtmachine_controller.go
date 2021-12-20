@@ -23,11 +23,11 @@ import (
 	"regexp"
 	"time"
 
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
-
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
 	"github.com/pkg/errors"
@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/util"
-	clusterutil "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -52,6 +51,7 @@ import (
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
 type KubevirtMachineReconciler struct {
 	client.Client
+	InfraCluster    infracluster.InfraCluster
 	WorkloadCluster workloadcluster.WorkloadCluster
 }
 
@@ -171,31 +171,25 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext) (res ctrl.Result, retErr error) {
 	// If the machine is already provisioned, return
 	if ctx.KubevirtMachine.Status.Ready {
+		ctx.Logger.Info("KubevirtMachine.Status.Ready is set -- nothing to do!")
 		return ctrl.Result{}, nil
 	}
 
 	// Make sure bootstrap data is available and populated.
 	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
 		if !util.IsControlPlaneMachine(ctx.Machine) && !conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
-			ctx.Logger.Info("Waiting for the control plane to be initialized")
+			ctx.Logger.Info("Waiting for the control plane to be initialized...")
 			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
 			return ctrl.Result{}, nil
 		}
 
-		ctx.Logger.Info("Waiting for the Bootstrap provider controller to set bootstrap data")
+		ctx.Logger.Info("Waiting for Machine.Spec.Bootstrap.DataSecretName...")
 		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
 
-	clusterContext := &context.ClusterContext{
-		Context:         ctx.Context,
-		Cluster:         ctx.Cluster,
-		KubevirtCluster: ctx.KubevirtCluster,
-		Logger:          ctx.Logger,
-	}
-
 	// Fetch SSH keys to be used for cluster nodes, and update bootstrap script cloud-init with public key
-	clusterNodeSshKeys := ssh.NewClusterNodeSshKeys(clusterContext, r.Client)
+	clusterNodeSshKeys := ssh.NewClusterNodeSshKeys(ctx.ClusterContext(), r.Client)
 	if persisted := clusterNodeSshKeys.IsPersistedToSecret(); !persisted {
 		ctx.Logger.Info("Waiting for ssh keys data secret to be created by KubevirtCluster controller...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -204,21 +198,28 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{}, errors.Wrap(err, "failed to fetch ssh keys for cluster nodes")
 	}
 
-	if err := r.reconcileKubevirtBootstrapSecret(ctx, clusterNodeSshKeys); err != nil {
-		ctx.Logger.Info("Waiting for the Bootstrap provider controller to set bootstrap data")
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
+	if err != nil {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
+	}
+	if infraClusterClient == nil {
+		ctx.Logger.Info("Waiting for infra cluster client...")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	if err := r.reconcileKubevirtBootstrapSecret(ctx, infraClusterClient, infraClusterNamespace, clusterNodeSshKeys); err != nil {
 		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to fetch kubevirt bootstrap secret")
 	}
 
 	// Create a helper for managing the KubeVirt VM hosting the machine.
-	externalMachine, err := kubevirthandler.NewMachine(ctx, r.Client, clusterNodeSshKeys)
+	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, infraClusterNamespace, clusterNodeSshKeys)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
 
 	// Provision the underlying VM if not existing
 	if !externalMachine.Exists() {
-		ctx.Logger.Info("Creating underlying VM instance...")
 		if err := externalMachine.Create(); err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
@@ -226,14 +227,13 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	// Wait for VM to boot
 	if !externalMachine.IsReady() {
-		ctx.Logger.Info("Waiting for underlying VM instance to boot...")
+		ctx.Logger.Info("KubeVirt VM is not ready...")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
 	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
 
 	ipAddress := externalMachine.Address()
-	ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got ipAddress <%s>", ctx.KubevirtMachine.Name, ipAddress))
 	if ipAddress == "" {
 		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
@@ -247,7 +247,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		}
 		// Update the condition BootstrapExecSucceededCondition
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition)
-		ctx.Logger.Info("Underlying VM has boostrapped")
+		ctx.Logger.Info("Underlying VM has boostrapped.")
 	}
 
 	ctx.KubevirtMachine.Status.Addresses = []clusterv1.MachineAddress{
@@ -271,7 +271,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	providerID, err := externalMachine.GenerateProviderID()
 	if err != nil {
-		ctx.Logger.Error(err, "Failed to patch node with provider id...")
+		ctx.Logger.Error(err, "Failed to patch node with provider id.")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
@@ -298,7 +298,6 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 	if workloadClusterClient == nil {
 		ctx.Logger.Info("Waiting for workload cluster client...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-
 	}
 
 	// using workload cluster client, get the corresponding cluster node
@@ -329,6 +328,41 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 }
 
 func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext) (ctrl.Result, error) {
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
+	if err != nil {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
+	}
+	if infraClusterClient == nil {
+		ctx.Logger.Info("Waiting for infra cluster client...")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// Fetch SSH keys to be used for cluster nodes, and update bootstrap script cloud-init with public key
+	clusterNodeSshKeys := ssh.NewClusterNodeSshKeys(ctx.ClusterContext(), r.Client)
+	if persisted := clusterNodeSshKeys.IsPersistedToSecret(); !persisted {
+		ctx.Logger.Info("Waiting for ssh keys data secret to be created by KubevirtCluster controller...")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	if err := clusterNodeSshKeys.FetchPersistedKeysFromSecret(); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to fetch ssh keys for cluster nodes")
+	}
+
+	ctx.Logger.Info("Deleting VM bootstrap secret...")
+	if err := r.deleteKubevirtBootstrapSecret(ctx, infraClusterClient, infraClusterNamespace); err != nil {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete bootstrap secret")
+	}
+
+	ctx.Logger.Info("Deleting VM...")
+	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, infraClusterNamespace, clusterNodeSshKeys)
+	if err != nil {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
+	}
+	if externalMachine.Exists() {
+		if err := externalMachine.Delete(); err != nil {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete VM")
+		}
+	}
+
 	// Set the VMProvisionedCondition reporting delete is started, and issue a patch in order to make
 	// this visible to the users.
 	patchHelper, err := patch.NewHelper(ctx.KubevirtMachine, r.Client)
@@ -410,15 +444,15 @@ func (r *KubevirtMachineReconciler) KubevirtClusterToKubevirtMachines(o client.O
 }
 
 // reconcileKubevirtBootstrapSecret creates bootstrap cloud-init secret for KubeVirt virtual machines
-func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *context.MachineContext, sshKeys *ssh.ClusterNodeSshKeys) error {
+func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *context.MachineContext, infraClusterClient client.Client, infraClusterNamespace string, sshKeys *ssh.ClusterNodeSshKeys) error {
 	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
 		return errors.New("error retrieving bootstrap data: linked Machine's bootstrap.dataSecretName is nil")
 	}
 
 	// Exit early if exists.
 	bootstrapDataSecret := &corev1.Secret{}
-	bootstrapDataSecretKey := client.ObjectKey{Namespace: ctx.Machine.GetNamespace(), Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
-	if err := r.Client.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err == nil {
+	bootstrapDataSecretKey := client.ObjectKey{Namespace: infraClusterNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
+	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err == nil {
 		ctx.BootstrapDataSecret = bootstrapDataSecret
 		return nil
 	}
@@ -442,31 +476,15 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
-			Namespace: ctx.Machine.GetNamespace(),
+			Namespace: infraClusterNamespace,
 		},
 	}
 	ctx.BootstrapDataSecret = newBootstrapDataSecret
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, newBootstrapDataSecret, func() error {
+	_, err := controllerutil.CreateOrUpdate(ctx, infraClusterClient, newBootstrapDataSecret, func() error {
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
-		}
-
-		// set owner reference for secret
-		mutateFn := func() (err error) {
-			newBootstrapDataSecret.SetOwnerReferences(clusterutil.EnsureOwnerRef(
-				newBootstrapDataSecret.OwnerReferences,
-				metav1.OwnerReference{
-					APIVersion: ctx.KubevirtMachine.APIVersion,
-					Kind:       ctx.KubevirtMachine.Kind,
-					Name:       ctx.KubevirtMachine.Name,
-					UID:        ctx.KubevirtMachine.UID,
-				}))
-			return nil
-		}
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, newBootstrapDataSecret, mutateFn); err != nil {
-			return errors.Wrapf(err, "failed to set owner reference for secret")
 		}
 
 		return nil
@@ -474,6 +492,22 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	if err != nil {
 		return errors.Wrapf(err, "failed to create kubevirt bootstrap secret for cluster")
+	}
+
+	return nil
+}
+
+// deleteKubevirtBootstrapSecret deletes bootstrap cloud-init secret for KubeVirt virtual machines
+func (r *KubevirtMachineReconciler) deleteKubevirtBootstrapSecret(ctx *context.MachineContext, infraClusterClient client.Client, infraClusterNamespace string) error {
+	bootstrapDataSecret := &corev1.Secret{}
+	bootstrapDataSecretKey := client.ObjectKey{Namespace: infraClusterNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
+	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
+		// the secret does not exist, exit without error
+		return nil
+	}
+
+	if err := infraClusterClient.Delete(ctx, bootstrapDataSecret); err != nil {
+		return errors.Wrapf(err, "failed to delete kubevirt bootstrap secret for cluster")
 	}
 
 	return nil

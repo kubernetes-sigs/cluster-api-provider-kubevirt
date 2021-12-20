@@ -42,6 +42,16 @@ type MachineContext struct {
 	Logger              logr.Logger
 }
 
+// ClusterContext returns cluster context from this machine context
+func (c *MachineContext) ClusterContext() *ClusterContext {
+	return &ClusterContext{
+		Context:         c.Context,
+		Cluster:         c.Cluster,
+		KubevirtCluster: c.KubevirtCluster,
+		Logger:          c.Logger,
+	}
+}
+
 // String returns KubeVirt machine GroupVersionKind
 func (c *MachineContext) String() string {
 	return fmt.Sprintf("%s %s/%s", c.KubevirtMachine.GroupVersionKind(), c.KubevirtMachine.Namespace, c.KubevirtMachine.Name)

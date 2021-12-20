@@ -94,6 +94,12 @@ func (c *ClusterNodeSshKeys) PersistKeysToSecret() (*corev1.Secret, error) {
 				Name:       c.ClusterContext.KubevirtCluster.Name,
 				UID:        c.ClusterContext.KubevirtCluster.UID,
 			}))
+
+		if newSecret.Labels == nil {
+			newSecret.Labels = map[string]string{}
+		}
+		newSecret.Labels[clusterv1.ClusterLabelName] = c.ClusterContext.Cluster.Name
+
 		return nil
 	}
 	if _, err := controllerutil.CreateOrUpdate(c.ClusterContext.Context, c.Client, newSecret, mutateFn); err != nil {

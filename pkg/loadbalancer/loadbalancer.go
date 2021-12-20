@@ -18,6 +18,8 @@ package loadbalancer
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,38 +27,33 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	clusterutil "sigs.k8s.io/cluster-api/util"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 )
 
-//type lbCreator interface {
-//	CreateExternalLoadBalancerNode(name, image, clusterLabel, listenAddress string, port int32) (*types.Node, error)
-//}
-
 // LoadBalancer manages the load balancer for a specific KubeVirt cluster.
 type LoadBalancer struct {
 	name            string
 	service         *corev1.Service
-	client          runtimeclient.Client
 	kubevirtCluster *infrav1.KubevirtCluster
+	infraClient     runtimeclient.Client
+	infraNamespace  string
 }
 
 // NewLoadBalancer returns a new helper for managing a mock load-balancer (using service).
-func NewLoadBalancer(ctx *context.ClusterContext, client runtimeclient.Client) (*LoadBalancer, error) {
+func NewLoadBalancer(ctx *context.ClusterContext, client runtimeclient.Client, namespace string) (*LoadBalancer, error) {
 	name := ctx.KubevirtCluster.Name + "-lb"
 	// Look for the service that is mocking the load-balancer for the cluster.
 	// Filter based on the label and the roles regardless of whether or not it is running.
 	loadBalancer := &corev1.Service{}
 	loadBalancerKey := runtimeclient.ObjectKey{
-		Namespace: ctx.KubevirtCluster.Namespace,
+		Namespace: namespace,
 		Name:      name,
 	}
 	if err := client.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
 		if apierrors.IsNotFound(err) {
 			loadBalancer = nil
-			ctx.Logger.Info("No load balancer found")
 		} else {
 			return nil, err
 		}
@@ -65,21 +62,27 @@ func NewLoadBalancer(ctx *context.ClusterContext, client runtimeclient.Client) (
 	return &LoadBalancer{
 		name:            name,
 		service:         loadBalancer,
-		client:          client,
 		kubevirtCluster: ctx.KubevirtCluster,
+		infraClient:     client,
+		infraNamespace:  namespace,
 	}, nil
+}
+
+// IsFound checks if load balancer already exists
+func (l *LoadBalancer) IsFound() bool {
+	return l.service != nil
 }
 
 // Create creates a service of ClusterIP type to serve as a load-balancer for the cluster.
 func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 	// Skip creation if exists.
-	if l.service != nil {
+	if l.IsFound() {
 		return fmt.Errorf("the load balancer service already exists")
 	}
 
 	lbService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: l.kubevirtCluster.Namespace,
+			Namespace: l.infraNamespace,
 			Name:      l.name,
 		},
 		Spec: corev1.ServiceSpec{
@@ -97,34 +100,28 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 		},
 	}
 	mutateFn := func() (err error) {
-		lbService.SetOwnerReferences(clusterutil.EnsureOwnerRef(
-			lbService.OwnerReferences,
-			metav1.OwnerReference{
-				APIVersion: l.kubevirtCluster.APIVersion,
-				Kind:       l.kubevirtCluster.Kind,
-				Name:       l.kubevirtCluster.Name,
-				UID:        l.kubevirtCluster.UID,
-			}))
+		if lbService.Labels == nil {
+			lbService.Labels = map[string]string{}
+		}
+		lbService.Labels[clusterv1.ClusterLabelName] = ctx.Cluster.Name
+
 		return nil
 	}
-	if _, err := ctrlutil.CreateOrUpdate(ctx, l.client, lbService, mutateFn); err != nil {
+	if _, err := ctrlutil.CreateOrUpdate(ctx.Context, l.infraClient, lbService, mutateFn); err != nil {
 		return corev1.ErrIntOverflowGenerated
 	}
 
 	return nil
 }
 
-func (l *LoadBalancer) IsFound() bool {
-	return l.service != nil
-}
-
+// IP returns ip address of the load balancer
 func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 	loadBalancer := &corev1.Service{}
 	loadBalancerKey := runtimeclient.ObjectKey{
-		Namespace: l.kubevirtCluster.Namespace,
+		Namespace: l.infraNamespace,
 		Name:      l.name,
 	}
-	if err := l.client.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
+	if err := l.infraClient.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
 		return "", err
 	}
 
@@ -133,4 +130,17 @@ func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 	}
 
 	return loadBalancer.Spec.ClusterIP, nil
+}
+
+// Delete deletes load-balancer service.
+func (l *LoadBalancer) Delete(ctx *context.ClusterContext) error {
+	if !l.IsFound() {
+		return nil
+	}
+
+	if err := l.infraClient.Delete(ctx, l.service); err != nil {
+		return errors.Wrapf(err, "failed to delete load balancer service")
+	}
+
+	return nil
 }

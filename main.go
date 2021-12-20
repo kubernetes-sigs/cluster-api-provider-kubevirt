@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
@@ -150,6 +151,7 @@ func setupChecks(mgr ctrl.Manager) {
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	if err := (&controllers.KubevirtMachineReconciler{
 		Client:          mgr.GetClient(),
+		InfraCluster:    infracluster.New(mgr.GetClient()),
 		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
@@ -158,8 +160,9 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		os.Exit(1)
 	}
 	if err := (&controllers.KubevirtClusterReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
+		Client:       mgr.GetClient(),
+		InfraCluster: infracluster.New(mgr.GetClient()),
+		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
 		os.Exit(1)
