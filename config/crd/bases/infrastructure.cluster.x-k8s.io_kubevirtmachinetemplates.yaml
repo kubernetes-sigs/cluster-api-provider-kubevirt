@@ -18,7 +18,7 @@ spec:
     singular: kubevirtmachinetemplate
   scope: Namespaced
   versions:
-  - name: v1alpha4
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: KubevirtMachineTemplate is the Schema for the kubevirtmachinetemplates
