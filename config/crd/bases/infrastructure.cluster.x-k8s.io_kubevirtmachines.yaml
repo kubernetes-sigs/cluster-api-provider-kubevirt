@@ -18,7 +18,7 @@ spec:
     singular: kubevirtmachine
   scope: Namespaced
   versions:
-  - name: v1alpha4
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
         description: KubevirtMachine is the Schema for the kubevirtmachines API.

@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 
 	"github.com/go-logr/logr"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
 
