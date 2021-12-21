@@ -35,7 +35,7 @@ type CommandExecutor interface {
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
-func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext) *kubevirtv1.VirtualMachine {
+func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
 	runAlways := kubevirtv1.RunStrategyAlways
 	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
 
@@ -51,7 +51,7 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext) *kubevirt
 
 	virtualMachine.ObjectMeta = metav1.ObjectMeta{
 		Name:      ctx.KubevirtMachine.Name,
-		Namespace: ctx.KubevirtMachine.Namespace,
+		Namespace: namespace,
 		Labels: map[string]string{
 			"kubevirt.io/vm": ctx.KubevirtMachine.Name,
 			clusterLabelKey:  ctx.KubevirtCluster.Name,

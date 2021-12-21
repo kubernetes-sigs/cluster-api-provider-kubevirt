@@ -67,7 +67,7 @@ var _ = Describe("Load Balancer", func() {
 		})
 
 		It("should initialize load balancer without error", func() {
-			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient)
+			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -97,7 +97,7 @@ var _ = Describe("Load Balancer", func() {
 		})
 
 		It("should initialize load balancer without error", func() {
-			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient)
+			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient, "")
 			Expect(err).NotTo(HaveOccurred())
 		})
 

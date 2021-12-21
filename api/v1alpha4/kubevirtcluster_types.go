@@ -35,10 +35,13 @@ type KubevirtClusterSpec struct {
 
 	// ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
 	// +optional
-	ControlPlaneEndpoint APIEndpoint `json:"controlPlaneEndpoint"`
+	ControlPlaneEndpoint APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
 
 	// SSHKeys is a reference to a local struct for SSH keys persistence.
-	SshKeys SSHKeys `json:"sshKeys"`
+	SshKeys SSHKeys `json:"sshKeys,omitempty"`
+
+	// InfraClusterSecretRef is a reference to a secret with a kubeconfig for external cluster used for infra.
+	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
 }
 
 // KubevirtClusterStatus defines the observed state of KubevirtCluster.

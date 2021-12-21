@@ -24,6 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
@@ -36,12 +37,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"time"
 )
 
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
 type KubevirtClusterReconciler struct {
 	client.Client
-	Log logr.Logger
+	InfraCluster infracluster.InfraCluster
+	Log          logr.Logger
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=get;list;watch;create;update;patch;delete
@@ -82,8 +85,17 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
 	}
 
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(clusterContext)
+	if err != nil {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
+	}
+	if infraClusterClient == nil {
+		clusterContext.Logger.Info("Waiting for infra cluster client...")
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	// Create a helper for managing a service hosting the load-balancer.
-	externalLoadBalancer, err := loadbalancer.NewLoadBalancer(clusterContext, r.Client)
+	externalLoadBalancer, err := loadbalancer.NewLoadBalancer(clusterContext, infraClusterClient, infraClusterNamespace)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalLoadBalancer")
 	}
@@ -111,7 +123,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	// Handle deleted clusters
 	if !kubevirtCluster.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(clusterContext)
+		return r.reconcileDelete(clusterContext, externalLoadBalancer)
 	}
 
 	// Handle non-deleted clusters
@@ -169,7 +181,12 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	return ctrl.Result{}, nil
 }
 
-func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext) (ctrl.Result, error) {
+func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext, externalLoadBalancer *loadbalancer.LoadBalancer) (ctrl.Result, error) {
+	ctx.Logger.Info("Deleting load balancer service...")
+	if err := externalLoadBalancer.Delete(ctx); err != nil {
+		ctx.Logger.Error(err, "Failed to delete load balancer service.")
+	}
+
 	// Set the LoadBalancerAvailableCondition reporting delete is started, and issue a patch in order to make
 	// this visible to the users.
 	patchHelper, err := patch.NewHelper(ctx.KubevirtCluster, r.Client)
