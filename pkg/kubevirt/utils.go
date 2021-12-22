@@ -17,6 +17,8 @@ limitations under the License.
 package kubevirt
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -32,6 +34,41 @@ const (
 
 type CommandExecutor interface {
 	ExecuteCommand(command string) (string, error)
+}
+
+// prefixDataVolumeTemplates adds a prefix to all DataVolumeTemplates and
+// their corresponding disks/volume references within the vm. Appending a
+// unique prefix allows each DataVolume to be unique per vm in a capi
+// machine deployment or machine set
+func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *kubevirtv1.VirtualMachine {
+	if len(vm.Spec.DataVolumeTemplates) == 0 {
+		return vm
+	}
+
+	dvNameMap := map[string]string{}
+	for i, _ := range vm.Spec.DataVolumeTemplates {
+
+		prefixedName := fmt.Sprintf("%s-%s", prefix, vm.Spec.DataVolumeTemplates[i].Name)
+		dvNameMap[vm.Spec.DataVolumeTemplates[i].Name] = prefixedName
+
+		vm.Spec.DataVolumeTemplates[i].Name = prefixedName
+	}
+
+	for i, volume := range vm.Spec.Template.Spec.Volumes {
+		if volume.VolumeSource.PersistentVolumeClaim != nil {
+			prefixedName, ok := dvNameMap[volume.VolumeSource.PersistentVolumeClaim.ClaimName]
+			if ok {
+				vm.Spec.Template.Spec.Volumes[i].PersistentVolumeClaim.ClaimName = prefixedName
+			}
+		} else if volume.VolumeSource.DataVolume != nil {
+			prefixedName, ok := dvNameMap[volume.VolumeSource.DataVolume.Name]
+			if ok {
+				vm.Spec.Template.Spec.Volumes[i].DataVolume.Name = prefixedName
+			}
+		}
+	}
+
+	return vm
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
@@ -64,6 +101,9 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
 	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
+
+	// make each datavolume unique by appending machine name as a prefix
+	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
 
 	return virtualMachine
 }
@@ -98,7 +138,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	template.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 
-	template.Spec = ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec
+	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
 	cloudInitVolumeName := "cloudinitvolume"
 	cloudInitVolume := kubevirtv1.Volume{
