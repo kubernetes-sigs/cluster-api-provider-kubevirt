@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -57,23 +58,24 @@ var (
 
 	logger = zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("machine_test")
 
-	machineContext = &context.MachineContext{
-		Context:             gocontext.TODO(),
-		Cluster:             cluster,
-		KubevirtCluster:     kubevirtCluster,
-		Machine:             machine,
-		KubevirtMachine:     kubevirtMachine,
-		BootstrapDataSecret: bootstrapDataSecret,
-		Logger:              logger,
-	}
-
 	fakeClient            client.Client
 	fakeVMCommandExecutor FakeVMCommandExecutor
 )
 
 var _ = Describe("Without KubeVirt VM running", func() {
+	var machineContext *context.MachineContext
 
 	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine,
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+
 		objects := []client.Object{
 			cluster,
 			kubevirtCluster,
@@ -139,18 +141,30 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// read the vm before creation
-		validateVMNotExist(fakeClient)
+		validateVMNotExist(fakeClient, machineContext)
 
 		err = externalMachine.Create(machineContext.Context)
 		Expect(err).NotTo(HaveOccurred())
 
 		// read the vm before creation
-		validateVMExist(fakeClient)
+		validateVMExist(fakeClient, machineContext)
 	})
 })
 
 var _ = Describe("With KubeVirt VM running", func() {
+	var machineContext *context.MachineContext
+
 	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine,
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+
 		virtualMachineInstance.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
 			{
 				Type:   kubevirtv1.VirtualMachineInstanceReady,
@@ -224,17 +238,63 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// read the vm before creation
-		validateVMNotExist(fakeClient)
+		validateVMNotExist(fakeClient, machineContext)
 
 		err = externalMachine.Create(machineContext.Context)
 		Expect(err).NotTo(HaveOccurred())
 
 		// read the new created vm
-		validateVMExist(fakeClient)
+		validateVMExist(fakeClient, machineContext)
 	})
 })
 
-func validateVMNotExist(fakeClient client.Client) {
+var _ = Describe("util functions", func() {
+	var machineContext *context.MachineContext
+
+	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine.DeepCopy(),
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+	})
+
+	It("GenerateProviderID should succeed", func() {
+		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      map[string]string{"my": "label"},
+					Annotations: map[string]string{"my": "annotation"},
+					Name:        "dv1",
+				},
+			},
+		}
+		volumes := []kubevirtv1.Volume{
+			{
+				Name: "test1",
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "dv1",
+					},
+				},
+			},
+		}
+
+		machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates = dataVolumeTemplates
+		machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.Volumes = volumes
+
+		newVM := newVirtualMachineFromKubevirtMachine(machineContext, "default")
+
+		Expect(newVM.Spec.DataVolumeTemplates[0].ObjectMeta.Name).To(Equal(kubevirtMachineName + "-dv1"))
+		Expect(newVM.Spec.Template.Spec.Volumes[0].VolumeSource.DataVolume.Name).To(Equal(kubevirtMachineName + "-dv1"))
+	})
+})
+
+func validateVMNotExist(fakeClient client.Client, machineContext *context.MachineContext) {
 	vm := &kubevirtv1.VirtualMachine{}
 	key := client.ObjectKey{Name: virtualMachineInstance.Name, Namespace: virtualMachineInstance.Namespace}
 
@@ -243,7 +303,7 @@ func validateVMNotExist(fakeClient client.Client) {
 	ExpectWithOffset(1, apierrors.IsNotFound(err)).To(BeTrue())
 }
 
-func validateVMExist(fakeClient client.Client) {
+func validateVMExist(fakeClient client.Client, machineContext *context.MachineContext) {
 	vm := &kubevirtv1.VirtualMachine{}
 	key := client.ObjectKey{Name: virtualMachineInstance.Name, Namespace: virtualMachineInstance.Namespace}
 
