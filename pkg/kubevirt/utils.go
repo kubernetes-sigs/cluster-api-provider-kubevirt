@@ -36,15 +36,13 @@ type CommandExecutor interface {
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
 func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
-	runAlways := kubevirtv1.RunStrategyAlways
 	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
-		Spec: kubevirtv1.VirtualMachineSpec{
-			RunStrategy: &runAlways,
-			Template:    vmiTemplate,
-		},
+		Spec: *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DeepCopy(),
 	}
+
+	virtualMachine.Spec.Template = vmiTemplate
 
 	virtualMachine.APIVersion = "kubevirt.io/v1"
 	virtualMachine.Kind = "VirtualMachine"
@@ -52,29 +50,55 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	virtualMachine.ObjectMeta = metav1.ObjectMeta{
 		Name:      ctx.KubevirtMachine.Name,
 		Namespace: namespace,
-		Labels: map[string]string{
-			"kubevirt.io/vm": ctx.KubevirtMachine.Name,
-			clusterLabelKey:  ctx.KubevirtCluster.Name,
-			nodeRoleLabelKey: nodeRole(ctx),
-		},
+		Labels:    map[string]string{},
 	}
+
+	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels != nil {
+		virtualMachine.ObjectMeta.Labels = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels)
+	}
+
+	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations != nil {
+		virtualMachine.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
+	}
+
+	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
+	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 
 	return virtualMachine
 }
 
+func mapCopy(src map[string]string) map[string]string {
+	dst := map[string]string{}
+	for k, v := range src {
+		dst[k] = v
+
+	}
+	return dst
+}
+
 // buildVirtualMachineInstanceTemplate creates VirtualMachineInstanceTemplateSpec.
 func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
-	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{}
-
-	template.ObjectMeta = metav1.ObjectMeta{
-		Labels: map[string]string{
-			"kubevirt.io/vm":        ctx.KubevirtMachine.Name,
-			"name":                  ctx.KubevirtMachine.Name,
-			"cluster.x-k8s.io/role": nodeRole(ctx),
+	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
 		},
 	}
 
-	template.Spec = ctx.KubevirtMachine.Spec.VMSpec
+	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Labels != nil {
+		template.ObjectMeta.Labels = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Labels)
+	}
+
+	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Annotations != nil {
+		template.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Annotations)
+	}
+
+	template.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	template.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
+	template.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
+
+	template.Spec = ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec
 
 	cloudInitVolumeName := "cloudinitvolume"
 	cloudInitVolume := kubevirtv1.Volume{
