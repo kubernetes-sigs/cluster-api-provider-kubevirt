@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
