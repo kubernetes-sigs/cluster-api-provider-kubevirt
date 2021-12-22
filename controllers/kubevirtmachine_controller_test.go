@@ -26,8 +26,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 	workloadclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -262,6 +262,44 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 	})
 
+	It("should create KubeVirt VM in custom namespace", func() {
+
+		customNamespace := "custom"
+		kubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Namespace = customNamespace
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		// should expect to re-enqueue while waiting for VMI to come online
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+
+		// should expect VM to be created with expected name
+		vm := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: customNamespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Should expect kubevirt machine is still not ready
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+	})
+
 	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
 		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
 			{
@@ -333,7 +371,7 @@ var _ = Describe("updateNodeProviderID", func() {
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
-			InfraCluster: infraClusterMock,
+			InfraCluster:    infraClusterMock,
 		}
 
 		workloadClusterObjects := []client.Object{
