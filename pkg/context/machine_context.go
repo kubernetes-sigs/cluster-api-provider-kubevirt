@@ -28,7 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // MachineContext is a Go context used with a KubeVirt machine.
