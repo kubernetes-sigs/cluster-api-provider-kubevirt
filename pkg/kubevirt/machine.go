@@ -25,11 +25,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 )
 
 // Machine implement a service for managing the KubeVirt VM hosting a kubernetes node.
@@ -77,7 +78,7 @@ func (m *Machine) Exists() bool {
 }
 
 // Create creates a new VM for this machine.
-func (m *Machine) Create() error {
+func (m *Machine) Create(ctx gocontext.Context) error {
 	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
 	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
@@ -90,7 +91,7 @@ func (m *Machine) Create() error {
 
 		return nil
 	}
-	if _, err := controllerutil.CreateOrUpdate(gocontext.Background(), m.client, virtualMachine, mutateFn); err != nil {
+	if _, err := controllerutil.CreateOrUpdate(ctx, m.client, virtualMachine, mutateFn); err != nil {
 		return err
 	}
 
