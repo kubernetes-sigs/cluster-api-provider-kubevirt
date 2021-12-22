@@ -28,9 +28,18 @@ const (
 	MachineFinalizer = "kubevirtmachine.infrastructure.cluster.x-k8s.io"
 )
 
+// VirtualMachineTemplateSpec defines the desired state of the kubevirt VM.
+type VirtualMachineTemplateSpec struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +nullable
+	ObjectMeta metav1.ObjectMeta `json:"metadata,omitempty"`
+	// VirtualMachineSpec contains the VirtualMachine specification.
+	Spec kubevirtv1.VirtualMachineSpec `json:"spec,omitempty" valid:"required"`
+}
+
 // KubevirtMachineSpec defines the desired state of KubevirtMachine.
 type KubevirtMachineSpec struct {
-	VMSpec kubevirtv1.VirtualMachineInstanceSpec `json:"vmSpec,omitempty"`
+	VirtualMachineTemplate VirtualMachineTemplateSpec `json:"virtualMachineTemplate,omitempty"`
 
 	// ProviderID TBD what to use for Kubevirt
 	// +optional
