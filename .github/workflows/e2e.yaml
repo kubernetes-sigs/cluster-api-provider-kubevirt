@@ -5,7 +5,7 @@ name: e2e
 jobs:
   integration:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+    if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt') && contains(github.event.pull_request.labels.*.name, 'ok-to-test')
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
