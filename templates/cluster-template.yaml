@@ -34,21 +34,25 @@ metadata:
 spec:
   template:
     spec:
-      vmSpec:
-        domain:
-          cpu:
-            cores: 2
-          memory:
-            guest: "4Gi"
-          devices:
-            disks:
-              - disk:
-                  bus: virtio
-                name: containervolume
-        volumes:
-          - containerDisk:
-              image: "${NODE_VM_IMAGE_TEMPLATE}"
-            name: containervolume
+      virtualMachineTemplate:
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 kind: KubeadmControlPlane
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -82,21 +86,25 @@ metadata:
 spec:
   template:
     spec:
-      vmSpec:
-        domain:
-          cpu:
-            cores: 2
-          memory:
-            guest: "4Gi"
-          devices:
-            disks:
-              - disk:
-                  bus: virtio
-                name: containervolume
-        volumes:
-          - containerDisk:
-              image: "${NODE_VM_IMAGE_TEMPLATE}"
-            name: containervolume
+      virtualMachineTemplate:
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate

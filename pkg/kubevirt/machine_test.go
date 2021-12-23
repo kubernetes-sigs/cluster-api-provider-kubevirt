@@ -20,20 +20,23 @@ import (
 	gocontext "context"
 	"fmt"
 
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 )
 
 var (
@@ -53,22 +56,26 @@ var (
 
 	bootstrapDataSecret = testing.NewBootstrapDataSecret([]byte(fmt.Sprintf("#cloud-config\n\n%s\n", sshKey)))
 
-	machineContext = &context.MachineContext{
-		Context:             gocontext.TODO(),
-		Cluster:             cluster,
-		KubevirtCluster:     kubevirtCluster,
-		Machine:             machine,
-		KubevirtMachine:     kubevirtMachine,
-		BootstrapDataSecret: bootstrapDataSecret,
-	}
+	logger = zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("machine_test")
 
 	fakeClient            client.Client
 	fakeVMCommandExecutor FakeVMCommandExecutor
 )
 
 var _ = Describe("Without KubeVirt VM running", func() {
+	var machineContext *context.MachineContext
 
 	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine,
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+
 		objects := []client.Object{
 			cluster,
 			kubevirtCluster,
@@ -128,10 +135,36 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(providerId).To(Equal(""))
 	})
+
+	It("Create should create VM, but not VMI", func() {
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the vm before creation
+		validateVMNotExist(fakeClient, machineContext)
+
+		err = externalMachine.Create(machineContext.Context)
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the vm before creation
+		validateVMExist(fakeClient, machineContext)
+	})
 })
 
 var _ = Describe("With KubeVirt VM running", func() {
+	var machineContext *context.MachineContext
+
 	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine,
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+
 		virtualMachineInstance.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
 			{
 				Type:   kubevirtv1.VirtualMachineInstanceReady,
@@ -199,7 +232,86 @@ var _ = Describe("With KubeVirt VM running", func() {
 		providerId, err := externalMachine.GenerateProviderID()
 		Expect(providerId).To(Equal(expectedProviderId))
 	})
+
+	It("Create should create VM", func() {
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the vm before creation
+		validateVMNotExist(fakeClient, machineContext)
+
+		err = externalMachine.Create(machineContext.Context)
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the new created vm
+		validateVMExist(fakeClient, machineContext)
+	})
 })
+
+var _ = Describe("util functions", func() {
+	var machineContext *context.MachineContext
+
+	BeforeEach(func() {
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine.DeepCopy(),
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+	})
+
+	It("GenerateProviderID should succeed", func() {
+		dataVolumeTemplates := []kubevirtv1.DataVolumeTemplateSpec{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      map[string]string{"my": "label"},
+					Annotations: map[string]string{"my": "annotation"},
+					Name:        "dv1",
+				},
+			},
+		}
+		volumes := []kubevirtv1.Volume{
+			{
+				Name: "test1",
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "dv1",
+					},
+				},
+			},
+		}
+
+		machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DataVolumeTemplates = dataVolumeTemplates
+		machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.Volumes = volumes
+
+		newVM := newVirtualMachineFromKubevirtMachine(machineContext, "default")
+
+		Expect(newVM.Spec.DataVolumeTemplates[0].ObjectMeta.Name).To(Equal(kubevirtMachineName + "-dv1"))
+		Expect(newVM.Spec.Template.Spec.Volumes[0].VolumeSource.DataVolume.Name).To(Equal(kubevirtMachineName + "-dv1"))
+	})
+})
+
+func validateVMNotExist(fakeClient client.Client, machineContext *context.MachineContext) {
+	vm := &kubevirtv1.VirtualMachine{}
+	key := client.ObjectKey{Name: virtualMachineInstance.Name, Namespace: virtualMachineInstance.Namespace}
+
+	err := fakeClient.Get(machineContext.Context, key, vm)
+	ExpectWithOffset(1, err).To(HaveOccurred())
+	ExpectWithOffset(1, apierrors.IsNotFound(err)).To(BeTrue())
+}
+
+func validateVMExist(fakeClient client.Client, machineContext *context.MachineContext) {
+	vm := &kubevirtv1.VirtualMachine{}
+	key := client.ObjectKey{Name: virtualMachineInstance.Name, Namespace: virtualMachineInstance.Namespace}
+
+	err := fakeClient.Get(machineContext.Context, key, vm)
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	Expect(vm.Name).To(Equal(virtualMachineInstance.Name))
+	Expect(vm.Namespace).To(Equal(virtualMachineInstance.Namespace))
+}
 
 func setupScheme() *runtime.Scheme {
 	s := runtime.NewScheme()

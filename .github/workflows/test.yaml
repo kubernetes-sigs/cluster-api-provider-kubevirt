@@ -2,6 +2,7 @@ on: [push, pull_request]
 name: build
 jobs:
   unit_test:
+    if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt')
     strategy:
       matrix:
         go-version: [1.17.x]

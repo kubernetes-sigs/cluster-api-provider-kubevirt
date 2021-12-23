@@ -57,17 +57,30 @@ func NewKubevirtMachine(kubevirtMachineName, machineName string) *infrav1.Kubevi
 				},
 			},
 		},
-		Spec:   infrav1.KubevirtMachineSpec{},
+		Spec: infrav1.KubevirtMachineSpec{
+			VirtualMachineTemplate: infrav1.VirtualMachineTemplateSpec{
+
+				Spec: kubevirtv1.VirtualMachineSpec{
+					Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{},
+				},
+			},
+		},
 		Status: infrav1.KubevirtMachineStatus{},
 	}
 }
 
 func NewMachine(clusterName, machineName string, kubevirtMachine *infrav1.KubevirtMachine) *clusterv1.Machine {
+	fakeDataSecretName := "fakeDataSecretName"
 	machine := &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: machineName,
 			Labels: map[string]string{
 				clusterv1.ClusterLabelName: clusterName,
+			},
+		},
+		Spec: clusterv1.MachineSpec{
+			Bootstrap: clusterv1.Bootstrap{
+				DataSecretName: &fakeDataSecretName,
 			},
 		},
 	}
