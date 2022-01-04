@@ -1,6 +1,4 @@
-on:
-  pull_request_target:
-    types: [labeled]
+on: [pull_request_target, push]
 name: e2e
 jobs:
   integration:
