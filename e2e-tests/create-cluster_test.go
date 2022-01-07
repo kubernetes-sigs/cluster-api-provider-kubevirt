@@ -1,21 +1,165 @@
 package e2e_tests_test
 
 import (
+	"context"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	tests "sigs.k8s.io/cluster-api-provider-kubevirt/e2e-tests"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 var _ = Describe("CreateCluster", func() {
 
+	var tmpDir string
+	var k8sclient client.Client
+	var manifestsFile string
+	var namespace string
+
 	BeforeEach(func() {
+		var err error
+
 		Expect(tests.KubectlPath).ToNot(Equal(""))
 		Expect(tests.ClusterctlPath).ToNot(Equal(""))
+		Expect(tests.WorkingDir).ToNot(Equal(""))
+
+		tmpDir, err = ioutil.TempDir(tests.WorkingDir, "creation-tests")
+		Expect(err).To(BeNil())
+
+		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
+
+		cfg, err := config.GetConfig()
+		Expect(err).To(BeNil())
+		k8sclient, err = client.New(cfg, client.Options{})
+		Expect(err).To(BeNil())
+
+		clusterv1.AddToScheme(k8sclient.Scheme())
+		infrav1.AddToScheme(k8sclient.Scheme())
+
+		namespace = "e2e-test-create-cluster-" + rand.String(6)
+
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: namespace,
+			},
+		}
+
+		err = k8sclient.Create(context.Background(), ns)
+		Expect(err).To(BeNil())
+	})
+
+	AfterEach(func() {
+		defer func() {
+			// Best effort cleanup of remaining artifacts by deleting namespace
+			By("removing namespace")
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: namespace,
+				},
+			}
+			k8sclient.Delete(context.Background(), ns)
+			os.RemoveAll(tmpDir)
+		}()
+
+		By("removing machine deployment")
+		machineDeployment := &clusterv1.MachineDeployment{}
+		key := client.ObjectKey{Namespace: namespace, Name: "kvcluster-md-0"}
+		tests.DeleteAndWait(k8sclient, machineDeployment, key, 120)
+
+		By("removing all kubevirt machines")
+		machineList := &infrav1.KubevirtMachineList{}
+		err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
+		Expect(err).To(BeNil())
+
+		for _, machine := range machineList.Items {
+			key := client.ObjectKey{Namespace: namespace, Name: machine.Name}
+			tests.DeleteAndWait(k8sclient, &machine, key, 120)
+		}
+
+		By("removing cluster")
+		cluster := &clusterv1.Cluster{}
+		key = client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
+		tests.DeleteAndWait(k8sclient, cluster, key, 120)
 
 	})
 
 	It("test", func() {
-		Expect(true).To(BeTrue())
+
+		By("generating cluster manifests from example template")
+		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
+		cmd.Env = append(os.Environ(),
+			"NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35",
+			"IMAGE_REPO=k8s.gcr.io",
+			"CRI_PATH=/var/run/crio/crio.sock",
+		)
+		stdout, _ := tests.RunCmd(cmd)
+		err := os.WriteFile(manifestsFile, stdout, 0644)
+		Expect(err).To(BeNil())
+
+		By("posting cluster manifests example template")
+		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
+		tests.RunCmd(cmd)
+
+		By("Waiting on cluster's control plane to initialize")
+		Eventually(func() error {
+			cluster := &clusterv1.Cluster{}
+			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
+			err := k8sclient.Get(context.Background(), key, cluster)
+			if err != nil {
+				return err
+			}
+
+			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
+				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
+			}
+
+			return nil
+		}, 10*time.Minute, 5*time.Second).Should(BeNil(), "cluster should have control plane initialized")
+
+		By("Waiting on cluster's control plane to be ready")
+		Eventually(func() error {
+			cluster := &clusterv1.Cluster{}
+			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
+			err := k8sclient.Get(context.Background(), key, cluster)
+			if err != nil {
+				return err
+			}
+
+			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition) {
+				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
+			}
+
+			return nil
+		}, 10*time.Minute, 5*time.Second).Should(BeNil(), "cluster should have control plane initialized")
+
+		By("Waiting on kubevirt machines to be ready")
+		Eventually(func() error {
+			machineList := &infrav1.KubevirtMachineList{}
+			err = k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
+			if err != nil {
+				return err
+			}
+
+			for _, machine := range machineList.Items {
+				if !conditions.IsTrue(&machine, infrav1.BootstrapExecSucceededCondition) {
+					return fmt.Errorf("still waiting on a kubevirt machine with bootstrap succeeded condition")
+				}
+			}
+			return nil
+		}, 5*time.Minute, 5*time.Second).Should(BeNil(), "kubevirt machines should have bootstrap succeeded condition")
 	})
 })

@@ -6,6 +6,7 @@ TOOLS_DIR=${TOOLS_DIR:-hack/tools}
 
 CLUSTERCTL_PATH=${TOOLS_DIR}/bin/clusterctl
 KUBECTL_PATH=${TOOLS_DIR}/bin/kubectl
+TEST_WORKING_DIR=${TOOLS_DIR}/e2e-test-workingdir
 
 if [ ! -f "${CLUSTERCTL_PATH}" ]; then
 	echo >&2 "Downloading clusterctl ..."
@@ -19,4 +20,6 @@ if [ ! -f "${KUBECTL_PATH}" ]; then
 	chmod u+x ${KUBECTL_PATH}
 fi
 
-$BIN_DIR/e2e-tests --kubectl-path $KUBECTL_PATH --clusterctl-path $CLUSTERCTL_PATH
+rm -rf $TEST_WORKING_DIR
+mkdir -p $TEST_WORKING_DIR
+$BIN_DIR/e2e-tests --kubectl-path $KUBECTL_PATH --clusterctl-path $CLUSTERCTL_PATH --working-dir $TEST_WORKING_DIR
