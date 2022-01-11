@@ -96,11 +96,11 @@ test-junit: $(GOTESTSUM) ## Run tests with verbose setting and generate a junit 
 
 .PHONY: build-e2e-test
 build-e2e-test: ## Builds the test binary
-	BIN_DIR=$(BIN_DIR) ./hack/build-functests.sh
+	BIN_DIR=$(BIN_DIR) ./hack/build-e2e.sh
 
 .PHONY: e2e-test
 e2e-test: build-e2e-test ## run e2e tests
-	BIN_DIR=$(BIN_DIR) ./hack/run-functests.sh
+	BIN_DIR=$(BIN_DIR) ./hack/run-e2e.sh
 
 ## --------------------------------------
 ## Binaries
