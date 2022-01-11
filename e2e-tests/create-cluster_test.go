@@ -75,6 +75,12 @@ var _ = Describe("CreateCluster", func() {
 			os.RemoveAll(tmpDir)
 		}()
 
+		// Typically the machine deployment and machines should not need to get removed before
+		// the Cluster object. However we have a bug today that prevents proper tear down
+		// of the cluster unless the machines are removed first.
+		//
+		// Tracking this issue here: https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues/65
+		// TODO remove the logic that delets the machine and kubevirt machines once this issue is resolved.
 		By("removing machine deployment")
 		machineDeployment := &clusterv1.MachineDeployment{}
 		key := client.ObjectKey{Namespace: namespace, Name: "kvcluster-md-0"}
@@ -97,7 +103,7 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	It("test", func() {
+	It("creating a simple cluster", func() {
 
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
