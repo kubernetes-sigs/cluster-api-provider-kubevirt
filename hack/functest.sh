@@ -2,12 +2,15 @@
 
 set -e -o pipefail
 
+echo "Building e2e test suite"
+make build-e2e-test
+
+echo "Starting kubevirtci cluster"
 ./kubevirtci up
+
+echo "Building and installing capk manager container"
 ./kubevirtci sync
-./kubevirtci create-cluster
-./kubevirtci kubectl wait --for=condition=ControlPlaneInitialized=true cluster/kvcluster --timeout=10m
-./kubevirtci kubectl wait --for=condition=ControlPlaneReady=true cluster/kvcluster --timeout=10m
 
-CONTROL_PLANE_MACHINE=$(./kubevirtci kubectl get kubevirtmachine | grep kvcluster-control-plane | awk '{ print $1 }')
-./kubevirtci kubectl wait --for=condition=BootstrapExecSucceeded=true kubevirtmachine/${CONTROL_PLANE_MACHINE} --timeout=1m
-
+echo "Running e2e test suite"
+export KUBECONFIG=$(./kubevirtci kubeconfig)
+make e2e-test

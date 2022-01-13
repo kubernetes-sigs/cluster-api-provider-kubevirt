@@ -81,7 +81,7 @@ ARTIFACTS ?= $(ROOT)/_artifacts
 
 .PHONY: test
 test: ## Run tests.
-	go test ./... $(TEST_ARGS)
+	go test -v `go list ./... | grep -v "e2e-tests"` $(TEST_ARGS)
 
 .PHONY: test-verbose
 test-verbose: ## Run tests with verbose settings.
@@ -92,6 +92,15 @@ test-junit: $(GOTESTSUM) ## Run tests with verbose setting and generate a junit 
 	(go test -json ./... $(TEST_ARGS); echo $$? > $(ARTIFACTS)/junit.infra_docker.exitcode) | tee $(ARTIFACTS)/junit.infra_docker.stdout
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.infra_docker.xml --raw-command cat $(ARTIFACTS)/junit.infra_docker.stdout
 	exit $$(cat $(ARTIFACTS)/junit.infra_docker.exitcode)
+
+
+.PHONY: build-e2e-test
+build-e2e-test: ## Builds the test binary
+	BIN_DIR=$(BIN_DIR) ./hack/build-e2e.sh
+
+.PHONY: e2e-test
+e2e-test: build-e2e-test ## run e2e tests
+	BIN_DIR=$(BIN_DIR) ./hack/run-e2e.sh
 
 ## --------------------------------------
 ## Binaries
