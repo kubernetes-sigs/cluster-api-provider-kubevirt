@@ -118,6 +118,12 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 		}
 		Expect(machineNames).To(ConsistOf("test-machine", "another-test-machine"))
 	})
+
+	It("should panic when kubevirt cluster is not specified.", func() {
+		if err := recover(); err != nil {
+			Expect(kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(cluster)).To(Panic())
+		}
+	})
 })
 
 var _ = Describe("utility functions", func() {
