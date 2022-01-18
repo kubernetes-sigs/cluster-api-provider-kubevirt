@@ -8,4 +8,4 @@ kind: Metadata
 releaseSeries:
   - major: 0
     minor: 1
-    contract: v1alpha1
+    contract: v1beta1
