@@ -28,6 +28,11 @@ const (
 	ClusterFinalizer = "kubevirtcluster.infrastructure.cluster.x-k8s.io"
 )
 
+const (
+	KubevirtMachineNameLabel      = "capk.cluster.x-k8s.io/kubevirt-machine-name"
+	KubevirtMachineNamespaceLabel = "capk.cluster.x-k8s.io/kubevirt-machine-namespace"
+)
+
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.
 type KubevirtClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
