@@ -35,6 +35,8 @@ spec:
   template:
     spec:
       virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
         spec:
           runStrategy: Always
           template:
@@ -87,6 +89,8 @@ spec:
   template:
     spec:
       virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
         spec:
           runStrategy: Always
           template:
