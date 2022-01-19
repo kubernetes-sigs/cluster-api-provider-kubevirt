@@ -239,6 +239,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
+	// Checks to see if a VM's active VMI is ready or not
 	if externalMachine.IsReady() {
 		// Mark VMProvisionedCondition to indicate that the VM has successfully started
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
