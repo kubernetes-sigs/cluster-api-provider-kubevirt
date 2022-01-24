@@ -101,6 +101,7 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
 	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
+	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	// make each datavolume unique by appending machine name as a prefix
 	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
@@ -137,6 +138,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
 	template.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	template.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
+	template.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
