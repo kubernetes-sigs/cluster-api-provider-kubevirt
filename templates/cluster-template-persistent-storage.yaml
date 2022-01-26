@@ -38,6 +38,20 @@ spec:
         metadata:
           namespace: "${NAMESPACE}"
         spec:
+          dataVolumeTemplates:
+          - metadata:
+              name: "${CLUSTER_NAME}-boot-volume"
+            spec:
+              pvc:
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 6Gi
+                storageClassName: local
+              source:
+                registry:
+                  url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
           runStrategy: Always
           template:
             spec:
@@ -50,11 +64,11 @@ spec:
                   disks:
                     - disk:
                         bus: virtio
-                      name: containervolume
+                      name: dv-volume
               volumes:
-                - containerDisk:
-                    image: "${NODE_VM_IMAGE_TEMPLATE}"
-                  name: containervolume
+                - dataVolume:
+                    name: "${CLUSTER_NAME}-boot-volume"
+                  name: dv-volume
 ---
 kind: KubeadmControlPlane
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -92,6 +106,20 @@ spec:
         metadata:
           namespace: "${NAMESPACE}"
         spec:
+          dataVolumeTemplates:
+          - metadata:
+              name: "${CLUSTER_NAME}-boot-volume"
+            spec:
+              pvc:
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 6Gi
+                storageClassName: local
+              source:
+                registry:
+                  url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
           runStrategy: Always
           template:
             spec:
@@ -104,11 +132,11 @@ spec:
                   disks:
                     - disk:
                         bus: virtio
-                      name: containervolume
+                      name: dv-volume
               volumes:
-                - containerDisk:
-                    image: "${NODE_VM_IMAGE_TEMPLATE}"
-                  name: containervolume
+                - dataVolume:
+                    name: "${CLUSTER_NAME}-boot-volume"
+                  name: dv-volume
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate

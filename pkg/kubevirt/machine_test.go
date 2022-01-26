@@ -53,6 +53,7 @@ var (
 	machine             = testing.NewMachine(clusterName, machineName, kubevirtMachine)
 
 	virtualMachineInstance = testing.NewVirtualMachineInstance(kubevirtMachine)
+	virtualMachine         = testing.NewVirtualMachine(virtualMachineInstance)
 
 	bootstrapDataSecret = testing.NewBootstrapDataSecret([]byte(fmt.Sprintf("#cloud-config\n\n%s\n", sshKey)))
 
@@ -90,12 +91,12 @@ var _ = Describe("Without KubeVirt VM running", func() {
 
 	AfterEach(func() {})
 
-	It("NewMachine should have client and machineContext set, but vmInstance equal nil", func() {
+	It("NewMachine should have client and machineContext set, but vmiInstance equal nil", func() {
 		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.client).To(Equal(fakeClient))
 		Expect(externalMachine.machineContext).To(Equal(machineContext))
-		Expect(externalMachine.vmInstance).To(BeNil())
+		Expect(externalMachine.vmiInstance).To(BeNil())
 	})
 
 	It("Exists should return false", func() {
@@ -149,6 +150,20 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		// read the vm before creation
 		validateVMExist(fakeClient, machineContext)
 	})
+
+	It("Create should create VM if it doesn't exist", func() {
+		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the vm before creation
+		validateVMNotExist(fakeClient, machineContext)
+
+		err = externalMachine.Create(machineContext.Context)
+		Expect(err).NotTo(HaveOccurred())
+
+		// read the new created vm
+		validateVMExist(fakeClient, machineContext)
+	})
 })
 
 var _ = Describe("With KubeVirt VM running", func() {
@@ -177,6 +192,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			machine,
 			kubevirtMachine,
 			virtualMachineInstance,
+			virtualMachine,
 		}
 
 		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
@@ -186,12 +202,12 @@ var _ = Describe("With KubeVirt VM running", func() {
 
 	AfterEach(func() {})
 
-	It("NewMachine should have all client, machineContext and vmInstance NOT nil", func() {
+	It("NewMachine should have all client, machineContext and vmiInstance NOT nil", func() {
 		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.client).ToNot(BeNil())
 		Expect(externalMachine.machineContext).To(Equal(machineContext))
-		Expect(externalMachine.vmInstance).ToNot(BeNil())
+		Expect(externalMachine.vmiInstance).ToNot(BeNil())
 	})
 
 	It("Exists should return true", func() {
@@ -233,19 +249,6 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(providerId).To(Equal(expectedProviderId))
 	})
 
-	It("Create should create VM", func() {
-		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte{})
-		Expect(err).NotTo(HaveOccurred())
-
-		// read the vm before creation
-		validateVMNotExist(fakeClient, machineContext)
-
-		err = externalMachine.Create(machineContext.Context)
-		Expect(err).NotTo(HaveOccurred())
-
-		// read the new created vm
-		validateVMExist(fakeClient, machineContext)
-	})
 })
 
 var _ = Describe("util functions", func() {

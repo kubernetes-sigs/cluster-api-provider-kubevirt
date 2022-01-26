@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
@@ -158,22 +159,21 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Handle non-deleted machines
-	if !machineContext.KubevirtMachine.Status.Ready {
-		return r.reconcileNormal(machineContext)
-	} else {
+	res, err := r.reconcileNormal(machineContext)
+
+	if res.IsZero() &&
+		err == nil &&
+		!machineContext.KubevirtMachine.Status.Ready {
 		// Update the providerID on the Node
 		// The ProviderID on the Node and the providerID on  the KubevirtMachine are used to set the NodeRef
 		// This code is needed here as long as there is no Kubevirt cloud provider setting the providerID in the node
 		return r.updateNodeProviderID(machineContext)
 	}
+
+	return res, err
 }
 
 func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext) (res ctrl.Result, retErr error) {
-	// If the machine is already provisioned, return
-	if ctx.KubevirtMachine.Status.Ready {
-		ctx.Logger.Info("KubevirtMachine.Status.Ready is set -- nothing to do!")
-		return ctrl.Result{}, nil
-	}
 
 	// Make sure bootstrap data is available and populated.
 	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
@@ -231,22 +231,29 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	// Provision the underlying VM if not existing
 	if !externalMachine.Exists() {
+		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
-	}
-
-	// Wait for VM to boot
-	if !externalMachine.IsReady() {
-		ctx.Logger.Info("KubeVirt VM is not ready...")
+		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
-	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+	// Checks to see if a VM's active VMI is ready or not
+	if externalMachine.IsReady() {
+		// Mark VMProvisionedCondition to indicate that the VM has successfully started
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+	} else {
+		// Waiting for VM to boot
+		ctx.KubevirtMachine.Status.Ready = false
+		ctx.Logger.Info("KubeVirt VM is not fully provisioned and running...")
+		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
 
 	ipAddress := externalMachine.Address()
 	if ipAddress == "" {
 		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
+		ctx.KubevirtMachine.Status.Ready = false
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
@@ -254,6 +261,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		if !externalMachine.IsBootstrapped() {
 			ctx.Logger.Info("Waiting for underlying VM to bootstrap...")
 			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "VM not bootstrapped yet")
+			ctx.KubevirtMachine.Status.Ready = false
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 		// Update the condition BootstrapExecSucceededCondition
@@ -280,18 +288,23 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		},
 	}
 
-	providerID, err := externalMachine.GenerateProviderID()
-	if err != nil {
-		ctx.Logger.Error(err, "Failed to patch node with provider id.")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	if ctx.KubevirtMachine.Spec.ProviderID == nil || *ctx.KubevirtMachine.Spec.ProviderID == "" {
+		providerID, err := externalMachine.GenerateProviderID()
+		if err != nil {
+			ctx.Logger.Error(err, "Failed to patch node with provider id.")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		// Set ProviderID so the Cluster API Machine Controller can pull it.
+		ctx.KubevirtMachine.Spec.ProviderID = &providerID
 	}
 
-	// Set ProviderID so the Cluster API Machine Controller can pull it.
-	ctx.KubevirtMachine.Spec.ProviderID = &providerID
-
-	// KubevirtMachine is ready! Set the status and the condition.
-	ctx.KubevirtMachine.Status.Ready = true
-	conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
+	// Ready should reflect if the VMI is ready or not
+	if externalMachine.IsReady() {
+		ctx.KubevirtMachine.Status.Ready = true
+	} else {
+		ctx.KubevirtMachine.Status.Ready = false
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -410,6 +423,14 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 			&source.Kind{Type: &infrav1.KubevirtCluster{}},
 			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
 		).
+		Watches(
+			&source.Kind{Type: &kubevirtv1.VirtualMachineInstance{}},
+			handler.EnqueueRequestsFromMapFunc(r.VMIToKubevirtMachines),
+		).
+		Watches(
+			&source.Kind{Type: &kubevirtv1.VirtualMachine{}},
+			handler.EnqueueRequestsFromMapFunc(r.VMToKubevirtMachines),
+		).
 		Build(r)
 	if err != nil {
 		return err
@@ -419,6 +440,50 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
 		predicates.ClusterUnpausedAndInfrastructureReady(ctrl.LoggerFrom(goctx)),
 	)
+}
+
+func (r *KubevirtMachineReconciler) VMIToKubevirtMachines(o client.Object) []ctrl.Request {
+	var result []ctrl.Request
+	vmi, ok := o.(*kubevirtv1.VirtualMachineInstance)
+	if !ok {
+		panic(fmt.Sprintf("Expected a VirtualMachineInstance but got a %T", o))
+	}
+
+	machineNamespace, exists := vmi.Labels[infrav1.KubevirtMachineNamespaceLabel]
+	if !exists {
+		return result
+	}
+	machineName, exists := vmi.Labels[infrav1.KubevirtMachineNameLabel]
+	if !exists {
+		return result
+	}
+
+	name := client.ObjectKey{Namespace: machineNamespace, Name: machineName}
+	result = append(result, ctrl.Request{NamespacedName: name})
+
+	return result
+}
+
+func (r *KubevirtMachineReconciler) VMToKubevirtMachines(o client.Object) []ctrl.Request {
+	var result []ctrl.Request
+	vm, ok := o.(*kubevirtv1.VirtualMachine)
+	if !ok {
+		panic(fmt.Sprintf("Expected a VirtualMachine but got a %T", o))
+	}
+
+	machineNamespace, exists := vm.Labels[infrav1.KubevirtMachineNamespaceLabel]
+	if !exists {
+		return result
+	}
+	machineName, exists := vm.Labels[infrav1.KubevirtMachineNameLabel]
+	if !exists {
+		return result
+	}
+
+	name := client.ObjectKey{Namespace: machineNamespace, Name: machineName}
+	result = append(result, ctrl.Request{NamespacedName: name})
+
+	return result
 }
 
 // KubevirtClusterToKubevirtMachines is a handler.ToRequestsFunc to be used to enqueue

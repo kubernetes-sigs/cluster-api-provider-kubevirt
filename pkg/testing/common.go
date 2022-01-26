@@ -113,6 +113,19 @@ func NewVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine) *kubevi
 	}
 }
 
+func NewVirtualMachine(vmi *kubevirtv1.VirtualMachineInstance) *kubevirtv1.VirtualMachine {
+	return &kubevirtv1.VirtualMachine{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "VirtualMachine",
+			APIVersion: "kubevirt.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vmi.Name,
+			Namespace: vmi.Namespace,
+		},
+	}
+}
+
 func NewBootstrapDataSecret(userData []byte) *corev1.Secret {
 	s := &corev1.Secret{}
 	s.Data = make(map[string][]byte)

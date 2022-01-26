@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 )
@@ -38,7 +39,8 @@ type Machine struct {
 	client         client.Client
 	namespace      string
 	machineContext *context.MachineContext
-	vmInstance     *kubevirtv1.VirtualMachineInstance
+	vmiInstance    *kubevirtv1.VirtualMachineInstance
+	vmInstance     *kubevirtv1.VirtualMachine
 
 	sshKeys            *ssh.ClusterNodeSshKeys
 	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
@@ -50,24 +52,35 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 		client:             client,
 		namespace:          namespace,
 		machineContext:     ctx,
+		vmiInstance:        nil,
 		vmInstance:         nil,
 		sshKeys:            sshKeys,
 		getCommandExecutor: ssh.NewVMCommandExecutor,
 	}
 
 	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
+	vm := &kubevirtv1.VirtualMachine{}
 	vmi := &kubevirtv1.VirtualMachineInstance{}
 
+	// Get the active running VMI if it exists
 	err := client.Get(ctx.Context, namespacedName, vmi)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return machine, nil
-		} else {
+		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
+	} else {
+		machine.vmiInstance = vmi
 	}
 
-	machine.vmInstance = vmi
+	// Get the top level VM object if it exists
+	err = client.Get(ctx.Context, namespacedName, vm)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+	} else {
+		machine.vmInstance = vm
+	}
 
 	return machine, nil
 }
@@ -87,8 +100,16 @@ func (m *Machine) Create(ctx gocontext.Context) error {
 		if virtualMachine.Labels == nil {
 			virtualMachine.Labels = map[string]string{}
 		}
+		if virtualMachine.Spec.Template.ObjectMeta.Labels == nil {
+			virtualMachine.Spec.Template.ObjectMeta.Labels = map[string]string{}
+		}
 		virtualMachine.Labels[clusterv1.ClusterLabelName] = m.machineContext.Cluster.Name
 
+		virtualMachine.Labels[infrav1.KubevirtMachineNameLabel] = m.machineContext.KubevirtMachine.Name
+		virtualMachine.Labels[infrav1.KubevirtMachineNamespaceLabel] = m.machineContext.KubevirtMachine.Namespace
+
+		virtualMachine.Spec.Template.ObjectMeta.Labels[infrav1.KubevirtMachineNameLabel] = m.machineContext.KubevirtMachine.Name
+		virtualMachine.Spec.Template.ObjectMeta.Labels[infrav1.KubevirtMachineNamespaceLabel] = m.machineContext.KubevirtMachine.Namespace
 		return nil
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, m.client, virtualMachine, mutateFn); err != nil {
@@ -101,11 +122,11 @@ func (m *Machine) Create(ctx gocontext.Context) error {
 // Returns if VMI has ready condition or not.
 func (m *Machine) hasReadyCondition() bool {
 
-	if m.vmInstance == nil {
+	if m.vmiInstance == nil {
 		return false
 	}
 
-	for _, cond := range m.vmInstance.Status.Conditions {
+	for _, cond := range m.vmiInstance.Status.Conditions {
 		if cond.Type == kubevirtv1.VirtualMachineInstanceReady &&
 			cond.Status == corev1.ConditionTrue {
 			return true
@@ -117,8 +138,8 @@ func (m *Machine) hasReadyCondition() bool {
 
 // Address returns the IP address of the VM.
 func (m *Machine) Address() string {
-	if m.vmInstance != nil && len(m.vmInstance.Status.Interfaces) > 0 {
-		return m.vmInstance.Status.Interfaces[0].IP
+	if m.vmiInstance != nil && len(m.vmiInstance.Status.Interfaces) > 0 {
+		return m.vmiInstance.Status.Interfaces[0].IP
 	}
 
 	return ""
@@ -163,7 +184,7 @@ func (m *Machine) IsBootstrapped() bool {
 
 // GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
 func (m *Machine) GenerateProviderID() (string, error) {
-	if m.vmInstance == nil {
+	if m.vmiInstance == nil {
 		return "", errors.New("Underlying Kubevirt VM is NOT running")
 	}
 
