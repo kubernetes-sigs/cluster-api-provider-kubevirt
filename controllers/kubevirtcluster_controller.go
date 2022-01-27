@@ -210,6 +210,7 @@ func (r *KubevirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
 		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
+		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Log)).
 		Build(r)
 	if err != nil {
 		return err
