@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/sigs.k8s.io/cluster-api-provider-kubevirt)](https://goreportcard.com/report/sigs.k8s.io/cluster-api-provider-kubevirt)
+[![Coverage Status](https://coveralls.io/repos/github/kubernetes-sigs/cluster-api-provider-kubevirt/badge.png?branch=main)](https://coveralls.io/github/kubernetes-sigs/cluster-api-provider-kubevirt?branch=main)
 # Kubernetes Cluster API Provider Kubevirt
 
 Kubernetes-native declarative infrastructure for Kubevirt.

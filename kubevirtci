@@ -18,6 +18,7 @@ export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
+export KUBEVIRT_DEPLOY_CDI="true"
 
 _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
@@ -29,9 +30,14 @@ _kubectl=cluster-up/cluster-up/kubectl.sh
 _action=$1
 shift
 
+
+function kubevirtci::kubeconfig() {
+	cluster-up/cluster-up/kubeconfig.sh
+}
+
 function kubevirtci::fetch_kubevirtci() {
 	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
-	(cd cluster-up && git checkout ${KUEVIRTCI_TAG})
+	(cd cluster-up && git checkout ${KUEVIRTCI_TAG} > /dev/null)
 	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
 		echo >&2 "Downloading clusterctl ..."
@@ -105,6 +111,9 @@ case ${_action} in
 "sync")
 	kubevirtci::build
 	kubevirtci::install
+	;;
+"kubeconfig")
+	kubevirtci::kubeconfig
 	;;
 "kubectl")
 	${_kubectl} "$@"

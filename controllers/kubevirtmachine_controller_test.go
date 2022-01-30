@@ -118,6 +118,12 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 		}
 		Expect(machineNames).To(ConsistOf("test-machine", "another-test-machine"))
 	})
+
+	It("should panic when kubevirt cluster is not specified.", func() {
+		if err := recover(); err != nil {
+			Expect(kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(cluster)).To(Panic())
+		}
+	})
 })
 
 var _ = Describe("utility functions", func() {
@@ -349,6 +355,62 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(*machineContext.KubevirtMachine.Spec.ProviderID).To(Equal("kubevirt://" + kubevirtMachineName))
 	})
 
+	It("should detect when a previous Ready KubeVirtMachine is no longer ready due to vmi ready condition being false", func() {
+		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceReady,
+				Status: corev1.ConditionFalse,
+			},
+		}
+
+		kubevirtMachine.Status.Ready = true
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+			vm,
+			vmi,
+		}
+
+		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(err).To(BeNil())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+	})
+
+	It("should detect when a previous Ready KubeVirtMachine is no longer ready due to missing vmi object", func() {
+		kubevirtMachine.Status.Ready = true
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(err).To(BeNil())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+	})
 })
 
 var _ = Describe("updateNodeProviderID", func() {

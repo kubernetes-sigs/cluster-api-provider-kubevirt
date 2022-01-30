@@ -96,6 +96,7 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 			},
 			Selector: map[string]string{
 				"cluster.x-k8s.io/role": constants.ControlPlaneNodeRoleValue,
+				"cluster.x-k8s.io/cluster-name": ctx.Cluster.Name,
 			},
 		},
 	}
