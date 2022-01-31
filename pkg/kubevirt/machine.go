@@ -165,7 +165,7 @@ func (m *Machine) SupportsCheckingIsBootstrapped() bool {
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
 func (m *Machine) IsBootstrapped() bool {
-	if !m.IsReady() {
+	if !m.IsReady() || m.sshKeys == nil {
 		return false
 	}
 
