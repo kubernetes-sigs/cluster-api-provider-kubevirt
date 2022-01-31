@@ -268,6 +268,44 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 	})
 
+	It("should create KubeVirt VM with externally managed cluster and no ssh key", func() {
+
+		kubevirtCluster.Annotations = map[string]string{
+			"cluster.x-k8s.io/managed-by": "external",
+		}
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		// should expect to re-enqueue while waiting for VMI to come online
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+
+		// should expect VM to be created with expected name
+		vm := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Should expect kubevirt machine is still not ready
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+	})
+
 	It("should create KubeVirt VM in custom namespace", func() {
 
 		customNamespace := "custom"
