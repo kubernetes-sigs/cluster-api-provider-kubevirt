@@ -95,11 +95,16 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 				},
 			},
 			Selector: map[string]string{
-				"cluster.x-k8s.io/role": constants.ControlPlaneNodeRoleValue,
+				"cluster.x-k8s.io/role":         constants.ControlPlaneNodeRoleValue,
 				"cluster.x-k8s.io/cluster-name": ctx.Cluster.Name,
 			},
 		},
 	}
+
+	lbService.Labels = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Labels
+	lbService.Annotations = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Annotations
+	lbService.Spec.Type = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type
+
 	mutateFn := func() (err error) {
 		if lbService.Labels == nil {
 			lbService.Labels = map[string]string{}
