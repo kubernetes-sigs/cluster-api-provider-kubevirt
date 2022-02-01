@@ -47,6 +47,9 @@ func NewVMCommandExecutor(address string, keys *ClusterNodeSshKeys) VMCommandExe
 func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 	// create signer
 	signer, err := signerFromPem(e.PrivateKey, []byte(""))
+	if err != nil {
+		return "", fmt.Errorf("can't get signer from PEM; %w", err)
+	}
 
 	sshConfig := &ssh.ClientConfig{
 		User: "capk",

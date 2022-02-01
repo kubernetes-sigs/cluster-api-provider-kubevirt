@@ -27,11 +27,6 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 )
 
-const (
-	clusterLabelKey  = "io.x-k8s.capk.cluster"
-	nodeRoleLabelKey = "io.x-k8s.capk.role"
-)
-
 type CommandExecutor interface {
 	ExecuteCommand(command string) (string, error)
 }
@@ -46,7 +41,7 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 	}
 
 	dvNameMap := map[string]string{}
-	for i, _ := range vm.Spec.DataVolumeTemplates {
+	for i := range vm.Spec.DataVolumeTemplates {
 
 		prefixedName := fmt.Sprintf("%s-%s", prefix, vm.Spec.DataVolumeTemplates[i].Name)
 		dvNameMap[vm.Spec.DataVolumeTemplates[i].Name] = prefixedName

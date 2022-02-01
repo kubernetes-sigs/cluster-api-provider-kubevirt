@@ -49,9 +49,9 @@ var _ = Describe("CreateCluster", func() {
 		k8sclient, err = client.New(cfg, client.Options{})
 		Expect(err).To(BeNil())
 
-		clusterv1.AddToScheme(k8sclient.Scheme())
-		infrav1.AddToScheme(k8sclient.Scheme())
-		kubevirtv1.AddToScheme(k8sclient.Scheme())
+		_ = clusterv1.AddToScheme(k8sclient.Scheme())
+		_ = infrav1.AddToScheme(k8sclient.Scheme())
+		_ = kubevirtv1.AddToScheme(k8sclient.Scheme())
 
 		namespace = "e2e-test-create-cluster-" + rand.String(6)
 
@@ -74,8 +74,8 @@ var _ = Describe("CreateCluster", func() {
 					Name: namespace,
 				},
 			}
-			k8sclient.Delete(context.Background(), ns)
-			os.RemoveAll(tmpDir)
+			_ = k8sclient.Delete(context.Background(), ns)
+			_ = os.RemoveAll(tmpDir)
 		}()
 
 		// Typically the machine deployment and machines should not need to get removed before
