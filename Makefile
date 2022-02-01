@@ -266,3 +266,17 @@ verify-gen: generate
 .PHONY: functest
 functest:
 	./hack/functest.sh
+
+.PHONY: goimports
+goimports:
+	go install golang.org/x/tools/cmd/goimports@latest
+	goimports -w -local="sigs.k8s.io/cluster-api-provider-kubevirt"  $(shell find . -type f -name '*.go' ! -path "*/vendor/*" ! -path "./_kubevirtci/*" ! -path "*zz_generated*" )
+
+.PHONY: linter
+linter:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	# todo remove the exclude parameter when issue #85 is resolved
+	golangci-lint run --exclude SA1019
+
+.PHONY: sanity
+sanity: linter goimports test

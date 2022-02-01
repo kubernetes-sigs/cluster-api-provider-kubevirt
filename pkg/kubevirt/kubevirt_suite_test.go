@@ -17,9 +17,10 @@ limitations under the License.
 package kubevirt
 
 import (
+	"testing"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"testing"
 )
 
 func TestKubevirt(t *testing.T) {

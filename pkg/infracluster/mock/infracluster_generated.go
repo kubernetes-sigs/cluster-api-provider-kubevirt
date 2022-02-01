@@ -5,11 +5,12 @@
 package mock
 
 import (
-	reflect "reflect"
+	"reflect"
 
-	gomock "github.com/golang/mock/gomock"
-	context "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	client "sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/golang/mock/gomock"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 // MockInfraCluster is a mock of InfraCluster interface.
