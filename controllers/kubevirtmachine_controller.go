@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -40,7 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"

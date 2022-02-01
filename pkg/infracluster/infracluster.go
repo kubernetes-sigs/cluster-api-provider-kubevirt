@@ -1,12 +1,14 @@
 package infracluster
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 //go:generate mockgen -source=./infracluster.go -destination=./mock/infracluster_generated.go -package=mock

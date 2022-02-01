@@ -17,9 +17,10 @@ limitations under the License.
 package loadbalancer_test
 
 import (
+	"testing"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"testing"
 )
 
 func TestLoadBalancer(t *testing.T) {

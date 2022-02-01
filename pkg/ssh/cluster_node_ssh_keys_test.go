@@ -5,18 +5,18 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 )
 
 var (
