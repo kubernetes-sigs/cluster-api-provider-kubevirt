@@ -525,8 +525,8 @@ var _ = Describe("updateNodeProviderID", func() {
 		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachineNotExist, Logger: testLogger}
 		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(fakeWorkloadClusterClient, nil)
 		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
-		Expect(err).Should(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
+		Expect(err).To(BeNil())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
 		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
