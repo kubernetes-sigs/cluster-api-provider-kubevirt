@@ -147,11 +147,7 @@ func (m *Machine) Address() string {
 
 // IsReady checks if the VM is ready
 func (m *Machine) IsReady() bool {
-	if !m.hasReadyCondition() {
-		return false
-	}
-
-	return true
+	return m.hasReadyCondition()
 }
 
 // SupportsCheckingIsBootstrapped checks if we have a method of checking
@@ -199,7 +195,7 @@ func (m *Machine) Delete() error {
 	vm := &kubevirtv1.VirtualMachine{}
 	if err := m.client.Get(m.machineContext.Context, namespacedName, vm); err != nil {
 		if apierrors.IsNotFound(err) {
-			m.machineContext.Logger.Info(fmt.Sprintf("VM does not exist, nothing to do."))
+			m.machineContext.Logger.Info("VM does not exist, nothing to do.")
 			return nil
 		}
 	}
