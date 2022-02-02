@@ -17,13 +17,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	tests "sigs.k8s.io/cluster-api-provider-kubevirt/e2e-tests"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	tests "sigs.k8s.io/cluster-api-provider-kubevirt/e2e-tests"
 )
 
 var _ = Describe("CreateCluster", func() {
