@@ -20,6 +20,7 @@ export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
 
+_default_bin_path=./hack/tools/bin
 _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
 
@@ -60,7 +61,13 @@ function kubevirtci::up() {
 	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-operator.yaml
 	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-cr.yaml
 	echo "installing capi..."
-	$CLUSTERCTL_PATH init
+
+	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
+---
+cert-manager:
+  url: "https://github.com/cert-manager/cert-manager/releases/latest/cert-manager.yaml"
+EOF
+	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
 	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
 }
