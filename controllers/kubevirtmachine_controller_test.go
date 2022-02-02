@@ -422,7 +422,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
 	})
 
@@ -446,7 +446,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
 	})
 })
@@ -525,7 +525,7 @@ var _ = Describe("updateNodeProviderID", func() {
 		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachineNotExist, Logger: testLogger}
 		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(fakeWorkloadClusterClient, nil)
 		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}

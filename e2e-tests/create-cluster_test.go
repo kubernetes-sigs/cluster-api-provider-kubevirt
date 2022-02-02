@@ -41,14 +41,14 @@ var _ = Describe("CreateCluster", func() {
 		Expect(tests.WorkingDir).ToNot(Equal(""))
 
 		tmpDir, err = ioutil.TempDir(tests.WorkingDir, "creation-tests")
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
 
 		cfg, err := config.GetConfig()
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		k8sclient, err = client.New(cfg, client.Options{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		_ = clusterv1.AddToScheme(k8sclient.Scheme())
 		_ = infrav1.AddToScheme(k8sclient.Scheme())
@@ -63,7 +63,7 @@ var _ = Describe("CreateCluster", func() {
 		}
 
 		err = k8sclient.Create(context.Background(), ns)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
@@ -93,7 +93,7 @@ var _ = Describe("CreateCluster", func() {
 		By("removing all kubevirt machines")
 		machineList := &infrav1.KubevirtMachineList{}
 		err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		for _, machine := range machineList.Items {
 			key := client.ObjectKey{Namespace: namespace, Name: machine.Name}
@@ -121,7 +121,7 @@ var _ = Describe("CreateCluster", func() {
 				}
 			}
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(BeNil(), "kubevirt machines should have bootstrap succeeded condition")
+		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
 
 	}
 
@@ -131,11 +131,11 @@ var _ = Describe("CreateCluster", func() {
 			kvCluster := &infrav1.KubevirtCluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: clusterName}
 			err := k8sclient.Get(context.Background(), key, kvCluster)
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 
 			Expect(kvCluster.Status.Ready).To(BeFalse())
-			Expect(len(kvCluster.Status.FailureDomains)).To(Equal(0))
-			Expect(len(kvCluster.Status.Conditions)).To(Equal(0))
+			Expect(kvCluster.Status.FailureDomains).To(BeEmpty())
+			Expect(kvCluster.Status.Conditions).To(BeEmpty())
 
 			return nil
 		}, 30*time.Second, 5*time.Second).Should(Succeed())
@@ -163,7 +163,7 @@ var _ = Describe("CreateCluster", func() {
 			},
 		}
 		err := k8sclient.Create(context.Background(), lbService)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("getting IP of load balancer")
 
@@ -182,26 +182,26 @@ var _ = Describe("CreateCluster", func() {
 
 			lbIP = updatedLB.Spec.ClusterIP
 			return nil
-		}, 30*time.Second, 5*time.Second).Should(BeNil(), "lb should have provided an ip")
+		}, 30*time.Second, 5*time.Second).Should(Succeed(), "lb should have provided an ip")
 
 		By("Setting ready=true on kvcluster object")
 		kvCluster := &infrav1.KubevirtCluster{}
 		key := client.ObjectKey{Namespace: namespace, Name: clusterName}
 		err = k8sclient.Get(context.Background(), key, kvCluster)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		kvCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
 			Host: lbIP,
 			Port: 6443,
 		}
 		err = k8sclient.Update(context.Background(), kvCluster)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		conditions.MarkTrue(kvCluster, infrav1.LoadBalancerAvailableCondition)
 		kvCluster.Status.Ready = true
 
 		err = k8sclient.Status().Update(context.Background(), kvCluster)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(kvCluster.Status.Ready).To(BeTrue())
 	}
 
@@ -232,7 +232,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(BeNil(), "waiting for expected readiness.")
+		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
 	waitForNodeUpdate := func() {
@@ -250,7 +250,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(BeNil(), "waiting for expected readiness.")
+		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
 	waitForControlPlane := func() {
@@ -268,7 +268,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 10*time.Minute, 5*time.Second).Should(BeNil(), "cluster should have control plane initialized")
+		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
 
 		By("Waiting on cluster's control plane to be ready")
 		Eventually(func() error {
@@ -284,7 +284,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 10*time.Minute, 5*time.Second).Should(BeNil(), "cluster should have control plane initialized")
+		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
 	}
 
 	injectKubevirtClusterExternallyManagedAnnotation := func(yamlStr string) string {
@@ -315,7 +315,7 @@ var _ = Describe("CreateCluster", func() {
 		)
 		stdout, _ := tests.RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
@@ -344,7 +344,7 @@ var _ = Describe("CreateCluster", func() {
 		modifiedStdOut := injectKubevirtClusterExternallyManagedAnnotation(string(stdout))
 
 		err := os.WriteFile(manifestsFile, []byte(modifiedStdOut), 0644)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
@@ -373,7 +373,7 @@ var _ = Describe("CreateCluster", func() {
 		)
 		stdout, _ := tests.RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
@@ -391,7 +391,7 @@ var _ = Describe("CreateCluster", func() {
 		By("Selecting a worker node to restart")
 		vmiList := &kubevirtv1.VirtualMachineInstanceList{}
 		err = k8sclient.List(context.Background(), vmiList, client.InNamespace(namespace))
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
 		for _, vmi := range vmiList.Items {
@@ -404,7 +404,7 @@ var _ = Describe("CreateCluster", func() {
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
 		err = k8sclient.Delete(context.Background(), chosenVMI)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
