@@ -101,6 +101,11 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 			},
 		},
 	}
+
+	lbService.Labels = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Labels
+	lbService.Annotations = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Annotations
+	lbService.Spec.Type = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type
+
 	mutateFn := func() (err error) {
 		if lbService.Labels == nil {
 			lbService.Labels = map[string]string{}
