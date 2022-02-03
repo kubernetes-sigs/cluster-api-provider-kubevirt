@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -44,6 +45,11 @@ type KubevirtMachineSpec struct {
 	// ProviderID TBD what to use for Kubevirt
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
+
+	// InfraClusterSecretRef is a reference to a secret with a kubeconfig for external cluster used for infra.
+	// When nil, this defaults to the value present in the KubevirtCluster object's spec associated with this machine.
+	// +optional
+	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
 }
 
 // KubevirtMachineStatus defines the observed state of KubevirtMachine.
