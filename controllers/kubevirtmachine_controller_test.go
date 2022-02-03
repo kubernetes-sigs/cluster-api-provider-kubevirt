@@ -39,6 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	machinemocks "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt/mock"
 
@@ -264,8 +265,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -306,8 +306,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineMock.EXPECT().GenerateProviderID().Return("abc", nil).Times(1)
 		machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil).Times(3)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil).Times(3)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -323,7 +322,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		//Check bootstrapData secret is deleted
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(clusterContext)
+		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context)
 		Expect(err).NotTo(HaveOccurred())
 		bootstrapDataSecret := &corev1.Secret{}
 		err = infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
@@ -350,8 +349,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil).Times(2)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil).Times(2)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -368,7 +366,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(clusterContext)
+		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context)
 		Expect(err).NotTo(HaveOccurred())
 
 		bootstrapDataSecret := &corev1.Secret{}
@@ -376,6 +374,38 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(bootstrapUserDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
+	})
+
+	It("should be able to delete KubeVirt VM even when cluster objects don't exist", func() {
+		controllerutil.AddFinalizer(kubevirtMachine, infrav1.MachineFinalizer)
+		objects := []client.Object{
+			machine,
+			kubevirtMachine,
+			bootstrapUserDataSecret,
+			vm,
+		}
+
+		setupClient(machineFactoryMock, objects)
+
+		machineContext = &context.MachineContext{
+			Context:         gocontext.Background(),
+			Machine:         machine,
+			KubevirtMachine: kubevirtMachine,
+			Logger:          testLogger,
+		}
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+		out, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{}))
+
+		// vm should be deleted
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).To(HaveOccurred())
+
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(HaveLen(0))
 	})
 
 	It("should create KubeVirt VM with externally managed cluster and no ssh key", func() {
@@ -395,8 +425,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -433,8 +462,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -482,8 +510,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
@@ -519,8 +546,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 			setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-			clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-			infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+			infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 			// kubevirtMachineReconciler.Client
 			kubevirtMachineKey := types.NamespacedName{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
 			_, err := kubevirtMachineReconciler.Reconcile(machineContext, ctrl.Request{NamespacedName: kubevirtMachineKey})
@@ -549,8 +575,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 				// kubevirtMachineReconciler.Client
 				kubevirtMachineKey := types.NamespacedName{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
 				_, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
@@ -584,8 +609,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -612,8 +636,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 
@@ -632,10 +655,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					sshKeySecret,
 				}
 
-				// clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any()).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 				Expect(err).ShouldNot(BeNil())
@@ -672,8 +694,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).Times(1)
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -720,8 +741,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				setupClient(machineFactoryMock, objects)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -770,8 +790,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				setupClient(machineFactoryMock, objects)
 
-				clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-				infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 				Expect(err).ShouldNot(HaveOccurred())
@@ -806,8 +825,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
@@ -830,8 +848,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
