@@ -87,7 +87,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
 	}
 
-	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(clusterContext)
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(kubevirtCluster.Spec.InfraClusterSecretRef, kubevirtCluster.Namespace, goctx)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
