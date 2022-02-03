@@ -9,6 +9,9 @@ spec:
     pods:
       cidrBlocks:
         - 10.244.0.0/16
+    services:
+      cidrBlocks:
+        - 10.96.0.0/12
   infrastructureRef:
     apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
     kind: KubevirtCluster
