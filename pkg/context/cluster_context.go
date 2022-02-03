@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	"github.com/go-logr/logr"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 // ClusterContext is a Go context used with a KubeVirt cluster.

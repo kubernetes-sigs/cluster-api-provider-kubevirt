@@ -4,8 +4,9 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 //go:generate mockgen -source=./workloadcluster.go -destination=./mock/workloadcluster_generated.go -package=mock

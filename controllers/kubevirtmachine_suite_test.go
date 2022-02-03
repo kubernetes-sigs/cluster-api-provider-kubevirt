@@ -17,9 +17,10 @@ limitations under the License.
 package controllers
 
 import (
+	"testing"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"testing"
 )
 
 func TestKubevirtMachineController(t *testing.T) {

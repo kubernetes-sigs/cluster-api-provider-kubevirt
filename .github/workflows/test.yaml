@@ -19,6 +19,7 @@ jobs:
       run: make test
     - name: Build
       run: make manager
+
   coverage:
     if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt')
     runs-on: ubuntu-latest
@@ -41,3 +42,12 @@ jobs:
       run: |-
         GO111MODULE=off go get github.com/mattn/goveralls
         $(go env GOPATH)/bin/goveralls -coverprofile=coverprofiles/cover.coverprofile -service=github
+
+  go-linter:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v2
+      with: # TODO: remove this when the deprecated function will be removed (issue #85)
+        args: --exclude SA1019

@@ -105,7 +105,7 @@ func signerFromPem(pemBytes []byte, password []byte) (ssh.Signer, error) {
 	// handle encrypted key
 	if x509.IsEncryptedPEMBlock(pemBlock) {
 		// decrypt PEM
-		pemBlock.Bytes, err = x509.DecryptPEMBlock(pemBlock, []byte(password))
+		pemBlock.Bytes, err = x509.DecryptPEMBlock(pemBlock, password)
 		if err != nil {
 			return nil, fmt.Errorf("Decrypting PEM block failed %v", err)
 		}

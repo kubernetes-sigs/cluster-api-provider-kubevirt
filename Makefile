@@ -173,7 +173,7 @@ docker-pull-prerequisites:
 
 .PHONY: docker-build
 docker-build: docker-pull-prerequisites ## Build the docker image for controller-manager
-	DOCKER_BUILDKIT=1 docker build --build-arg goproxy=$(GOPROXY) --build-arg ARCH=$(ARCH) . -t $(CONTROLLER_IMG)-$(ARCH):$(TAG) --file Dockerfile
+	DOCKER_BUILDKIT=1 docker build --build-arg goproxy="$(GOPROXY)" --build-arg ARCH=$(ARCH) . -t $(CONTROLLER_IMG)-$(ARCH):$(TAG) --file Dockerfile
 	MANIFEST_IMG=$(CONTROLLER_IMG)-$(ARCH) MANIFEST_TAG=$(TAG) $(MAKE) set-manifest-image
 	$(MAKE) set-manifest-pull-policy
 
@@ -266,3 +266,17 @@ verify-gen: generate
 .PHONY: functest
 functest:
 	./hack/functest.sh
+
+.PHONY: goimports
+goimports:
+	go install golang.org/x/tools/cmd/goimports@latest
+	goimports -w -local="sigs.k8s.io/cluster-api-provider-kubevirt"  $(shell find . -type f -name '*.go' ! -path "*/vendor/*" ! -path "./_kubevirtci/*" ! -path "*zz_generated*" )
+
+.PHONY: linter
+linter:
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	# todo remove the exclude parameter when issue #85 is resolved
+	golangci-lint run --exclude SA1019
+
+.PHONY: sanity
+sanity: linter goimports test

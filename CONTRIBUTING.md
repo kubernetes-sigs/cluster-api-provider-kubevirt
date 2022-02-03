@@ -29,3 +29,8 @@ Custom Information - if you're copying this template for the first time you can 
 - [Mailing list](URL)
 
 -->
+
+## Opening a New Pull Request
+Before pushing a pull request, please run `make sanity` and check that it passed.
+
+This command may change some files. If that happened, you'll need to commit these files before pushing them to the remote repository.

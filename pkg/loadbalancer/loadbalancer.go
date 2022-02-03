@@ -18,18 +18,19 @@ package loadbalancer
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 // LoadBalancer manages the load balancer for a specific KubeVirt cluster.
@@ -95,11 +96,16 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 				},
 			},
 			Selector: map[string]string{
-				"cluster.x-k8s.io/role": constants.ControlPlaneNodeRoleValue,
+				"cluster.x-k8s.io/role":         constants.ControlPlaneNodeRoleValue,
 				"cluster.x-k8s.io/cluster-name": ctx.Cluster.Name,
 			},
 		},
 	}
+
+	lbService.Labels = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Labels
+	lbService.Annotations = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Annotations
+	lbService.Spec.Type = ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type
+
 	mutateFn := func() (err error) {
 		if lbService.Labels == nil {
 			lbService.Labels = map[string]string{}

@@ -20,11 +20,12 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clustercontext "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	clusterutil "sigs.k8s.io/cluster-api/util"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	clustercontext "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 const (

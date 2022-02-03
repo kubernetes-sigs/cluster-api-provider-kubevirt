@@ -25,20 +25,20 @@ import (
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
-	workloadclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
+	workloadclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 )
 
 var (
@@ -268,6 +268,44 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 	})
 
+	It("should create KubeVirt VM with externally managed cluster and no ssh key", func() {
+
+		kubevirtCluster.Annotations = map[string]string{
+			"cluster.x-k8s.io/managed-by": "external",
+		}
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		setupClient(objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil)
+
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+		Expect(err).ShouldNot(HaveOccurred())
+
+		// should expect to re-enqueue while waiting for VMI to come online
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+
+		// should expect VM to be created with expected name
+		vm := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Should expect kubevirt machine is still not ready
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+	})
+
 	It("should create KubeVirt VM in custom namespace", func() {
 
 		customNamespace := "custom"
@@ -384,7 +422,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
 	})
 
@@ -408,7 +446,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
 	})
 })
@@ -487,8 +525,8 @@ var _ = Describe("updateNodeProviderID", func() {
 		machineContext := &context.MachineContext{KubevirtMachine: kubevirtMachineNotExist, Logger: testLogger}
 		workloadClusterMock.EXPECT().GenerateWorkloadClusterClient(machineContext).Return(fakeWorkloadClusterClient, nil)
 		out, err := kubevirtMachineReconciler.updateNodeProviderID(machineContext)
-		Expect(err).Should(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
 		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)

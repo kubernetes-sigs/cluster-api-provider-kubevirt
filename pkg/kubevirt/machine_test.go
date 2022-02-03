@@ -246,6 +246,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 		externalMachine, err := defaultTestMachine(machineContext, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		providerId, err := externalMachine.GenerateProviderID()
+		Expect(err).ToNot(HaveOccurred())
 		Expect(providerId).To(Equal(expectedProviderId))
 	})
 

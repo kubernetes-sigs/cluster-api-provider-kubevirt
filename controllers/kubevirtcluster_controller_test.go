@@ -2,6 +2,8 @@ package controllers_test
 
 import (
 	goContext "context"
+	"time"
+
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -9,27 +11,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
-	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	. "sigs.k8s.io/controller-runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"time"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 )
 
 var (
-	mockCtrl *gomock.Controller
-	clusterName         string
-	kubevirtClusterName string
-	kubevirtCluster     *infrav1.KubevirtCluster
-	cluster             *clusterv1.Cluster
+	mockCtrl                  *gomock.Controller
+	clusterName               string
+	kubevirtClusterName       string
+	kubevirtCluster           *infrav1.KubevirtCluster
+	cluster                   *clusterv1.Cluster
 	fakeClient                client.Client
 	kubevirtClusterReconciler controllers.KubevirtClusterReconciler
-	fakeContext = goContext.TODO()
+	fakeContext               = goContext.TODO()
 )
 
 var _ = Describe("Reconcile", func() {
@@ -38,10 +40,10 @@ var _ = Describe("Reconcile", func() {
 	testLogger := ctrl.Log.WithName("test")
 	setupClient := func(objects []client.Object) {
 		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
-		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler {
-			Client:          fakeClient,
-			InfraCluster:    infraClusterMock,
-			Log: testLogger,
+		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
+			Client:       fakeClient,
+			InfraCluster: infraClusterMock,
+			Log:          testLogger,
 		}
 	}
 	Context("reconcile generic cluster", func() {

@@ -22,14 +22,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
-)
 
-const (
-	clusterLabelKey  = "io.x-k8s.capk.cluster"
-	nodeRoleLabelKey = "io.x-k8s.capk.role"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 type CommandExecutor interface {
@@ -46,7 +42,7 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 	}
 
 	dvNameMap := map[string]string{}
-	for i, _ := range vm.Spec.DataVolumeTemplates {
+	for i := range vm.Spec.DataVolumeTemplates {
 
 		prefixedName := fmt.Sprintf("%s-%s", prefix, vm.Spec.DataVolumeTemplates[i].Name)
 		dvNameMap[vm.Spec.DataVolumeTemplates[i].Name] = prefixedName

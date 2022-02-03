@@ -28,8 +28,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -40,7 +42,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
@@ -161,9 +162,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	// Handle non-deleted machines
 	res, err := r.reconcileNormal(machineContext)
 
-	if res.IsZero() &&
-		err == nil &&
-		!machineContext.KubevirtMachine.Status.Ready {
+	if res.IsZero() && err == nil {
 		// Update the providerID on the Node
 		// The ProviderID on the Node and the providerID on  the KubevirtMachine are used to set the NodeRef
 		// This code is needed here as long as there is no Kubevirt cloud provider setting the providerID in the node
@@ -189,13 +188,17 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	// Fetch SSH keys to be used for cluster nodes, and update bootstrap script cloud-init with public key
-	clusterNodeSshKeys := ssh.NewClusterNodeSshKeys(ctx.ClusterContext(), r.Client)
-	if persisted := clusterNodeSshKeys.IsPersistedToSecret(); !persisted {
-		ctx.Logger.Info("Waiting for ssh keys data secret to be created by KubevirtCluster controller...")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-	if err := clusterNodeSshKeys.FetchPersistedKeysFromSecret(); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to fetch ssh keys for cluster nodes")
+	var clusterNodeSshKeys *ssh.ClusterNodeSshKeys
+
+	if !annotations.IsExternallyManaged(ctx.KubevirtCluster) {
+		clusterNodeSshKeys = ssh.NewClusterNodeSshKeys(ctx.ClusterContext(), r.Client)
+		if persisted := clusterNodeSshKeys.IsPersistedToSecret(); !persisted {
+			ctx.Logger.Info("Waiting for ssh keys data secret to be created by KubevirtCluster controller...")
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+		if err := clusterNodeSshKeys.FetchPersistedKeysFromSecret(); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "failed to fetch ssh keys for cluster nodes")
+		}
 	}
 
 	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
@@ -328,7 +331,12 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 	workloadClusterNode := &corev1.Node{}
 	workloadClusterNodeKey := client.ObjectKey{Namespace: ctx.KubevirtMachine.Namespace, Name: ctx.KubevirtMachine.Name}
 	if err := workloadClusterClient.Get(ctx, workloadClusterNodeKey, workloadClusterNode); err != nil {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, errors.Wrapf(err, "failed to fetch workload cluster node")
+		if apierrors.IsNotFound(err) {
+			ctx.Logger.Info(fmt.Sprintf("Waiting for workload cluster node to appear for machine %s/%s...", ctx.KubevirtMachine.Namespace, ctx.KubevirtMachine.Name))
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		} else {
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, errors.Wrapf(err, "failed to fetch workload cluster node")
+		}
 	}
 
 	if workloadClusterNode.Spec.ProviderID == *ctx.KubevirtMachine.Spec.ProviderID {
@@ -361,23 +369,13 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
-	// Fetch SSH keys to be used for cluster nodes, and update bootstrap script cloud-init with public key
-	clusterNodeSshKeys := ssh.NewClusterNodeSshKeys(ctx.ClusterContext(), r.Client)
-	if persisted := clusterNodeSshKeys.IsPersistedToSecret(); !persisted {
-		ctx.Logger.Info("Waiting for ssh keys data secret to be created by KubevirtCluster controller...")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-	if err := clusterNodeSshKeys.FetchPersistedKeysFromSecret(); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to fetch ssh keys for cluster nodes")
-	}
-
 	ctx.Logger.Info("Deleting VM bootstrap secret...")
 	if err := r.deleteKubevirtBootstrapSecret(ctx, infraClusterClient, vmNamespace); err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete bootstrap secret")
 	}
 
 	ctx.Logger.Info("Deleting VM...")
-	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
+	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, vmNamespace, nil)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
 	}
@@ -544,7 +542,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		return errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	if isCloudConfigUserData(value) {
+	if sshKeys != nil && isCloudConfigUserData(value) {
 		ctx.Logger.Info("Adding users and ssh config to bootstrap userdata...")
 		value = []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
 	}

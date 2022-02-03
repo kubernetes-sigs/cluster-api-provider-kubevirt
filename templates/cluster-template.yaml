@@ -25,6 +25,10 @@ kind: KubevirtCluster
 metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: ClusterIP
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
