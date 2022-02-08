@@ -23,6 +23,13 @@ import (
 	"os"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+
+	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
+
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -34,13 +41,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
+
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -152,6 +156,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		Client:          mgr.GetClient(),
 		InfraCluster:    infracluster.New(mgr.GetClient()),
 		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
+		MachineFactory:  kubevirt.DefaultMachineFactory{},
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
