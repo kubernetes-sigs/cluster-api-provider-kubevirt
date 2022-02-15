@@ -334,6 +334,30 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
 	})
 
+	It("should ensure deletion of KubevirtMachine when bootstrap secret was never created", func() {
+
+		machine.Spec.Bootstrap.DataSecretName = nil
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+		}
+
+		setupClient(machineFactoryMock, objects)
+
+		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil).Times(1)
+
+		out, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
+
+		//Check finalizer is removed from machine
+		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
+	})
+
 	It("should update userdata correctly at KubevirtMachine reconcile", func() {
 		//Get Machine
 		//Get userdata secret name from machine
