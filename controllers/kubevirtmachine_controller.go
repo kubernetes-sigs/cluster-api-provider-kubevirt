@@ -603,6 +603,12 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 // deleteKubevirtBootstrapSecret deletes bootstrap cloud-init secret for KubeVirt virtual machines
 func (r *KubevirtMachineReconciler) deleteKubevirtBootstrapSecret(ctx *context.MachineContext, infraClusterClient client.Client, vmNamespace string) error {
+
+	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
+		// Machine never got to the point where a bootstrap secret was created
+		return nil
+	}
+
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := client.ObjectKey{Namespace: vmNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
