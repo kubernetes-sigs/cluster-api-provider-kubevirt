@@ -5,12 +5,12 @@
 package mock
 
 import (
-	"reflect"
+	context "context"
+	reflect "reflect"
 
-	"github.com/golang/mock/gomock"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	gomock "github.com/golang/mock/gomock"
+	v1 "k8s.io/api/core/v1"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MockInfraCluster is a mock of InfraCluster interface.
@@ -37,9 +37,9 @@ func (m *MockInfraCluster) EXPECT() *MockInfraClusterMockRecorder {
 }
 
 // GenerateInfraClusterClient mocks base method.
-func (m *MockInfraCluster) GenerateInfraClusterClient(ctx *context.ClusterContext) (client.Client, string, error) {
+func (m *MockInfraCluster) GenerateInfraClusterClient(infraClusterSecretRef *v1.ObjectReference, ownerNamespace string, context context.Context) (client.Client, string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateInfraClusterClient", ctx)
+	ret := m.ctrl.Call(m, "GenerateInfraClusterClient", infraClusterSecretRef, ownerNamespace, context)
 	ret0, _ := ret[0].(client.Client)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(error)
@@ -47,7 +47,7 @@ func (m *MockInfraCluster) GenerateInfraClusterClient(ctx *context.ClusterContex
 }
 
 // GenerateInfraClusterClient indicates an expected call of GenerateInfraClusterClient.
-func (mr *MockInfraClusterMockRecorder) GenerateInfraClusterClient(ctx interface{}) *gomock.Call {
+func (mr *MockInfraClusterMockRecorder) GenerateInfraClusterClient(infraClusterSecretRef, ownerNamespace, context interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateInfraClusterClient", reflect.TypeOf((*MockInfraCluster)(nil).GenerateInfraClusterClient), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateInfraClusterClient", reflect.TypeOf((*MockInfraCluster)(nil).GenerateInfraClusterClient), infraClusterSecretRef, ownerNamespace, context)
 }
