@@ -141,6 +141,9 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 		}
 	}
 
+	// Add 10 seconds delay for loadbalancer to assign external IP
+	time.Sleep(10 * time.Second)
+
 	// Set APIEndpoints with the load balancer IP so the Cluster API Cluster Controller can pull it
 	lbip4, err := externalLoadBalancer.IP(ctx)
 	if err != nil {
