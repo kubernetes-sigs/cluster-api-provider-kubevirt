@@ -346,8 +346,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(machineFactoryMock, objects)
 
-		clusterContext := &context.ClusterContext{Context: machineContext.Context, Cluster: machineContext.Cluster, KubevirtCluster: machineContext.KubevirtCluster, Logger: machineContext.Logger}
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(clusterContext).Return(fakeClient, cluster.Namespace, nil).Times(1)
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(machineContext.KubevirtMachine.Spec.InfraClusterSecretRef, machineContext.KubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, cluster.Namespace, nil).Times(1)
 
 		out, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
 		Expect(err).ShouldNot(HaveOccurred())
