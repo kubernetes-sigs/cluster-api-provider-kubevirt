@@ -1,0 +1,73 @@
+name: Sync with upstream
+
+on:
+  schedule:
+  - cron: '0 5/24 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync_upstream:
+    if: (github.repository == 'openshift/cluster-api-provider-kubevirt')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: check if needed
+      run: |-
+        set -x
+        git remote add upstream https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt.git
+        git fetch upstream main
+        if [[ $(git diff upstream/main --name-only | grep -v OWNERS | grep -v .github/workflows/sync_upstrea.yaml | wc -l) -gt 0 ]]; then
+          echo "CHANGED=true" >> $GITHUB_ENV
+        fi
+    - name: git_sync
+      if: ${{ env.CHANGED }}
+      run: |-
+        set -x
+        TODAY=$(date -u +%Y-%m-%d)
+        echo "TODAY=${TODAY}" >> $GITHUB_ENV
+        BRANCH_NAME="auto_sync_upstream_${TODAY}"
+        echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
+
+        DS_FILES=(OWNERS .github/workflows/sync_upstream.yaml)
+        for f in ${DS_FILES[@]}; do
+          cp "${f}" "${f}.untracked"
+        done
+
+        git reset --hard upstream/main
+
+        for f in ${DS_FILES[@]}; do
+          mv "${f}.untracked" "${f}"
+          git add "${f}"
+        done
+
+    - uses: peter-evans/create-pull-request@v3
+      if: ${{ env.CHANGED }}
+      with:
+        token: ${{ secrets.OPENSHIFT_TOKEN }}
+        commit-message: |
+          automatic sync with upstream ${{ env.TODAY }}
+
+          Signed-off-by: capk bot <noreply@github.com>
+        committer: capk bot <noreply@github.com>
+        delete-branch: true
+        title: automatic sync with upstream ${{ env.TODAY }}
+        body: |
+          automatic sync with upstream ${{ env.TODAY }}
+
+          Executed by capk Bot.
+          ```release-note
+          automatic sync with upstream ${{ env.TODAY }}
+          ```
+        assignees: |
+          rmohr
+          davidvossel
+          nunnatsa
+          nirarg
+        reviewers: |
+          rmohr
+          davidvossel
+          nunnatsa
+          nirarg
+        team-reviewers: openshift-team-capk,owners,maintainers
+        branch: ${{ env.BRANCH_NAME }}
