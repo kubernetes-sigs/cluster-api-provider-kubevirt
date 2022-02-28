@@ -13,7 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func DeleteAndWait(k8sclient client.Client, obj client.Object, key client.ObjectKey, timeoutSeconds uint) {
+func DeleteAndWait(k8sclient client.Client, obj client.Object, timeoutSeconds uint) {
+	key := client.ObjectKeyFromObject(obj)
 	Eventually(func() error {
 		err := k8sclient.Get(context.Background(), key, obj)
 		if err != nil && k8serrors.IsNotFound(err) {
@@ -22,9 +23,11 @@ func DeleteAndWait(k8sclient client.Client, obj client.Object, key client.Object
 			return err
 		}
 
-		err = k8sclient.Delete(context.Background(), obj)
-		if err != nil {
-			return err
+		if obj.GetDeletionTimestamp().IsZero() {
+			err = k8sclient.Delete(context.Background(), obj)
+			if err != nil {
+				return err
+			}
 		}
 		return fmt.Errorf("waiting on object %s to be deleted", key)
 	}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(BeNil())

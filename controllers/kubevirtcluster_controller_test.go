@@ -67,7 +67,7 @@ var _ = Describe("Reconcile", func() {
 				kubevirtCluster,
 			}
 			setupClient(objects)
-			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
+			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
 			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
 				NamespacedName: client.ObjectKey{
@@ -122,7 +122,7 @@ var _ = Describe("Reconcile", func() {
 				kubevirtCluster,
 			}
 			setupClient(objects)
-			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
+			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
 			_, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
 				NamespacedName: client.ObjectKey{
@@ -153,7 +153,7 @@ var _ = Describe("Reconcile", func() {
 				kubevirtCluster,
 			}
 			setupClient(objects)
-			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
+			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
 			_, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
 				NamespacedName: client.ObjectKey{

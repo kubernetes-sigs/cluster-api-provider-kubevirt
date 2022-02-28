@@ -1,0 +1,20 @@
+on:
+  push:
+    branches:
+      - "main"
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: build image
+        shell: bash
+        env:
+          QUAY_TOKEN: ${{secrets.QUAY_TOKEN}}
+          REGISTRY: "quay.io/capk"
+          TAG: "dev-latest"
+        run: |
+          echo $QUAY_TOKEN | docker login -u="capk+capk_robot" quay.io --password-stdin
+          make docker-build
+          make docker-push

@@ -45,6 +45,7 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
@@ -55,6 +56,7 @@ type KubevirtMachineReconciler struct {
 	client.Client
 	InfraCluster    infracluster.InfraCluster
 	WorkloadCluster workloadcluster.WorkloadCluster
+	MachineFactory  kubevirt.MachineFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
@@ -88,6 +90,21 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	log = log.WithValues("machine", machine.Name)
+
+	// Handle deleted machines
+	if !kubevirtMachine.ObjectMeta.DeletionTimestamp.IsZero() {
+		// Create the machine context for this request.
+		// Deletion shouldn't require the presence of a
+		// cluster or kubevirtcluster object as those objects
+		// may have already been removed.
+		machineContext := &context.MachineContext{
+			Context:         goctx,
+			Machine:         machine,
+			KubevirtMachine: kubevirtMachine,
+			Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
+		}
+		return r.reconcileDelete(machineContext)
+	}
 
 	// Fetch the Cluster.
 	cluster, err := util.GetClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
@@ -154,11 +171,6 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	// Handle deleted machines
-	if !kubevirtMachine.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(machineContext)
-	}
-
 	// Handle non-deleted machines
 	res, err := r.reconcileNormal(machineContext)
 
@@ -201,7 +213,13 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		}
 	}
 
-	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
+	// Default the infra cluster secret ref when the
+	// machine does not have one set.
+	if ctx.KubevirtMachine.Spec.InfraClusterSecretRef == nil {
+		ctx.KubevirtMachine.Spec.InfraClusterSecretRef = ctx.KubevirtCluster.Spec.InfraClusterSecretRef
+	}
+
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.KubevirtMachine.Spec.InfraClusterSecretRef, ctx.KubevirtMachine.Namespace, ctx.Context)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
@@ -227,7 +245,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	// Create a helper for managing the KubeVirt VM hosting the machine.
-	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
+	externalMachine, err := r.MachineFactory.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
@@ -360,13 +378,29 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 }
 
 func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext) (ctrl.Result, error) {
-	infraClusterClient, vmNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.ClusterContext())
+
+	patchHelper, err := patch.NewHelper(ctx.KubevirtMachine, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	infraClusterClient, infraClusterNamespace, err := r.InfraCluster.GenerateInfraClusterClient(ctx.KubevirtMachine.Spec.InfraClusterSecretRef, ctx.KubevirtMachine.Namespace, ctx.Context)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to generate infra cluster client")
 	}
 	if infraClusterClient == nil {
 		ctx.Logger.Info("Waiting for infra cluster client...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// If there is not a namespace explicitly set on the vm template, then
+	// use the infra namespace as a default. For internal clusters, the infraNamespace
+	// will be the same as the KubeVirtCluster object, for external clusters the
+	// infraNamespace will attempt to be detected from the infraClusterSecretRef's
+	// kubeconfig
+	vmNamespace := ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Namespace
+	if vmNamespace == "" {
+		vmNamespace = infraClusterNamespace
 	}
 
 	ctx.Logger.Info("Deleting VM bootstrap secret...")
@@ -385,19 +419,15 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 		}
 	}
 
+	// Machine is deleted so remove the finalizer.
+	controllerutil.RemoveFinalizer(ctx.KubevirtMachine, infrav1.MachineFinalizer)
+
 	// Set the VMProvisionedCondition reporting delete is started, and issue a patch in order to make
 	// this visible to the users.
-	patchHelper, err := patch.NewHelper(ctx.KubevirtMachine, r.Client)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 	if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
 	}
-
-	// Machine is deleted so remove the finalizer.
-	controllerutil.RemoveFinalizer(ctx.KubevirtMachine, infrav1.MachineFinalizer)
 
 	return ctrl.Result{}, nil
 }
@@ -573,6 +603,12 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 // deleteKubevirtBootstrapSecret deletes bootstrap cloud-init secret for KubeVirt virtual machines
 func (r *KubevirtMachineReconciler) deleteKubevirtBootstrapSecret(ctx *context.MachineContext, infraClusterClient client.Client, vmNamespace string) error {
+
+	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
+		// Machine never got to the point where a bootstrap secret was created
+		return nil
+	}
+
 	bootstrapDataSecret := &corev1.Secret{}
 	bootstrapDataSecretKey := client.ObjectKey{Namespace: vmNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
