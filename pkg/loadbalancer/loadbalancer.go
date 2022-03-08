@@ -132,16 +132,28 @@ func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 		return "", err
 	}
 
-	if len(loadBalancer.Status.LoadBalancer.Ingress) == 0 {
-		ctx.Logger.Info("can not get LoadBalancer external IP address, trying to get ClusterIP address")
-
-		if len(loadBalancer.Spec.ClusterIP) == 0 {
-			return "", fmt.Errorf("the load balancer service is not ready yet")
-		}
-
-		return loadBalancer.Spec.ClusterIP, nil
+	if len(loadBalancer.Spec.ClusterIP) == 0 {
+		return "", fmt.Errorf("the load balancer service is not ready yet")
 	}
-	ctx.Logger.Info("return Loadbalancer external IP address")
+
+	return loadBalancer.Spec.ClusterIP, nil
+}
+
+// ExternalIP returns external ip address of the load balancer
+func (l *LoadBalancer) ExternalIP(ctx *context.ClusterContext) (string, error) {
+	loadBalancer := &corev1.Service{}
+	loadBalancerKey := runtimeclient.ObjectKey{
+		Namespace: l.infraNamespace,
+		Name:      l.name,
+	}
+	if err := l.infraClient.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
+		return "", err
+	}
+
+	if len(loadBalancer.Status.LoadBalancer.Ingress) == 0 {
+		return "", fmt.Errorf("the load balancer external IP is not ready yet")
+	}
+
 	return loadBalancer.Status.LoadBalancer.Ingress[0].IP, nil
 }
 

@@ -141,19 +141,29 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 		}
 	}
 
-	// Wait 10 seconds for LoadBalancer to assign external IP after been created
-	time.Sleep(10 * time.Second)
+	// Get LoadBalancer ExternalIP if cluster Service Type is LoadBalancer
+	if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
+		lbip4, err := externalLoadBalancer.ExternalIP(ctx)
+		if err != nil {
+			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			return ctrl.Result{}, errors.Wrap(err, "failed to get ExternalIP for the load balancer")
+		}
+		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
+			Host: lbip4,
+			Port: 6443,
+		}
 
-	// Set APIEndpoints with the load balancer IP so the Cluster API Cluster Controller can pull it
-	lbip4, err := externalLoadBalancer.IP(ctx)
-	if err != nil {
-		conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
-		return ctrl.Result{}, errors.Wrap(err, "failed to get IP for the load balancer")
-	}
-
-	ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
-		Host: lbip4,
-		Port: 6443,
+	// Get Cluster IP if cluster Service Type is CusterIP
+	} else {
+		lbip4, err := externalLoadBalancer.IP(ctx)
+		if err != nil {
+			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			return ctrl.Result{}, errors.Wrap(err, "failed to get ClusterIP for the load balancer")
+		}
+		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
+			Host: lbip4,
+			Port: 6443,
+		}
 	}
 
 	conditions.MarkTrue(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition)
