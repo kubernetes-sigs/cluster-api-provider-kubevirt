@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,12 +32,17 @@ var (
 	fakeClient                client.Client
 	kubevirtClusterReconciler controllers.KubevirtClusterReconciler
 	fakeContext               = goContext.TODO()
+	testLogger                = ctrl.Log.WithName("test")
+	infraClusterMock          *infraclustermock.MockInfraCluster
 )
 
 var _ = Describe("Reconcile", func() {
-	mockCtrl = gomock.NewController(GinkgoT())
-	infraClusterMock := infraclustermock.NewMockInfraCluster(mockCtrl)
-	testLogger := ctrl.Log.WithName("test")
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
+	})
+
 	setupClient := func(objects []client.Object) {
 		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
@@ -46,6 +51,7 @@ var _ = Describe("Reconcile", func() {
 			Log:          testLogger,
 		}
 	}
+
 	Context("reconcile generic cluster", func() {
 		BeforeEach(func() {
 			clusterName = "test-cluster"
