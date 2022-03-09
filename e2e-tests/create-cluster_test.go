@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -291,7 +291,7 @@ var _ = Describe("CreateCluster", func() {
 		return newString
 	}
 
-	It("creating a simple cluster with ephemeral VMs", func() {
+	It("creating a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
 		cmd.Env = append(os.Environ(),
@@ -317,7 +317,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 	})
 
-	It("creating a simple externally managed cluster ephemeral VMs", func() {
+	It("creating a simple externally managed cluster ephemeral VMs", Label("ephemeralVMs", "externallyManaged"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
 		cmd.Env = append(os.Environ(),
@@ -358,7 +358,7 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	It("creating a simple cluster with persistent VMs", func() {
+	It("creating a simple cluster with persistent VMs", Label("persistentVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template-persistent-storage.yaml")
 		cmd.Env = append(os.Environ(),
