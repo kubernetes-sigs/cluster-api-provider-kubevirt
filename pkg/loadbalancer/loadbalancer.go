@@ -139,6 +139,24 @@ func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 	return loadBalancer.Spec.ClusterIP, nil
 }
 
+// ExternalIP returns external ip address of the load balancer
+func (l *LoadBalancer) ExternalIP(ctx *context.ClusterContext) (string, error) {
+	loadBalancer := &corev1.Service{}
+	loadBalancerKey := runtimeclient.ObjectKey{
+		Namespace: l.infraNamespace,
+		Name:      l.name,
+	}
+	if err := l.infraClient.Get(ctx.Context, loadBalancerKey, loadBalancer); err != nil {
+		return "", err
+	}
+
+	if len(loadBalancer.Status.LoadBalancer.Ingress) == 0 {
+		return "", fmt.Errorf("the load balancer external IP is not ready yet")
+	}
+
+	return loadBalancer.Status.LoadBalancer.Ingress[0].IP, nil
+}
+
 // Delete deletes load-balancer service.
 func (l *LoadBalancer) Delete(ctx *context.ClusterContext) error {
 	if !l.IsFound() {
