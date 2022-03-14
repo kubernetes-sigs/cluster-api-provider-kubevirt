@@ -38,7 +38,7 @@ function kubevirtci::kubeconfig() {
 
 function kubevirtci::fetch_kubevirtci() {
 	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
-	(cd cluster-up && git checkout ${KUEVIRTCI_TAG} > /dev/null)
+	(cd cluster-up && git checkout ${KUBEVIRTCI_TAG} > /dev/null)
 	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
 		echo >&2 "Downloading clusterctl ..."
