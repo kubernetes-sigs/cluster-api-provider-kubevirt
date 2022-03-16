@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 GOBIN="${GOBIN:-$GOPATH/bin}"
 GINKGO=$GOBIN/ginkgo
