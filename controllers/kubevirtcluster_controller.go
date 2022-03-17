@@ -18,6 +18,7 @@ package controllers
 
 import (
 	gocontext "context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -26,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -65,6 +67,11 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	if annotations.IsExternallyManaged(kubevirtCluster) {
+		log.V(4).Info(fmt.Sprintf("KubevirtCluster %s/%s is externally managed, will not attempt to reconcile object.", kubevirtCluster.Namespace, kubevirtCluster.Name))
+		return ctrl.Result{}, nil
 	}
 
 	// Fetch the Cluster.
@@ -153,7 +160,7 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 			Port: 6443,
 		}
 
-	// Get Cluster IP if cluster Service Type is CusterIP
+		// Get Cluster IP if cluster Service Type is CusterIP
 	} else {
 		lbip4, err := externalLoadBalancer.IP(ctx)
 		if err != nil {

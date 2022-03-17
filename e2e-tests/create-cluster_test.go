@@ -119,6 +119,7 @@ var _ = Describe("CreateCluster", func() {
 			err := k8sclient.Get(context.Background(), key, kvCluster)
 			Expect(err).ToNot(HaveOccurred())
 
+			Expect(kvCluster.Finalizers).To(BeEmpty())
 			Expect(kvCluster.Status.Ready).To(BeFalse())
 			Expect(kvCluster.Status.FailureDomains).To(BeEmpty())
 			Expect(kvCluster.Status.Conditions).To(BeEmpty())
