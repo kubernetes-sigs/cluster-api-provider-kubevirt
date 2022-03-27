@@ -38,7 +38,7 @@ type MachineInterface interface {
 // MachineFactory allows creating new instances of kubevirt.machine
 
 type MachineFactory interface {
-	// NewMachine returns a new Machine service for the given context. 
+	// NewMachine returns a new Machine service for the given context.
 	NewMachine(ctx *context.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (MachineInterface, error)
 }
 

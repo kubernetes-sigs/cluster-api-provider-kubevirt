@@ -8,8 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt') && contains(github.event.pull_request.labels.*.name, 'ok-to-test')
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: checkout code
+        uses: actions/checkout@v3
+      - name: compile clusterkubevirtadm
+        run: make clusterkubevirtadm-linux
+      - name: Checkout kubevirt/project-infra
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
           repository: kubevirt/project-infra
@@ -17,10 +21,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
       - name: kubeconfig
-        run: 'echo -e "$KUBECONFIG" > $GITHUB_WORKSPACE/project-infra/.kubeconfig'
+        run: 'echo -e "$KUBECONFIG" > ${GITHUB_WORKSPACE}/project-infra/.kubeconfig'
         shell: bash
         env:
           KUBECONFIG: ${{secrets.KUBECONFIG}}
+      - name: create credentials
+        run: |-
+          bin/clusterkubevirtamd create credentials --cluster-name=2e2-test
+          bin/clusterkubevirtamd get credentials --cluster-name=2e2-test --output-kubeconfig="${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e"
+        env:
+          KUBECONFIG: ${GITHUB_WORKSPACE}/project-infra/.kubeconfig
       - name: Test
         run: |
-          $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e --pull-number ${{github.event.number}} --kubeconfig $GITHUB_WORKSPACE/project-infra/.kubeconfig --trigger-job --fail-with-job
+          $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e --pull-number ${{github.event.number}} --kubeconfig "${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e" --trigger-job --fail-with-job
