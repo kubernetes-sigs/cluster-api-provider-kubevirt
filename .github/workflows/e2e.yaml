@@ -31,10 +31,8 @@ jobs:
           KUBECONFIG: ${{secrets.KUBECONFIG}}
       - name: create credentials
         run: |-
-          bin/clusterkubevirtadm-linux-amd64 create credentials --namespace e2e-test
-          bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=e2e-test --output-kubeconfig="${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e"
-        env:
-          KUBECONFIG: ${GITHUB_WORKSPACE}/project-infra/.kubeconfig
+          bin/clusterkubevirtadm-linux-amd64 create credentials --namespace e2e-test --kubeconfig "${GITHUB_WORKSPACE}/project-infra/.kubeconfig"
+          bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=e2e-test --output-kubeconfig="${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e" --kubeconfig "${GITHUB_WORKSPACE}/project-infra/.kubeconfig"
       - name: Test
         run: |
           $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e --pull-number ${{github.event.number}} --kubeconfig "${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e" --trigger-job --fail-with-job
