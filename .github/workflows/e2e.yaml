@@ -27,8 +27,8 @@ jobs:
           KUBECONFIG: ${{secrets.KUBECONFIG}}
       - name: create credentials
         run: |-
-          bin/clusterkubevirtamd create credentials --cluster-name=2e2-test
-          bin/clusterkubevirtamd get credentials --cluster-name=2e2-test --output-kubeconfig="${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e"
+          bin/clusterkubevirtadm create credentials --cluster-name=2e2-test
+          bin/clusterkubevirtadm get credentials --cluster-name=2e2-test --output-kubeconfig="${GITHUB_WORKSPACE}/project-infra/.kubeconfig-e2e"
         env:
           KUBECONFIG: ${GITHUB_WORKSPACE}/project-infra/.kubeconfig
       - name: Test
