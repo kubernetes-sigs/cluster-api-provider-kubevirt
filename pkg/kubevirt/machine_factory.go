@@ -33,6 +33,8 @@ type MachineInterface interface {
 	IsBootstrapped() bool
 	// GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
 	GenerateProviderID() (string, error)
+	// IsTerminal reports back if a VM is in a permanent terminal state
+	IsTerminal() (bool, string, error)
 }
 
 // MachineFactory allows creating new instances of kubevirt.machine

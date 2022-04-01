@@ -85,6 +85,67 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 	return machine, nil
 }
 
+// Reports back if the VM is either being requested to terminate or is terminate
+// in a way that it will never recover from.
+func (m *Machine) IsTerminal() (bool, string, error) {
+	if m.vmInstance == nil || m.vmiInstance == nil {
+		// vm/vmi hasn't been created yet
+		return false, "", nil
+	}
+
+	// VMI is being asked to terminate gracefully due to node drain
+	if !m.vmiInstance.IsFinal() &&
+		!m.vmiInstance.IsMigratable() &&
+		m.vmiInstance.Status.EvacuationNodeName != "" {
+		// VM's infra node is being drained and VM is not live migratable.
+		// We need to report a FailureReason so the MachineHealthCheck and
+		// MachineSet controllers will gracefully take the VM down.
+		return true, "The Machine's VM pod is marked for eviction due to infra node drain.", nil
+	}
+
+	// The infrav1.KubevirtVMTerminalLabel is a way users or automation to mark
+	// a VM as being in a terminal state that requires remediation. This is used
+	// by the functional test suite to test remediation and can also be triggered
+	// by users as a way to manually trigger remediation.
+	terminalReason, ok := m.vmInstance.Labels[infrav1.KubevirtMachineVMTerminalLabel]
+	if ok {
+		return true, fmt.Sprintf("VM's %s label has the vm marked as being terminal with reason [%s]", infrav1.KubevirtMachineVMTerminalLabel, terminalReason), nil
+	}
+
+	// Also check the VMI for this label
+	terminalReason, ok = m.vmiInstance.Labels[infrav1.KubevirtMachineVMTerminalLabel]
+	if ok {
+		return true, fmt.Sprintf("VMI's %s label has the vm marked as being terminal with reason [%s]", infrav1.KubevirtMachineVMTerminalLabel, terminalReason), nil
+	}
+
+	runStrategy, err := m.vmInstance.RunStrategy()
+	if err != nil {
+		return false, "", err
+	}
+
+	switch runStrategy {
+	case kubevirtv1.RunStrategyAlways:
+		// VM should recover if it is down.
+		return false, "", nil
+	case kubevirtv1.RunStrategyManual:
+		// If VM is manually controlled, we stay out of the loop
+		return false, "", nil
+	case kubevirtv1.RunStrategyHalted, kubevirtv1.RunStrategyOnce:
+		if m.vmiInstance.IsFinal() {
+			return true, "VMI has reached a permanent finalized state", nil
+		}
+		return false, "", nil
+	case kubevirtv1.RunStrategyRerunOnFailure:
+		// only recovers when vmi is failed
+		if m.vmiInstance.Status.Phase == kubevirtv1.Succeeded {
+			return true, "VMI has reached a permanent finalized state", nil
+		}
+		return false, "", nil
+	}
+
+	return false, "", nil
+}
+
 // Exists checks if the VM has been provisioned already.
 func (m *Machine) Exists() bool {
 	return m.vmInstance != nil
