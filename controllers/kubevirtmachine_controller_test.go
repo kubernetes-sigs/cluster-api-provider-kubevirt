@@ -304,6 +304,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		setupClient(machineFactoryMock, objects)
 
+		machineMock.EXPECT().IsTerminal().Return(false, "", nil).Times(1)
 		machineMock.EXPECT().Exists().Return(true).Times(1)
 		machineMock.EXPECT().IsReady().Return(false).AnyTimes()
 		machineMock.EXPECT().Address().Return("1.1.1.1").AnyTimes()
@@ -558,6 +559,88 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(*machineContext.KubevirtMachine.Spec.ProviderID).To(Equal("kubevirt://" + kubevirtMachineName))
 	})
 
+	It("should detect when VMI is marked for eviction and set FailureReason", func() {
+		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceReady,
+				Status: corev1.ConditionTrue,
+			},
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceIsMigratable,
+				Status: corev1.ConditionFalse,
+			},
+		}
+		vmi.Status.NodeName = "somenode"
+		vmi.Status.EvacuationNodeName = vmi.Status.NodeName
+		vmi.Status.Phase = kubevirtv1.Running
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+			vm,
+			vmi,
+		}
+
+		setupClient(kubevirt.DefaultMachineFactory{}, objects)
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+
+		_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(machineContext.KubevirtMachine.Status.FailureReason).ToNot(BeNil())
+		Expect(machineContext.KubevirtMachine.Status.FailureMessage).ToNot(BeNil())
+		Expect(*machineContext.KubevirtMachine.Status.FailureMessage).To(Equal("The Machine's VM pod is marked for eviction due to infra node drain."))
+	})
+
+	It("should detect when VMI is down in an unrecoverable state and set FailureReason", func() {
+		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceReady,
+				Status: corev1.ConditionTrue,
+			},
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceIsMigratable,
+				Status: corev1.ConditionFalse,
+			},
+		}
+		vmi.Status.NodeName = "somenode"
+		vmi.Status.EvacuationNodeName = vmi.Status.NodeName
+		vmi.Status.Phase = kubevirtv1.Failed
+		runStrategy := kubevirtv1.RunStrategyOnce
+		vm.Spec.RunStrategy = &runStrategy
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+			vm,
+			vmi,
+		}
+
+		setupClient(kubevirt.DefaultMachineFactory{}, objects)
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+
+		_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(machineContext.KubevirtMachine.Status.FailureReason).ToNot(BeNil())
+		Expect(machineContext.KubevirtMachine.Status.FailureMessage).ToNot(BeNil())
+		Expect(*machineContext.KubevirtMachine.Status.FailureMessage).To(Equal("VMI has reached a permanent finalized state"))
+	})
+
 	Context("update kubevirt machine conditions correctly", func() {
 		It("adds a failed VMProvisionedCondition with reason WaitingForClusterInfrastructureReason when the infrastructure is not ready", func() {
 			cluster.Status.InfrastructureReady = false
@@ -712,6 +795,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().IsReady().Return(true).Times(2)
 				machineMock.EXPECT().IsBootstrapped().Return(true).AnyTimes()
 				machineMock.EXPECT().GenerateProviderID().Return("abc", nil).Times(1)
+				machineMock.EXPECT().IsTerminal().Return(false, "", nil).Times(1)
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).Times(1)
@@ -752,6 +836,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					vmi,
 				}
 
+				machineMock.EXPECT().IsTerminal().Return(false, "", nil).Times(1)
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().Create(nil).Return(nil).AnyTimes()
 				machineMock.EXPECT().IsReady().Return(true).Times(1)
@@ -801,6 +886,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					vmi,
 				}
 
+				machineMock.EXPECT().IsTerminal().Return(false, "", nil).Times(1)
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().IsReady().Return(true).Times(2)
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
