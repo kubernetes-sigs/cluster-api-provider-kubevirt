@@ -295,11 +295,6 @@ var _ = Describe("CreateCluster", func() {
 	It("creating a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		cmd.Env = append(os.Environ(),
-			"NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35",
-			"IMAGE_REPO=k8s.gcr.io",
-			"CRI_PATH=/var/run/crio/crio.sock",
-		)
 		stdout, _ := tests.RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())
@@ -321,11 +316,6 @@ var _ = Describe("CreateCluster", func() {
 	It("creating a simple externally managed cluster ephemeral VMs", Label("ephemeralVMs", "externallyManaged"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		cmd.Env = append(os.Environ(),
-			"NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35",
-			"IMAGE_REPO=k8s.gcr.io",
-			"CRI_PATH=/var/run/crio/crio.sock",
-		)
 		stdout, _ := tests.RunCmd(cmd)
 
 		modifiedStdOut := injectKubevirtClusterExternallyManagedAnnotation(string(stdout))
@@ -362,11 +352,6 @@ var _ = Describe("CreateCluster", func() {
 	It("creating a simple cluster with persistent VMs", Label("persistentVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template-persistent-storage.yaml")
-		cmd.Env = append(os.Environ(),
-			"NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35",
-			"IMAGE_REPO=k8s.gcr.io",
-			"CRI_PATH=/var/run/crio/crio.sock",
-		)
 		stdout, _ := tests.RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())

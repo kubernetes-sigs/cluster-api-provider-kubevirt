@@ -13,4 +13,7 @@ echo "Building and installing capk manager container"
 
 echo "Running e2e test suite"
 export KUBECONFIG=$(./kubevirtci kubeconfig)
+export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
+export IMAGE_REPO=k8s.gcr.io
+export CRI_PATH=/var/run/crio/crio.sock
 make e2e-test
