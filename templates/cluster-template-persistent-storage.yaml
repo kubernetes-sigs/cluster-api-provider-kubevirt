@@ -50,8 +50,8 @@ spec:
                 - ReadWriteOnce
                 resources:
                   requests:
-                    storage: 6Gi
-                storageClassName: local
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
               source:
                 registry:
                   url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
@@ -118,8 +118,8 @@ spec:
                 - ReadWriteOnce
                 resources:
                   requests:
-                    storage: 6Gi
-                storageClassName: local
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
               source:
                 registry:
                   url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
