@@ -16,4 +16,6 @@ export KUBECONFIG=$(./kubevirtci kubeconfig)
 export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
 export IMAGE_REPO=k8s.gcr.io
 export CRI_PATH=/var/run/crio/crio.sock
+export ROOT_VOLUME_SIZE=23Gi
+export STORAGE_CLASS_NAME=rook-ceph-block
 make e2e-test
