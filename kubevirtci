@@ -19,6 +19,7 @@ export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
+export KUBEVIRT_STORAGE="rook-ceph-default"
 
 _default_bin_path=./hack/tools/bin
 _default_clusterctl_path=./hack/tools/bin/clusterctl
