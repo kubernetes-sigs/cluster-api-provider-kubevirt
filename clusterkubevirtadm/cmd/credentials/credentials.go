@@ -149,7 +149,12 @@ func generateRole(cmdCtx cmdContext) *rbacv1.Role {
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"kubevirt.io"},
-				Resources: []string{"virtualmachines"},
+				Resources: []string{"virtualmachines", "virtualmachineinstances"},
+				Verbs:     []string{rbacv1.VerbAll},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"secrets", "services"},
 				Verbs:     []string{rbacv1.VerbAll},
 			},
 		},
