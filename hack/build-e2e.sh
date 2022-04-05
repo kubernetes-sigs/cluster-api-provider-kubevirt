@@ -1,12 +1,13 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 GOBIN="${GOBIN:-$GOPATH/bin}"
 GINKGO=$GOBIN/ginkgo
 
 if ! [ -x "$GINKGO" ]; then
 	echo "Retrieving ginkgo build dependencies"
+	go version
 	go install github.com/onsi/ginkgo/v2/ginkgo@latest
 else
 	echo "GINKO binary found at $GINKGO"
