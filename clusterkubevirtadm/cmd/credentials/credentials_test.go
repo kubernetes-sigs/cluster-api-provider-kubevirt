@@ -125,13 +125,21 @@ var _ = Describe("test credentials common function", func() {
 			Expect(roles.Items).To(HaveLen(1))
 
 			Expect(roles.Items[0].Name).Should(Equal(roleName))
-			Expect(roles.Items[0].Rules).Should(HaveLen(1))
+			Expect(roles.Items[0].Rules).Should(HaveLen(2))
 			Expect(roles.Items[0].Rules[0].APIGroups).Should(HaveLen(1))
 			Expect(roles.Items[0].Rules[0].APIGroups[0]).Should(Equal("kubevirt.io"))
-			Expect(roles.Items[0].Rules[0].Resources).Should(HaveLen(1))
+			Expect(roles.Items[0].Rules[0].Resources).Should(HaveLen(2))
 			Expect(roles.Items[0].Rules[0].Resources[0]).Should(Equal("virtualmachines"))
+			Expect(roles.Items[0].Rules[0].Resources[1]).Should(Equal("virtualmachineinstances"))
 			Expect(roles.Items[0].Rules[0].Verbs).Should(HaveLen(1))
 			Expect(roles.Items[0].Rules[0].Verbs[0]).Should(Equal(rbacv1.VerbAll))
+			Expect(roles.Items[0].Rules[1].APIGroups).Should(HaveLen(1))
+			Expect(roles.Items[0].Rules[1].APIGroups[0]).Should(Equal(""))
+			Expect(roles.Items[0].Rules[1].Resources).Should(HaveLen(2))
+			Expect(roles.Items[0].Rules[1].Resources[0]).Should(Equal("secrets"))
+			Expect(roles.Items[0].Rules[1].Resources[1]).Should(Equal("services"))
+			Expect(roles.Items[0].Rules[1].Verbs).Should(HaveLen(1))
+			Expect(roles.Items[0].Rules[1].Verbs[0]).Should(Equal(rbacv1.VerbAll))
 		})
 
 		It("create should return error if the Role is already exist", func() {
