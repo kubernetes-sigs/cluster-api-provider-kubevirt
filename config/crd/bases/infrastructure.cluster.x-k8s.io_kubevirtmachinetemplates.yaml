@@ -279,7 +279,13 @@ spec:
                                             resources:
                                               description: 'Resources represents the
                                                 minimum resources the volume should
-                                                have. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources'
+                                                have. If RecoverVolumeExpansionFailure
+                                                feature is enabled users are allowed
+                                                to specify resource requirements that
+                                                are lower than previous value but
+                                                must still be higher than capacity
+                                                recorded in the status field of the
+                                                claim. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources'
                                               properties:
                                                 limits:
                                                   additionalProperties:
@@ -2524,8 +2530,8 @@ spec:
                                                 type: boolean
                                               disks:
                                                 description: Disks describes disks,
-                                                  cdroms, floppy and luns which are
-                                                  connected to the vmi.
+                                                  cdroms and luns which are connected
+                                                  to the vmi.
                                                 items:
                                                   properties:
                                                     blockSize:
@@ -2635,23 +2641,6 @@ spec:
                                                             to false.
                                                           type: boolean
                                                       type: object
-                                                    floppy:
-                                                      description: Attach a volume
-                                                        as a floppy to the vmi.
-                                                      properties:
-                                                        readonly:
-                                                          description: ReadOnly. Defaults
-                                                            to false.
-                                                          type: boolean
-                                                        tray:
-                                                          description: Tray indicates
-                                                            if the tray of the device
-                                                            is open or closed. Allowed
-                                                            values are "open" and
-                                                            "closed". Defaults to
-                                                            closed.
-                                                          type: string
-                                                      type: object
                                                     io:
                                                       description: 'IO specifies which
                                                         QEMU disk IO mode should be
@@ -2683,6 +2672,12 @@ spec:
                                                         the ability to specify a serial
                                                         number for the disk device.
                                                       type: string
+                                                    shareable:
+                                                      description: If specified the
+                                                        disk is made sharable and
+                                                        multiple write from different
+                                                        VMs are permitted
+                                                      type: boolean
                                                     tag:
                                                       description: If specified, disk
                                                         address and its tag will be
@@ -2723,6 +2718,13 @@ spec:
                                                       description: Name of the GPU
                                                         device as exposed by a device
                                                         plugin
+                                                      type: string
+                                                    tag:
+                                                      description: If specified, the
+                                                        virtual network interface
+                                                        address and its tag will be
+                                                        provided to the guest via
+                                                        config drive
                                                       type: string
                                                     virtualGPUOptions:
                                                       properties:
@@ -2774,6 +2776,13 @@ spec:
                                                         plugin
                                                       type: string
                                                     name:
+                                                      type: string
+                                                    tag:
+                                                      description: If specified, the
+                                                        virtual network interface
+                                                        address and its tag will be
+                                                        provided to the guest via
+                                                        config drive
                                                       type: string
                                                   required:
                                                   - deviceName
@@ -2913,7 +2922,7 @@ spec:
                                                         be forwarded to the virtual
                                                         machine.
                                                       items:
-                                                        description: Port repesents
+                                                        description: Port represents
                                                           a port to expose from the
                                                           virtual machine. Default
                                                           protocol TCP. The port field
@@ -2975,6 +2984,24 @@ spec:
                                               rng:
                                                 description: Whether to have random
                                                   number generator from host
+                                                type: object
+                                              sound:
+                                                description: Whether to emulate a
+                                                  sound device.
+                                                properties:
+                                                  model:
+                                                    description: 'We only support
+                                                      ich9 or ac97. If SoundDevice
+                                                      is not set: No sound card is
+                                                      emulated. If SoundDevice is
+                                                      set but Model is not: ich9'
+                                                    type: string
+                                                  name:
+                                                    description: User's defined name
+                                                      for this sound device
+                                                    type: string
+                                                required:
+                                                - name
                                                 type: object
                                               useVirtioTransitional:
                                                 description: Fall back to legacy virtio
@@ -3326,7 +3353,7 @@ spec:
                                                       kernel artifacts
                                                     properties:
                                                       image:
-                                                        description: Image that container
+                                                        description: Image that contains
                                                           initrd / kernel files.
                                                         type: string
                                                       imagePullPolicy:
@@ -3378,6 +3405,15 @@ spec:
                                               IOThreadsPolicy disables use of IOThreads.
                                               One of: shared, auto'
                                             type: string
+                                          launchSecurity:
+                                            description: Launch Security setting of
+                                              the vmi.
+                                            properties:
+                                              sev:
+                                                description: AMD Secure Encrypted
+                                                  Virtualization (SEV).
+                                                type: object
+                                            type: object
                                           machine:
                                             description: Machine type.
                                             properties:

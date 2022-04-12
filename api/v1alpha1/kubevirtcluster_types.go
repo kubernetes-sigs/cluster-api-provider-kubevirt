@@ -31,6 +31,8 @@ const (
 const (
 	KubevirtMachineNameLabel      = "capk.cluster.x-k8s.io/kubevirt-machine-name"
 	KubevirtMachineNamespaceLabel = "capk.cluster.x-k8s.io/kubevirt-machine-namespace"
+
+	KubevirtMachineVMTerminalLabel = "capk.cluster.x-k8s.io/vm-is-terminal"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.
