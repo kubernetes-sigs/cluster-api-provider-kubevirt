@@ -81,7 +81,7 @@ ARTIFACTS ?= $(ROOT)/_artifacts
 
 .PHONY: test
 test: ## Run tests.
-	go test -v `go list ./... | grep -Ev "e2e-tests|clusterkubevirtadm"` $(TEST_ARGS)
+	go test -v `go list ./... | grep -Ev "e2e|clusterkubevirtadm"` $(TEST_ARGS)
 
 .PHONY: test-verbose
 test-verbose: ## Run tests with verbose settings.

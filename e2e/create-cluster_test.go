@@ -1,4 +1,4 @@
-package e2e_tests_test
+package e2e_test
 
 import (
 	"context"
@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	tests "sigs.k8s.io/cluster-api-provider-kubevirt/e2e-tests"
 )
 
 var _ = Describe("CreateCluster", func() {
@@ -38,11 +37,7 @@ var _ = Describe("CreateCluster", func() {
 	BeforeEach(func() {
 		var err error
 
-		Expect(tests.KubectlPath).ToNot(Equal(""))
-		Expect(tests.ClusterctlPath).ToNot(Equal(""))
-		Expect(tests.WorkingDir).ToNot(Equal(""))
-
-		tmpDir, err = ioutil.TempDir(tests.WorkingDir, "creation-tests")
+		tmpDir, err = ioutil.TempDir(WorkingDir, "creation-tests")
 		Expect(err).ToNot(HaveOccurred())
 
 		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
@@ -78,7 +73,7 @@ var _ = Describe("CreateCluster", func() {
 				},
 			}
 
-			tests.DeleteAndWait(k8sclient, ns, 120)
+			DeleteAndWait(k8sclient, ns, 120)
 
 		}()
 
@@ -91,7 +86,7 @@ var _ = Describe("CreateCluster", func() {
 				Name:      "kvcluster",
 			},
 		}
-		tests.DeleteAndWait(k8sclient, cluster, 120)
+		DeleteAndWait(k8sclient, cluster, 120)
 	})
 
 	waitForBootstrappedMachines := func() {
@@ -100,6 +95,10 @@ var _ = Describe("CreateCluster", func() {
 			err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
 			if err != nil {
 				return err
+			}
+
+			if len(machineList.Items) == 0 {
+				return fmt.Errorf("expecting a non-empty list of machines")
 			}
 
 			for _, machine := range machineList.Items {
@@ -203,6 +202,10 @@ var _ = Describe("CreateCluster", func() {
 			err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
 			if err != nil {
 				return err
+			}
+
+			if len(machineList.Items) == 0 {
+				return fmt.Errorf("expecting a non-empty list of machines")
 			}
 
 			for _, machine := range machineList.Items {
@@ -391,16 +394,21 @@ var _ = Describe("CreateCluster", func() {
 		Expect(err).ToNot(HaveOccurred())
 	}
 
-	It("creating a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func() {
+	It("creates a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func() {
 		By("generating cluster manifests from example template")
-		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		stdout, _ := tests.RunCmd(cmd)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template.yaml")
+		stdout, _ := RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
-		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
-		tests.RunCmd(cmd)
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
 
 		By("Waiting for control plane")
 		waitForControlPlane()
@@ -414,14 +422,19 @@ var _ = Describe("CreateCluster", func() {
 
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
 		By("generating cluster manifests from example template")
-		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		stdout, _ := tests.RunCmd(cmd)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template.yaml")
+		stdout, _ := RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
-		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
-		tests.RunCmd(cmd)
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
 
 		By("Waiting for control plane")
 		waitForControlPlane()
@@ -464,14 +477,19 @@ var _ = Describe("CreateCluster", func() {
 	It("should remediate failed unrecoverable VMI ", Label("ephemeralVMs"), func() {
 
 		By("generating cluster manifests from example template")
-		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		stdout, _ := tests.RunCmd(cmd)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template.yaml")
+		stdout, _ := RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
-		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
-		tests.RunCmd(cmd)
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
 
 		By("Waiting for control plane")
 		waitForControlPlane()
@@ -508,7 +526,7 @@ var _ = Describe("CreateCluster", func() {
 
 		By("killing the chosen VMI's pod")
 		chosenPod := getVMIPod(chosenVMI)
-		tests.DeleteAndWait(k8sclient, chosenPod, 180)
+		DeleteAndWait(k8sclient, chosenPod, 180)
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
 		kvmName, ok := chosenVMI.Labels["capk.cluster.x-k8s.io/kubevirt-machine-name"]
@@ -526,10 +544,15 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	It("creating a simple externally managed cluster ephemeral VMs", Label("ephemeralVMs", "externallyManaged"), func() {
+	It("creates a simple externally managed cluster ephemeral VMs", Label("ephemeralVMs", "externallyManaged"), func() {
 		By("generating cluster manifests from example template")
-		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template.yaml")
-		stdout, _ := tests.RunCmd(cmd)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template.yaml")
+		stdout, _ := RunCmd(cmd)
 
 		modifiedStdOut := injectKubevirtClusterExternallyManagedAnnotation(string(stdout))
 
@@ -537,8 +560,8 @@ var _ = Describe("CreateCluster", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
-		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
-		tests.RunCmd(cmd)
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
 
 		By("marking kubevirt cluster as ready to imitate an externally managed cluster")
 		markExternalKubeVirtClusterReady("kvcluster", namespace)
@@ -558,20 +581,25 @@ var _ = Describe("CreateCluster", func() {
 				Name: namespace,
 			},
 		}
-		tests.DeleteAndWait(k8sclient, ns, 120)
+		DeleteAndWait(k8sclient, ns, 120)
 
 	})
 
-	It("creating a simple cluster with persistent VMs", Label("persistentVMs"), func() {
+	It("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
 		By("generating cluster manifests from example template")
-		cmd := exec.Command(tests.ClusterctlPath, "generate", "cluster", "kvcluster", "--target-namespace", namespace, "--kubernetes-version", "v1.21.0", "--control-plane-machine-count=1", "--worker-machine-count=1", "--from", "templates/cluster-template-persistent-storage.yaml")
-		stdout, _ := tests.RunCmd(cmd)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template-persistent-storage.yaml")
+		stdout, _ := RunCmd(cmd)
 		err := os.WriteFile(manifestsFile, stdout, 0644)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("posting cluster manifests example template")
-		cmd = exec.Command(tests.KubectlPath, "apply", "-f", manifestsFile)
-		tests.RunCmd(cmd)
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
 
 		By("Waiting for control plane")
 		waitForControlPlane()
