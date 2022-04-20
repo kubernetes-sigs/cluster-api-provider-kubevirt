@@ -22,4 +22,4 @@ fi
 
 rm -rf $TEST_WORKING_DIR
 mkdir -p $TEST_WORKING_DIR
-$BIN_DIR/e2e-tests --kubectl-path $KUBECTL_PATH --clusterctl-path $CLUSTERCTL_PATH --working-dir $TEST_WORKING_DIR
+$BIN_DIR/e2e.test --kubectl-path $KUBECTL_PATH --clusterctl-path $CLUSTERCTL_PATH --working-dir $TEST_WORKING_DIR

@@ -19,6 +19,7 @@ export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
+export KUBEVIRT_STORAGE="rook-ceph-default"
 
 _default_bin_path=./hack/tools/bin
 _default_clusterctl_path=./hack/tools/bin/clusterctl
@@ -95,11 +96,19 @@ function kubevirtci::install() {
 	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
 }
 
+function kubevirtci::generate_kubeconfig() {
+        make clusterkubevirtadm-linux
+        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace e2e-test
+        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=e2e-test --output-kubeconfig=kubeconfig-e2e
+        sed -i -r 's/127.0.0.1:[0-9]+/192.168.66.101:6443/g' kubeconfig-e2e
+}
+
 function kubevirtci::create_cluster() {
 	export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/crio/crio.sock"
-	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=e2e-test
+	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
 kubevirtci::fetch_kubevirtci
@@ -132,6 +141,7 @@ case ${_action} in
 	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
+	kubevirtci::generate_kubeconfig
 	kubevirtci::create_cluster
 	;;
 *)

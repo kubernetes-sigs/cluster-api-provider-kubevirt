@@ -1,9 +1,9 @@
-package e2e_tests
+package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
 	"time"
 
@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// DeleteAndWait function deletes a kubernetes object, with a timeout
 func DeleteAndWait(k8sclient client.Client, obj client.Object, timeoutSeconds uint) {
 	key := client.ObjectKeyFromObject(obj)
 	Eventually(func() error {
@@ -33,24 +34,19 @@ func DeleteAndWait(k8sclient client.Client, obj client.Object, timeoutSeconds ui
 	}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(BeNil())
 }
 
+// RunCmd function executes a command, and returns STDOUT and STDERR bytes
 func RunCmd(cmd *exec.Cmd) (stdoutBytes []byte, stderrBytes []byte) {
-	stderr, err := cmd.StderrPipe()
+	// creates to bytes.Buffer, these are both io.Writer and io.Reader
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+
+	// create the command and assign the outputs
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+
+	// run the command
+	err := cmd.Run()
 	Expect(err).To(BeNil())
 
-	stdout, err := cmd.StdoutPipe()
-	Expect(err).To(BeNil())
-
-	err = cmd.Start()
-	Expect(err).To(BeNil())
-
-	stdoutBytes, _ = io.ReadAll(stdout)
-	stderrBytes, _ = io.ReadAll(stderr)
-	if len(stderrBytes) > 0 {
-		fmt.Printf("%s STDERR: %s\n", cmd.Path, stderrBytes)
-	}
-
-	err = cmd.Wait()
-	Expect(err).To(BeNil())
-
-	return stdoutBytes, stderrBytes
+	return stdout.Bytes(), stderr.Bytes()
 }
