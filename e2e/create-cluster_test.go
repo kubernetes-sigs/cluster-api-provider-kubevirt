@@ -107,7 +107,7 @@ var _ = Describe("CreateCluster", func() {
 				}
 			}
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
+		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
 
 	}
 
@@ -275,7 +275,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
+		}, 15*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
 	}
 
 	injectKubevirtClusterExternallyManagedAnnotation := func(yamlStr string) string {

@@ -56,7 +56,7 @@ $(KUSTOMIZE): # Build kustomize from tools folder.
 	$(MAKE) -C $(ROOT) kustomize
 
 # Define Docker related variables. Releases should modify and double check these vars.
-REGISTRY ?= localhost:5000
+REGISTRY ?= 127.0.0.1:5000
 IMAGE_NAME ?= capk-manager
 CONTROLLER_IMG ?= $(REGISTRY)/$(IMAGE_NAME)
 ARCH ?= amd64
