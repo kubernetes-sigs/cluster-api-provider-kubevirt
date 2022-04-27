@@ -78,7 +78,7 @@ function kubevirtci::down() {
 }
 
 function kubevirtci::build() {
-	export REGISTRY="localhost:$(cluster-up/cluster-up/cli.sh ports registry)"
+	export REGISTRY="127.0.0.1:$(cluster-up/cluster-up/cli.sh ports registry)"
 	make docker-build
 	make docker-push
 }
@@ -104,9 +104,9 @@ function kubevirtci::generate_kubeconfig() {
 }
 
 function kubevirtci::create_cluster() {
-	export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
+	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
-	export CRI_PATH="/var/run/crio/crio.sock"
+	export CRI_PATH="/var/run/containerd/containerd.sock"
 	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=e2e-test
 	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
