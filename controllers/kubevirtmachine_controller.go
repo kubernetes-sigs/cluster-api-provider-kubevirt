@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -250,8 +251,18 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
 	}
 
+	isTerminal, terminalReason, err := externalMachine.IsTerminal()
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed checking VM for terminal state")
+	}
+	if isTerminal {
+		failureErr := capierrors.UpdateMachineError
+		ctx.KubevirtMachine.Status.FailureReason = &failureErr
+		ctx.KubevirtMachine.Status.FailureMessage = &terminalReason
+	}
+
 	// Provision the underlying VM if not existing
-	if !externalMachine.Exists() {
+	if !isTerminal && !externalMachine.Exists() {
 		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")

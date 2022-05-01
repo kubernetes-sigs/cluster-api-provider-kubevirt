@@ -81,7 +81,7 @@ ARTIFACTS ?= $(ROOT)/_artifacts
 
 .PHONY: test
 test: ## Run tests.
-	go test -v `go list ./... | grep -v "e2e-tests"` $(TEST_ARGS)
+	go test -v `go list ./... | grep -Ev "e2e|clusterkubevirtadm"` $(TEST_ARGS)
 
 .PHONY: test-verbose
 test-verbose: ## Run tests with verbose settings.
@@ -118,6 +118,25 @@ $(GOTESTSUM): $(TOOLS_DIR)/go.mod # Build gotestsum from tools folder.
 
 $(CONVERSION_GEN): $(TOOLS_DIR)/go.mod
 	cd $(TOOLS_DIR); go build -tags=tools -o $(BIN_DIR)/conversion-gen k8s.io/code-generator/cmd/conversion-gen
+
+.PHONY: clusterkubevirtadm-test
+clusterkubevirtadm-test:
+	go test ./clusterkubevirtadm/...
+
+.PHONY: clusterkubevirtadm-all
+clusterkubevirtadm: clusterkubevirtadm-test clusterkubevirtadm-linux clusterkubevirtadm-macos clusterkubevirtadm-win
+
+.PHONY: clusterkubevirtadm-linux
+clusterkubevirtadm-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BIN_DIR)/clusterkubevirtadm-linux-amd64 ./clusterkubevirtadm/
+
+.PHONY: clusterkubevirtadm-macos
+clusterkubevirtadm-macos:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o $(BIN_DIR)/clusterkubevirtadm-darwin-amd64 ./clusterkubevirtadm/
+
+.PHONY: clusterkubevirtadm-win
+clusterkubevirtadm-win:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o $(BIN_DIR)/clusterkubevirtadm.exe ./clusterkubevirtadm/
 
 controller-gen: $(CONTROLLER_GEN) ## Build a local copy of controller-gen.
 conversion-gen: $(CONVERSION_GEN) ## Build a local copy of conversion-gen.
