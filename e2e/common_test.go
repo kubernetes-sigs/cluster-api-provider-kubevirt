@@ -45,8 +45,7 @@ func RunCmd(cmd *exec.Cmd) (stdoutBytes []byte, stderrBytes []byte) {
 	cmd.Stderr = stderr
 
 	// run the command
-	err := cmd.Run()
-	Expect(err).To(BeNil())
+	ExpectWithOffset(1, cmd.Run()).To(Succeed(), fmt.Sprintf("failed to run %s, with arguments: %v; error response: %s", cmd.Path, cmd.Args, stderr.Bytes()))
 
 	return stdout.Bytes(), stderr.Bytes()
 }
