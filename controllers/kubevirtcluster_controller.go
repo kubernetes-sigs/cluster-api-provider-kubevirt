@@ -84,8 +84,6 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	log = log.WithValues("cluster", cluster.Name)
-
 	// Create the cluster context for this request.
 	clusterContext := &context.ClusterContext{
 		Context:         goctx,

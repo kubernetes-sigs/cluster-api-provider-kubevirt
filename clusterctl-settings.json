@@ -1,5 +1,5 @@
 {
-  "name": "infrastructure-kubevirt",
+  "name": "kubevirt",
   "config": {
     "componentsFile": "infrastructure-components.yaml",
     "nextVersion": "v0.1.0"
