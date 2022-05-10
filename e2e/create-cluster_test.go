@@ -259,7 +259,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
+		}, 20*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
 
 		By("Waiting on cluster's control plane to be ready")
 		Eventually(func() error {
