@@ -14,11 +14,11 @@ jobs:
       - name: build image
         shell: bash
         env:
-          QUAY_TOKEN: ${{secrets.QUAY_TOKEN}}
-          REGISTRY: "quay.io/capk"
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          REGISTRY: "sanselme/capk"
           TAG: ${{ github.ref_name }}
         run: |
-          echo $QUAY_TOKEN | docker login -u="capk+capk_robot" quay.io --password-stdin
+          echo $GITHUB_TOKEN | docker login -u="capk+capk_robot" ghcr.io --password-stdin
           make docker-build
           make docker-push
   build:
@@ -36,7 +36,7 @@ jobs:
         run: curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
       - name: Create infrastructure components
         env:
-          REGISTRY: "quay.io/capk"
+          REGISTRY: "ghcr.io/capk"
           IMAGE_NAME: "capk-manager-amd64"
           TAG: ${{ github.ref_name }}
         run: |
@@ -52,22 +52,22 @@ jobs:
           draft: false
           prerelease: false
       - name: Upload infrastructure-components.yaml
-        id: upload-infrastructure-components 
+        id: upload-infrastructure-components
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./infrastructure-components.yaml
           asset_name: infrastructure-components.yaml
           asset_content_type: text/plain
       - name: Upload metadata.yaml
-        id: upload-metadata 
+        id: upload-metadata
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./metadata.yaml
           asset_name: metadata.yaml
           asset_content_type: text/plain
