@@ -12,12 +12,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	"kubevirt.io/client-go/kubecli"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,11 +29,14 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
+var virtClient kubecli.KubevirtClient
+
 var _ = Describe("CreateCluster", func() {
 
 	var tmpDir string
 	var k8sclient client.Client
 	var manifestsFile string
+	var tenantKubeconfigFile string
 	var namespace string
 
 	BeforeEach(func() {
@@ -41,10 +46,14 @@ var _ = Describe("CreateCluster", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
+		tenantKubeconfigFile = filepath.Join(tmpDir, "tenant-kubeconfig.yaml")
 
 		cfg, err := config.GetConfig()
 		Expect(err).ToNot(HaveOccurred())
 		k8sclient, err = client.New(cfg, client.Options{})
+		Expect(err).ToNot(HaveOccurred())
+		clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+		virtClient, err = kubecli.GetKubevirtClientFromClientConfig(clientConfig)
 		Expect(err).ToNot(HaveOccurred())
 
 		_ = clusterv1.AddToScheme(k8sclient.Scheme())
@@ -226,6 +235,32 @@ var _ = Describe("CreateCluster", func() {
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
+	waitForTenantAccess := func(numExpectedNodes int) {
+		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
+		t := newTenantClusterAccess(namespace, tenantKubeconfigFile)
+		err := t.startForwardingTenantAPI()
+		Expect(err).ToNot(HaveOccurred())
+		defer func() {
+			err := t.stopForwardingTenantAPI()
+			Expect(err).ToNot(HaveOccurred())
+		}()
+
+		By("Create client to access the tenant cluster")
+		clientSet, err := t.generateClient()
+		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() error {
+
+			nodeList, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			if len(nodeList.Items) != numExpectedNodes {
+				return fmt.Errorf("expecting tenant cluster to have %d nodes", len(nodeList.Items))
+			}
+
+			return nil
+		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
+	}
+
 	waitForNodeUpdate := func() {
 		Eventually(func() error {
 			machineList := &infrav1.KubevirtMachineList{}
@@ -297,8 +332,7 @@ var _ = Describe("CreateCluster", func() {
 	}
 
 	chooseWorkerVMI := func() *kubevirtv1.VirtualMachineInstance {
-		vmiList := &kubevirtv1.VirtualMachineInstanceList{}
-		err := k8sclient.List(context.Background(), vmiList, client.InNamespace(namespace))
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -418,6 +452,9 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
 	})
 
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
@@ -445,6 +482,9 @@ var _ = Describe("CreateCluster", func() {
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(2, 0)
 
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
+
 		By("creating machine health check")
 		postDefaultMHC("kvcluster")
 
@@ -457,7 +497,7 @@ var _ = Describe("CreateCluster", func() {
 		Expect(ok).To(BeTrue())
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
-		err = k8sclient.Update(context.Background(), chosenVMI)
+		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(chosenVMI)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
@@ -471,6 +511,9 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting on kubevirt new machines to be ready after remediation")
 		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
 
 	})
 
@@ -500,6 +543,9 @@ var _ = Describe("CreateCluster", func() {
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(2, 0)
 
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
+
 		By("creating machine health check")
 		postDefaultMHC("kvcluster")
 
@@ -508,20 +554,13 @@ var _ = Describe("CreateCluster", func() {
 		chosenVMI := chooseWorkerVMI()
 
 		By("Setting VM to runstrategy once")
-		chosenVM := &kubevirtv1.VirtualMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      chosenVMI.Name,
-				Namespace: chosenVMI.Namespace,
-			},
-		}
-		key := client.ObjectKey{Namespace: chosenVM.Namespace, Name: chosenVM.Name}
-		err = k8sclient.Get(context.Background(), key, chosenVM)
+		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		once := kubevirtv1.RunStrategyOnce
 		chosenVM.Spec.RunStrategy = &once
 
-		err = k8sclient.Update(context.Background(), chosenVM)
+		_, err = virtClient.VirtualMachine(namespace).Update(chosenVM)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("killing the chosen VMI's pod")
@@ -541,6 +580,9 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting on kubevirt new machines to be ready after remediation")
 		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
 
 	})
 
@@ -571,6 +613,9 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
 
 		By("Waiting for all tenant nodes to get provider id")
 		waitForNodeUpdate()
@@ -610,9 +655,11 @@ var _ = Describe("CreateCluster", func() {
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(2, 0)
 
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
+
 		By("Selecting a worker node to restart")
-		vmiList := &kubevirtv1.VirtualMachineInstanceList{}
-		err = k8sclient.List(context.Background(), vmiList, client.InNamespace(namespace))
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -625,7 +672,7 @@ var _ = Describe("CreateCluster", func() {
 		Expect(chosenVMI).ToNot(BeNil())
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
-		err = k8sclient.Delete(context.Background(), chosenVMI)
+		err = virtClient.VirtualMachineInstance(namespace).Delete(chosenVMI.Name, &metav1.DeleteOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
@@ -633,5 +680,8 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Expecting both KubevirtMachines stabilize to a ready=true again.")
 		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
 	})
 })

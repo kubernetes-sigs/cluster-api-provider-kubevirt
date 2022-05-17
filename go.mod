@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/go-logr/logr v1.2.0
+	github.com/golang/glog v1.0.0
 	github.com/golang/mock v1.6.0
 	github.com/onsi/ginkgo/v2 v2.1.4
 	github.com/onsi/gomega v1.19.0
@@ -13,10 +14,11 @@ require (
 	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871
 	k8s.io/api v0.23.1
 	k8s.io/apimachinery v0.23.1
-	k8s.io/client-go v0.23.1
+	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/component-base v0.23.1
 	k8s.io/klog/v2 v2.30.0
 	kubevirt.io/api v0.51.0
+	kubevirt.io/client-go v0.0.0-00010101000000-000000000000
 	sigs.k8s.io/cluster-api v0.3.11-0.20210525210043-6c7878e7b4a9
 	sigs.k8s.io/controller-runtime v0.11.0-beta.0.0.20211110210527-619e6b92dab9
 	sigs.k8s.io/kind v0.11.0
@@ -28,9 +30,12 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
+	github.com/coreos/prometheus-operator v0.38.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/evanphx/json-patch v4.12.0+incompatible // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
+	github.com/go-kit/kit v0.9.0 // indirect
+	github.com/go-logfmt/logfmt v0.5.0 // indirect
 	github.com/go-logr/zapr v1.2.0 // indirect
 	github.com/gobuffalo/flect v0.2.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -40,12 +45,17 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/googleapis/gnostic v0.5.5 // indirect
+	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v0.0.0-20191119172530-79f836b90111 // indirect
+	github.com/kubernetes-csi/external-snapshotter/v2 v2.1.1 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/openshift/api v0.0.0-20210105115604-44119421ec6b // indirect
+	github.com/openshift/client-go v0.0.0-20210112165513-ebc401615f47 // indirect
 	github.com/openshift/custom-resource-status v0.0.0-20200602122900-c002fd1547ca // indirect
 	github.com/pborman/uuid v1.2.0 // indirect
 	github.com/prometheus/client_golang v1.11.0 // indirect
@@ -80,4 +90,9 @@ replace (
 	kubevirt.io/containerized-data-importer-api => github.com/kubevirt/containerized-data-importer-api v1.41.1-0.20211201033752-05520fb9f18d
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client => sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.0.24
 	sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.0.0
+)
+
+replace (
+	k8s.io/client-go => k8s.io/client-go v0.23.1
+	kubevirt.io/client-go => kubevirt.io/client-go v0.51.0
 )
