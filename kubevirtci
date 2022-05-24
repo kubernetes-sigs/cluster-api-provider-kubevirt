@@ -1,14 +1,5 @@
 #!/bin/bash
 
-# Usage:
-#
-# ./kubevirtci up # start a cluster with kubevirt, cert-manager and capi
-# ./kubevirtci sync # build and deploy current capik
-# ./kubevirtci kubectl get pods --all-namespaces # interact with the cluster
-# ./kubevirtci clusterctl create cluster # run clusterctl commands against the cluster
-# ./kubevirtci oc get pods --all-namespaces # interact with the HOSTED cluster
-# ./kubevirtci down # destroy the cluster
-
 set -e
 
 export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.21}
@@ -26,12 +17,38 @@ _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
 
 export CLUSTERCTL_PATH=${CLUSTERCTL_PATH:-${_default_clusterctl_path}}
+export TENANT_CLUSTER_NAME=${TENANT_CLUSTER_NAME:-kvcluster}
+export TENANT_CLUSTER_NAMESPACE=${TENANT_CLUSTER_NAMESPACE:-kvcluster}
 
 _kubectl=cluster-up/cluster-up/kubectl.sh
 
 _action=$1
 shift
 
+
+function kubevirtci::usage() {
+	echo "Usage:
+
+	./kubevirtci <cammand>
+
+	Commands:
+
+	  up                                Start a cluster with kubevirt, cert-manager and capi
+	  sync                              Build and deploy current capk
+	  down                              Destroy the cluster
+	  refresh                           Build current capk and trigger creating new capk pods
+
+	  kubeconfig                        Return the kubeconfig of the cluster
+	  kubectl <kubectl options>         Interact with the cluster
+	  virtctl <virtctl options>         Run virtctl commands against the cluster
+	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
+
+	  create-cluster                    Create new kubernetes tenant cluster
+	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
+
+	  help                              Print usage
+	"
+}
 
 function kubevirtci::kubeconfig() {
 	cluster-up/cluster-up/kubeconfig.sh
@@ -98,8 +115,8 @@ function kubevirtci::install() {
 
 function kubevirtci::generate_kubeconfig() {
         make clusterkubevirtadm-linux
-        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace e2e-test
-        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=e2e-test --output-kubeconfig=kubeconfig-e2e
+        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace ${TENANT_CLUSTER_NAMESPACE} 
+        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=${TENANT_CLUSTER_NAMESPACE} --output-kubeconfig=kubeconfig-e2e
         sed -i -r 's/127.0.0.1:[0-9]+/192.168.66.101:6443/g' kubeconfig-e2e
 }
 
@@ -107,8 +124,30 @@ function kubevirtci::create_cluster() {
 	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
-	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=e2e-test
-	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+}
+
+function kubevirtci::kubectl_tenant {
+    vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
+    for vm in $vms_list
+    do
+	if [[ "$vm" == ${TENANT_CLUSTER_NAME}-control-plane* ]]; then
+            control_plane_vm_name=$vm
+	fi
+    done
+    if [ -n "${control_plane_vm_name}" ]; then
+  	echo "Found control plane VM: ${control_plane_vm_name} in namespace ${TENANT_CLUSTER_NAMESPACE}"
+    else
+  	echo "control-plane vm is not found in namespace ${TENANT_CLUSTER_NAMESPACE} (looking for regex ${TENANT_CLUSTER_NAME}-control-plane*)"
+	exit 1
+    fi
+    ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
+    trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
+    rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
+    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} > .${TENANT_CLUSTER_NAME}-kubeconfig
+    sleep 0.1
+    kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
 }
 
 kubevirtci::fetch_kubevirtci
@@ -134,6 +173,9 @@ case ${_action} in
 "kubectl")
 	${_kubectl} "$@"
 	;;
+"kubectl-tenant")
+	kubevirtci::kubectl_tenant "$@"
+	;;
 "virtctl")
 	${_default_virtctl_path} "$@"
 	;;
@@ -144,8 +186,13 @@ case ${_action} in
 	kubevirtci::generate_kubeconfig
 	kubevirtci::create_cluster
 	;;
+"help")
+	kubevirtci::usage
+	;;
 *)
-	echo "No command provided, known commands are 'up', 'down', 'sync', 'kubectl', 'clusterctl', 'create-cluster', 'virtctl'"
+	echo "Error: Unknown kubevirtci command"
+	echo ""
+	kubevirtci::usage
 	exit 1
 	;;
 esac
