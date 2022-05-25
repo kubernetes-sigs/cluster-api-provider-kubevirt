@@ -145,7 +145,7 @@ function kubevirtci::kubectl_tenant {
     ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
     trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
     rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
-    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} > .${TENANT_CLUSTER_NAME}-kubeconfig
+    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
     sleep 0.1
     kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
 }
