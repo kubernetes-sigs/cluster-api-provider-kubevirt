@@ -13,6 +13,7 @@ export KUBEVIRT_DEPLOY_CDI="true"
 export KUBEVIRT_STORAGE="rook-ceph-default"
 
 _default_bin_path=./hack/tools/bin
+_default_tmp_path=./hack/tools/bin/tmp
 _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
 
@@ -21,6 +22,7 @@ export TENANT_CLUSTER_NAME=${TENANT_CLUSTER_NAME:-kvcluster}
 export TENANT_CLUSTER_NAMESPACE=${TENANT_CLUSTER_NAMESPACE:-kvcluster}
 
 _kubectl=cluster-up/cluster-up/kubectl.sh
+_ssh_infra=cluster-up/cluster-up/ssh.sh
 
 _action=$1
 shift
@@ -43,6 +45,8 @@ function kubevirtci::usage() {
 	  virtctl <virtctl options>         Run virtctl commands against the cluster
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
 
+	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
+	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
 	  create-cluster                    Create new kubernetes tenant cluster
 	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
 
@@ -98,6 +102,23 @@ function kubevirtci::build() {
 	export REGISTRY="127.0.0.1:$(cluster-up/cluster-up/cli.sh ports registry)"
 	make docker-build
 	make docker-push
+}
+
+function kubevirtci::ssh_tenant() {
+	vmi_name=$1
+	vmi_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	mkdir -p $_default_tmp_path
+
+	echo "vmi $vmi_name namespace $vmi_namespace"
+
+	${_kubectl} get secret -n e2e-test-create-cluster-87mlkk kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
+
+	chmod 600 ${_default_tmp_path}/key.pem
+
+	ssh -o IdentitiesOnly=yes -o "ProxyCommand=$_default_virtctl_path port-forward --stdio=true $vmi_name.$vmi_namespace 22" capk@$vmi_name.$vmi_namespace -i ${_default_tmp_path}/key.pem
+
+	rm ${_default_tmp_path}/key.pem
 }
 
 function kubevirtci::refresh() {
@@ -178,6 +199,12 @@ case ${_action} in
 	;;
 "virtctl")
 	${_default_virtctl_path} "$@"
+	;;
+"ssh-infra")
+	$_ssh_infra "$@"
+	;;
+"ssh-tenant")
+	kubevirtci::ssh_tenant "$@"
 	;;
 "clusterctl")
 	$CLUSTERCTL_PATH "$@"
