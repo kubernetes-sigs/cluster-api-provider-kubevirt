@@ -42,14 +42,15 @@ function kubevirtci::usage() {
 
 	  kubeconfig                        Return the kubeconfig of the cluster
 	  kubectl <kubectl options>         Interact with the cluster
+	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
 	  virtctl <virtctl options>         Run virtctl commands against the cluster
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
 
 	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
 	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
 	  create-cluster                    Create new kubernetes tenant cluster
+	  create-external-cluster           Create new kubernetes tenant cluster simulated as running on external infra
 	  destroy-cluster                   Destroy the tenant cluster
-	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
 
 	  help                              Print usage
 	"
@@ -113,7 +114,7 @@ function kubevirtci::ssh_tenant() {
 
 	echo "vmi $vmi_name namespace $vmi_namespace"
 
-	${_kubectl} get secret -n e2e-test-create-cluster-87mlkk kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
+	${_kubectl} get secret -n $TENANT_CLUSTER_NAMESPACE kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
 
 	chmod 600 ${_default_tmp_path}/key.pem
 
@@ -143,15 +144,25 @@ function kubevirtci::generate_kubeconfig() {
 }
 
 function kubevirtci::destroy_cluster() {
-	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME}
+	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME} --ignore-not-found
 }
 
 function kubevirtci::create_cluster() {
 	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
+
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+}
+
+function kubevirtci::create_external_cluster() {
+	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
+	export IMAGE_REPO=k8s.gcr.io
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+
+	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
 	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::kubectl_tenant {
@@ -215,8 +226,11 @@ case ${_action} in
 	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
-	kubevirtci::generate_kubeconfig
 	kubevirtci::create_cluster
+	;;
+"create-external-cluster")
+	kubevirtci::generate_kubeconfig
+	kubevirtci::create_external_cluster
 	;;
 "destroy-cluster")
 	kubevirtci::destroy_cluster
