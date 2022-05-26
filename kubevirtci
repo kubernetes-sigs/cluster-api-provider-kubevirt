@@ -49,7 +49,7 @@ function kubevirtci::usage() {
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
 
 	  install-metallb                   Installs metallb into the infra cluster
-	  curl-lb                           Curls lb service within infra cluster
+	  curl-lb <lb name> [lb namespace]  Curls lb service within infra cluster
 
 	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
 	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
@@ -174,6 +174,8 @@ function kubevirtci::create_external_cluster() {
 function kubevirtci::install_metallb {
 	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/namespace.yaml
 	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/metallb.yaml
+
+	echo "waiting for metallb to come online"
 	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
 
 	mkdir -p ${_default_tmp_path}
@@ -198,7 +200,57 @@ EOF
 	${_kubectl} apply -f ${metal_config}
 
 	rm $metal_config
+	echo "metallb installed!"
 }
+
+function kubevirtci::curl_lb {
+	mkdir -p ${_default_tmp_path}
+	job_yaml=${_default_tmp_path}/curl-test-pod.yaml
+	if [ -f ${job_yaml} ]; then
+		${_kubectl} delete -f ${job_yaml} --ignore-not-found
+	fi
+
+	lb_name=$1
+	lb_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	$_kubectl get service $lb_name -n $lb_namespace
+
+	lb_ip=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "ip:" | awk '{print $3}')
+	lb_port=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "port:" | awk '{print $2}')
+
+
+	cat << EOF > $job_yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: curl-test-job
+  namespace: ${lb_namespace}
+spec:
+  template:
+    spec:
+      containers:
+      - name: fedora
+        image: fedora:35
+        command:
+          - curl
+          - "${lb_ip}:${lb_port}"
+      restartPolicy: Never
+  backoffLimit: 4
+EOF
+
+	${_kubectl} create -f $job_yaml
+	echo "-----------Waiting for curl job to complete"
+	${_kubectl} wait job curl-test-job -n default --for condition=Complete --timeout=5m
+
+	pod_name=$($_kubectl get pods --selector=job-name=curl-test-job --output=jsonpath='{.items[*].metadata.name}')
+
+	echo "-----------CURL LOG FOR POD $pod_name"
+	$_kubectl logs -n default $pod_name 2>/dev/null
+
+	${_kubectl} delete -f ${job_yaml} --ignore-not-found > /dev/null 2>&1
+}
+
 
 function kubevirtci::kubectl_tenant {
     vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
@@ -242,6 +294,9 @@ case ${_action} in
 
 "install-metallb")
 	kubevirtci::install_metallb
+	;;
+"curl-lb")
+	kubevirtci::curl_lb "$@"
 	;;
 "kubeconfig")
 	kubevirtci::kubeconfig
