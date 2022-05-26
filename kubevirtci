@@ -11,6 +11,8 @@ export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
 export KUBEVIRT_STORAGE="rook-ceph-default"
+export KUBEVIRT_METALLB_VERSION="v0.12.1"
+
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
@@ -45,6 +47,9 @@ function kubevirtci::usage() {
 	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
 	  virtctl <virtctl options>         Run virtctl commands against the cluster
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
+
+	  install-metallb                   Installs metallb into the infra cluster
+	  curl-lb                           Curls lb service within infra cluster
 
 	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
 	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
@@ -165,6 +170,36 @@ function kubevirtci::create_external_cluster() {
 	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
+
+function kubevirtci::install_metallb {
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/namespace.yaml
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/metallb.yaml
+	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
+
+	mkdir -p ${_default_tmp_path}
+	local metal_config=${_default_tmp_path}/metallb-config.yaml
+
+	cat << EOF > $metal_config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - 192.168.66.201-192.168.66.250
+EOF
+
+	${_kubectl} apply -f ${metal_config}
+
+	rm $metal_config
+}
+
 function kubevirtci::kubectl_tenant {
     vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
     for vm in $vms_list
@@ -203,6 +238,10 @@ case ${_action} in
 "sync")
 	kubevirtci::build
 	kubevirtci::install
+	;;
+
+"install-metallb")
+	kubevirtci::install_metallb
 	;;
 "kubeconfig")
 	kubevirtci::kubeconfig
