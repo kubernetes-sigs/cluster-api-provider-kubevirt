@@ -42,6 +42,7 @@ function kubevirtci::usage() {
 	  sync                              Build and deploy current capk from source (must be executed from within capk source tree)
 	  down                              Destroy the cluster
 	  refresh                           Build current capk and trigger creating new capk pods
+	  clean-cache                       Removes all files cached by kubevirtci
 
 	  kubeconfig                        Return the kubeconfig of the cluster
 	  kubectl <kubectl options>         Interact with the cluster
@@ -358,6 +359,12 @@ case ${_action} in
 	;;
 "destroy-cluster")
 	kubevirtci::destroy_cluster
+	;;
+
+"clean-cache")
+	rm ${_default_clusterctl_path}
+	rm ${_default_virtctl_path}
+	rm -rf ${_default_tmp_path}
 	;;
 "help")
 	kubevirtci::usage
