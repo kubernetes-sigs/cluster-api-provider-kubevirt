@@ -11,8 +11,9 @@ export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
 export KUBEVIRT_STORAGE="rook-ceph-default"
-export KUBEVIRT_METALLB_VERSION="v0.12.1"
-
+export METALLB_VERSION="v0.12.1"
+export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
+export CLUSTERCTL_VERSION="v1.0.0"
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
@@ -38,7 +39,7 @@ function kubevirtci::usage() {
 	Commands:
 
 	  up                                Start a cluster with kubevirt, cert-manager and capi
-	  sync                              Build and deploy current capk
+	  sync                              Build and deploy current capk from source (must be executed from within capk source tree)
 	  down                              Destroy the cluster
 	  refresh                           Build current capk and trigger creating new capk pods
 
@@ -48,6 +49,7 @@ function kubevirtci::usage() {
 	  virtctl <virtctl options>         Run virtctl commands against the cluster
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
 
+	  install-capk                      Installs capk from published release manifests
 	  install-metallb                   Installs metallb into the infra cluster
 	  curl-lb <lb name> [lb namespace]  Curls lb service within infra cluster
 
@@ -67,11 +69,11 @@ function kubevirtci::kubeconfig() {
 
 function kubevirtci::fetch_kubevirtci() {
 	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
-	(cd cluster-up && git checkout ${KUBEVIRTCI_TAG} > /dev/null)
+	(cd cluster-up && git checkout main > /dev/null 2>&1 && git pull > /dev/null && git checkout ${KUBEVIRTCI_TAG} > /dev/null 2>&1)
 	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
-		echo >&2 "Downloading clusterctl ..."
-		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.0.0/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
+		echo >&2 "Downloading clusterctl version ${CLUSTERCTL_VERSION}..."
+		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/${CLUSTERCTL_VERSION}/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
 		chmod u+x ${_default_clusterctl_path}
 	fi
 	if [ ! -f "${_default_virtctl_path}" ]; then
@@ -156,8 +158,15 @@ function kubevirtci::create_cluster() {
 	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
+	template=templates/cluster-template.yaml
 
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+	if [ ! -f $template ]; then
+		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
+	fi
+
+	echo "Using cluster template $template"
+
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_external_cluster() {
@@ -170,10 +179,27 @@ function kubevirtci::create_external_cluster() {
 	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
+function kubevirtci::create_tenant_namespace {
+	${_kubectl} apply -f - <<EOF
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TENANT_CLUSTER_NAMESPACE}
+EOF
+}
+
+function kubevirtci::install_capk_release {
+	${_kubectl} apply -f https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/releases/download/${CAPK_RELEASE_VERSION}/infrastructure-components.yaml
+
+	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
+
+	echo "capk release $CAPK_RELEASE_VERSION installed!"
+}
 
 function kubevirtci::install_metallb {
-	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/namespace.yaml
-	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${KUBEVIRT_METALLB_VERSION}/manifests/metallb.yaml
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/namespace.yaml
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/metallb.yaml
 
 	echo "waiting for metallb to come online"
 	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
@@ -291,7 +317,9 @@ case ${_action} in
 	kubevirtci::build
 	kubevirtci::install
 	;;
-
+"install-capk")
+	kubevirtci::install_capk_release
+	;;
 "install-metallb")
 	kubevirtci::install_metallb
 	;;
@@ -320,9 +348,11 @@ case ${_action} in
 	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
+	kubevirtci::create_tenant_namespace
 	kubevirtci::create_cluster
 	;;
 "create-external-cluster")
+	kubevirtci::create_tenant_namespace
 	kubevirtci::generate_kubeconfig
 	kubevirtci::create_external_cluster
 	;;
