@@ -13,6 +13,7 @@ export KUBEVIRT_DEPLOY_CDI="true"
 export KUBEVIRT_STORAGE="rook-ceph-default"
 
 _default_bin_path=./hack/tools/bin
+_default_tmp_path=./hack/tools/bin/tmp
 _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
 
@@ -21,6 +22,7 @@ export TENANT_CLUSTER_NAME=${TENANT_CLUSTER_NAME:-kvcluster}
 export TENANT_CLUSTER_NAMESPACE=${TENANT_CLUSTER_NAMESPACE:-kvcluster}
 
 _kubectl=cluster-up/cluster-up/kubectl.sh
+_ssh_infra=cluster-up/cluster-up/ssh.sh
 
 _action=$1
 shift
@@ -40,11 +42,15 @@ function kubevirtci::usage() {
 
 	  kubeconfig                        Return the kubeconfig of the cluster
 	  kubectl <kubectl options>         Interact with the cluster
+	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
 	  virtctl <virtctl options>         Run virtctl commands against the cluster
 	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
 
+	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
+	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
 	  create-cluster                    Create new kubernetes tenant cluster
-	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
+	  create-external-cluster           Create new kubernetes tenant cluster simulated as running on external infra
+	  destroy-cluster                   Destroy the tenant cluster
 
 	  help                              Print usage
 	"
@@ -100,6 +106,23 @@ function kubevirtci::build() {
 	make docker-push
 }
 
+function kubevirtci::ssh_tenant() {
+	vmi_name=$1
+	vmi_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	mkdir -p $_default_tmp_path
+
+	echo "vmi $vmi_name namespace $vmi_namespace"
+
+	${_kubectl} get secret -n $TENANT_CLUSTER_NAMESPACE kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
+
+	chmod 600 ${_default_tmp_path}/key.pem
+
+	ssh -o IdentitiesOnly=yes -o "ProxyCommand=$_default_virtctl_path port-forward --stdio=true $vmi_name.$vmi_namespace 22" capk@$vmi_name.$vmi_namespace -i ${_default_tmp_path}/key.pem
+
+	rm ${_default_tmp_path}/key.pem
+}
+
 function kubevirtci::refresh() {
 	${_kubectl} delete pods --all -n capk-system
 }
@@ -120,12 +143,26 @@ function kubevirtci::generate_kubeconfig() {
         sed -i -r 's/127.0.0.1:[0-9]+/192.168.66.101:6443/g' kubeconfig-e2e
 }
 
+function kubevirtci::destroy_cluster() {
+	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME} --ignore-not-found
+}
+
 function kubevirtci::create_cluster() {
 	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
-	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template.yaml | ${_kubectl} apply -f -
+}
+
+function kubevirtci::create_external_cluster() {
+	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
+	export IMAGE_REPO=k8s.gcr.io
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+
+	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
+	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::kubectl_tenant {
@@ -145,7 +182,7 @@ function kubevirtci::kubectl_tenant {
     ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
     trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
     rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
-    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} > .${TENANT_CLUSTER_NAME}-kubeconfig
+    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
     sleep 0.1
     kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
 }
@@ -179,12 +216,24 @@ case ${_action} in
 "virtctl")
 	${_default_virtctl_path} "$@"
 	;;
+"ssh-infra")
+	$_ssh_infra "$@"
+	;;
+"ssh-tenant")
+	kubevirtci::ssh_tenant "$@"
+	;;
 "clusterctl")
 	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
-	kubevirtci::generate_kubeconfig
 	kubevirtci::create_cluster
+	;;
+"create-external-cluster")
+	kubevirtci::generate_kubeconfig
+	kubevirtci::create_external_cluster
+	;;
+"destroy-cluster")
+	kubevirtci::destroy_cluster
 	;;
 "help")
 	kubevirtci::usage
