@@ -64,6 +64,7 @@ type tenantClusterAccess struct {
 	listener             net.Listener
 	namespace            string
 	tenantKubeconfigFile string
+	isForwarding         bool
 }
 
 func newTenantClusterAccess(namespace string, tenantKubeconfigFile string) tenantClusterAccess {
@@ -93,10 +94,18 @@ func (t *tenantClusterAccess) generateClient() (*kubernetes.Clientset, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return kubernetes.NewForConfig(restConfig)
 }
 
+func (t *tenantClusterAccess) getLocalPort() int {
+	return t.listener.Addr().(*net.TCPAddr).Port
+}
+
 func (t *tenantClusterAccess) startForwardingTenantAPI() error {
+	if t.isForwarding {
+		return nil
+	}
 	address, err := net.ResolveIPAddr("", "127.0.0.1")
 	if err != nil {
 		return err
@@ -116,6 +125,7 @@ func (t *tenantClusterAccess) startForwardingTenantAPI() error {
 		return err
 	}
 
+	t.isForwarding = true
 	go t.waitForConnection(vmiName, t.namespace)
 
 	return nil
@@ -141,6 +151,10 @@ func (t *tenantClusterAccess) findControlPlaneVMIName() (string, error) {
 }
 
 func (t *tenantClusterAccess) stopForwardingTenantAPI() error {
+	if !t.isForwarding {
+		return nil
+	}
+	t.isForwarding = false
 	return t.listener.Close()
 }
 
