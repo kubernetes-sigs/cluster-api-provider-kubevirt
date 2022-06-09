@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/kubernetes"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -38,6 +39,9 @@ var _ = Describe("CreateCluster", func() {
 	var manifestsFile string
 	var tenantKubeconfigFile string
 	var namespace string
+	var tenantAccessor tenantClusterAccess
+
+	calicoManifestsUrl := "https://docs.projectcalico.org/v3.21/manifests/calico.yaml"
 
 	BeforeEach(func() {
 		var err error
@@ -68,6 +72,7 @@ var _ = Describe("CreateCluster", func() {
 			},
 		}
 
+		tenantAccessor = newTenantClusterAccess(namespace, tenantKubeconfigFile)
 		err = k8sclient.Create(context.Background(), ns)
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -87,6 +92,8 @@ var _ = Describe("CreateCluster", func() {
 		}()
 
 		_ = os.RemoveAll(tmpDir)
+
+		_ = tenantAccessor.stopForwardingTenantAPI()
 
 		By("removing cluster")
 		cluster := &clusterv1.Cluster{
@@ -235,18 +242,43 @@ var _ = Describe("CreateCluster", func() {
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
-	waitForTenantAccess := func(numExpectedNodes int) {
+	waitForTenantPods := func() {
+
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		t := newTenantClusterAccess(namespace, tenantKubeconfigFile)
-		err := t.startForwardingTenantAPI()
+		err := tenantAccessor.startForwardingTenantAPI()
 		Expect(err).ToNot(HaveOccurred())
-		defer func() {
-			err := t.stopForwardingTenantAPI()
-			Expect(err).ToNot(HaveOccurred())
-		}()
 
 		By("Create client to access the tenant cluster")
-		clientSet, err := t.generateClient()
+		clientSet, err := tenantAccessor.generateClient()
+		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() error {
+			podList, err := clientSet.CoreV1().Pods("kube-system").List(context.Background(), metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			offlinePodList := []string{}
+			for _, pod := range podList.Items {
+				if pod.Status.Phase != corev1.PodRunning {
+					offlinePodList = append(offlinePodList, pod.Name)
+				}
+			}
+
+			if len(offlinePodList) > 0 {
+
+				return fmt.Errorf("Waiting on tenant pods [%v] to reach a Running phase", offlinePodList)
+			}
+			return nil
+		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "waiting for pods to hit Running phase.")
+
+	}
+
+	waitForTenantAccess := func(numExpectedNodes int) *kubernetes.Clientset {
+		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
+		err := tenantAccessor.startForwardingTenantAPI()
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Create client to access the tenant cluster")
+		clientSet, err := tenantAccessor.generateClient()
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() error {
@@ -259,6 +291,52 @@ var _ = Describe("CreateCluster", func() {
 
 			return nil
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
+
+		return clientSet
+	}
+
+	waitForNodeReadiness := func() *kubernetes.Clientset {
+		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
+		err := tenantAccessor.startForwardingTenantAPI()
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Create client to access the tenant cluster")
+		clientSet, err := tenantAccessor.generateClient()
+		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() error {
+
+			nodeList, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			for _, node := range nodeList.Items {
+
+				ready := false
+				networkAvailable := false
+				for _, cond := range node.Status.Conditions {
+					if cond.Type == corev1.NodeReady && cond.Status == corev1.ConditionTrue {
+						ready = true
+					} else if cond.Type == corev1.NodeNetworkUnavailable && cond.Status == corev1.ConditionFalse {
+						networkAvailable = true
+					}
+				}
+
+				if !ready {
+					return fmt.Errorf("waiting on node %s to become ready", node.Name)
+				} else if !networkAvailable {
+					return fmt.Errorf("waiting on node %s to have network availablity", node.Name)
+				}
+			}
+
+			return nil
+		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "ensure healthy nodes.")
+
+		return clientSet
+	}
+
+	installCalicoCNI := func() {
+		cmd := exec.Command(KubectlPath, "--kubeconfig", tenantKubeconfigFile, "--insecure-skip-tls-verify", "--server", fmt.Sprintf("https://localhost:%d", tenantAccessor.getLocalPort()), "apply", "-f", calicoManifestsUrl)
+		RunCmd(cmd)
 	}
 
 	waitForNodeUpdate := func() {
@@ -455,6 +533,15 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting for getting access to the tenant cluster")
 		waitForTenantAccess(2)
+
+		By("posting calico CNI manifests to the guest cluster and waiting for network")
+		installCalicoCNI()
+
+		By("Waiting for node readiness")
+		waitForNodeReadiness()
+
+		By("waiting all tenant Pods to be Ready")
+		waitForTenantPods()
 	})
 
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
@@ -514,6 +601,15 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting for getting access to the tenant cluster")
 		waitForTenantAccess(2)
+
+		By("posting calico CNI manifests to the guest cluster and waiting for network")
+		installCalicoCNI()
+
+		By("Waiting for node readiness")
+		waitForNodeReadiness()
+
+		By("waiting all tenant Pods to be Ready")
+		waitForTenantPods()
 
 	})
 
@@ -683,5 +779,14 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Waiting for getting access to the tenant cluster")
 		waitForTenantAccess(2)
+
+		By("posting calico CNI manifests to the guest cluster and waiting for network")
+		installCalicoCNI()
+
+		By("Waiting for node readiness")
+		waitForNodeReadiness()
+
+		By("waiting all tenant Pods to be Ready")
+		waitForTenantPods()
 	})
 })

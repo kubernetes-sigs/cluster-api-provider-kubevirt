@@ -2,8 +2,9 @@
 
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.21}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2110251848-8198e9c}
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
+export CAPK_GUEST_K8S_VERSION=${CAPK_GUEST_K8S_VERSION:-v1.21.0}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
 export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
@@ -14,6 +15,7 @@ export KUBEVIRT_STORAGE="rook-ceph-default"
 export METALLB_VERSION="v0.12.1"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.0.0"
+export CALICO_VERSION="v3.21"
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
@@ -52,6 +54,7 @@ function kubevirtci::usage() {
 
 	  install-capk                      Installs capk from published release manifests
 	  install-metallb                   Installs metallb into the infra cluster
+	  install-calico                    Installs calico cni into tenant cluster
 	  curl-lb <lb name> [lb namespace]  Curls lb service within infra cluster
 
 	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
@@ -167,7 +170,7 @@ function kubevirtci::create_cluster() {
 
 	echo "Using cluster template $template"
 
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_external_cluster() {
@@ -177,7 +180,7 @@ function kubevirtci::create_external_cluster() {
 
 	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
 	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_tenant_namespace {
@@ -196,6 +199,11 @@ function kubevirtci::install_capk_release {
 	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
 
 	echo "capk release $CAPK_RELEASE_VERSION installed!"
+}
+
+
+function kubevirtci::install_calico {
+	kubevirtci::kubectl_tenant apply -f https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml
 }
 
 function kubevirtci::install_metallb {
@@ -323,6 +331,9 @@ case ${_action} in
 	;;
 "install-metallb")
 	kubevirtci::install_metallb
+	;;
+"install-calico")
+	kubevirtci::install_calico
 	;;
 "curl-lb")
 	kubevirtci::curl_lb "$@"
