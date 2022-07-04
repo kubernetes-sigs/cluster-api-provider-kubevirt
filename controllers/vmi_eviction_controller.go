@@ -1,33 +1,41 @@
 package controllers
 
 import (
-	gocontext "context"
+	goContext "context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	kubedrain "k8s.io/kubectl/pkg/drain"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	context "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
-type VmiReconciler struct {
+type VmiEvictionReconciler struct {
 	client.Client
+	workloadCluster workloadcluster.WorkloadCluster
 }
 
-func (r *VmiReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
+// NewVmiEvictionReconciler creates a new VmiEvictionReconciler
+func NewVmiEvictionReconciler(cl client.Client) *VmiEvictionReconciler {
+	return &VmiEvictionReconciler{Client: cl, workloadCluster: workloadcluster.New(cl)}
+}
+
+// SetupWithManager will add watches for this controller.
+func (r *VmiEvictionReconciler) SetupWithManager(ctx goContext.Context, mgr ctrl.Manager) error {
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&kubevirtv1.VirtualMachineInstance{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(ctrl.LoggerFrom(ctx), infrav1.KubevirtMachineNameLabel)).
@@ -36,7 +44,13 @@ func (r *VmiReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager
 	return err
 }
 
-func (r VmiReconciler) Reconcile(ctx gocontext.Context, req ctrl.Request) (ctrl.Result, error) {
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;list;watch;patch;update;delete
+// +kubebuilder:rbac:groups="",resources=node;,verbs=get;list;watch;create;update;patch
+
+// Reconcile handles VMI events.
+func (r VmiEvictionReconciler) Reconcile(ctx goContext.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrl.LoggerFrom(ctx)
 
 	vmi := &kubevirtv1.VirtualMachineInstance{}
@@ -50,23 +64,18 @@ func (r VmiReconciler) Reconcile(ctx gocontext.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// KubeVirt will set the EvacuationNodeName field in case of guest node eviction. If the field is not set, there is
-	// nothing to do.
-	nodeName := vmi.Status.EvacuationNodeName
-	if len(nodeName) == 0 { // no need to drain
-		logger.V(4).Info(fmt.Sprintf("The virtualMachineInstance %s is not marked for deletion. Nothing to do here", req.NamespacedName))
+	if !shouldGracefulDeleteVMI(vmi, logger, req.NamespacedName) {
 		return ctrl.Result{}, nil
 	}
 
 	cluster, err := r.getCluster(ctx, vmi)
 	if err != nil {
-		logger.Error(err, "Can't get the cluster form the VirtualMachineInstance")
+		logger.Error(err, "Can't get the cluster form the VirtualMachineInstance", "VirtualMachineInstance name", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
-	nodeDrained, retryDuration, err := r.drainNode(ctx, cluster, nodeName, logger)
+	nodeDrained, retryDuration, err := r.drainNode(ctx, cluster, vmi.Status.EvacuationNodeName, logger)
 	if err != nil || !nodeDrained {
-		// logging done in the drainNode method
 		return ctrl.Result{RequeueAfter: retryDuration}, err
 	}
 
@@ -74,15 +83,35 @@ func (r VmiReconciler) Reconcile(ctx gocontext.Context, req ctrl.Request) (ctrl.
 	propagationPolicy := metav1.DeletePropagationForeground
 	err = r.Delete(ctx, vmi, &client.DeleteOptions{PropagationPolicy: &propagationPolicy})
 	if err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return ctrl.Result{RequeueAfter: 20 * time.Second}, err
-		}
+		logger.Error(err, "failed to delete VirtualMachineInstance", "VirtualMachineInstance name", req.NamespacedName)
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r VmiReconciler) getCluster(ctx gocontext.Context, vmi *kubevirtv1.VirtualMachineInstance) (*clusterv1.Cluster, error) {
+func shouldGracefulDeleteVMI(vmi *kubevirtv1.VirtualMachineInstance, logger logr.Logger, namespacedName types.NamespacedName) bool {
+	if vmi.DeletionTimestamp != nil {
+		logger.V(4).Info("The virtualMachineInstance is already in deletion process. Nothing to do here", "VirtualMachineInstance name", namespacedName)
+		return false
+	}
+
+	if vmi.Spec.EvictionStrategy == nil || *vmi.Spec.EvictionStrategy != kubevirtv1.EvictionStrategyExternal {
+		logger.V(4).Info("Graceful deletion is not supported for virtualMachineInstance. Nothing to do here", "VirtualMachineInstance name", namespacedName)
+		return false
+	}
+
+	// KubeVirt will set the EvacuationNodeName field in case of guest node eviction. If the field is not set, there is
+	// nothing to do.
+	if len(vmi.Status.EvacuationNodeName) == 0 {
+		logger.V(4).Info("The virtualMachineInstance is not marked for deletion. Nothing to do here", "VirtualMachineInstance name", namespacedName)
+		return false
+	}
+
+	return true
+}
+
+func (r VmiEvictionReconciler) getCluster(ctx goContext.Context, vmi *kubevirtv1.VirtualMachineInstance) (*clusterv1.Cluster, error) {
 	// get cluster from vmi
 	clusterNS, ok := vmi.Labels[infrav1.KubevirtMachineNamespaceLabel]
 	if !ok {
@@ -108,26 +137,15 @@ func (r VmiReconciler) getCluster(ctx gocontext.Context, vmi *kubevirtv1.Virtual
 // * drain done - boolean
 // * retry time, or 0 if not needed
 // * error - to be returned if we want to retry
-func (r *VmiReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cluster, nodeName string, logger logr.Logger) (bool, time.Duration, error) {
-	kubeconfigData, err := r.getKubeconfigForWorkloadCluster(ctx, cluster)
-	if err != nil {
-		logger.Error(err, "Error getting a remote client configurations while deleting Machine, won't retry")
-		return false, 0, nil
-	}
-
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigData))
-	if err != nil {
-		logger.Error(err, "Error generating a remote client configurations while deleting Machine, won't retry")
-		return false, 0, nil
-	}
-
-	kubeClient, err := kubernetes.NewForConfig(restConfig)
+func (r *VmiEvictionReconciler) drainNode(goctx goContext.Context, cluster *clusterv1.Cluster, nodeName string, logger logr.Logger) (bool, time.Duration, error) {
+	ctx := &context.MachineContext{Context: goctx, KubevirtCluster: &infrav1.KubevirtCluster{ObjectMeta: metav1.ObjectMeta{Namespace: cluster.Namespace, Name: cluster.Name}}}
+	kubeClient, err := r.workloadCluster.GenerateWorkloadClusterK8sClient(ctx)
 	if err != nil {
 		logger.Error(err, "Error creating a remote client while deleting Machine, won't retry")
 		return false, 0, nil
 	}
 
-	node, err := kubeClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	node, err := kubeClient.CoreV1().Nodes().Get(goctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			// If an admin deletes the node directly, we'll end up here.
@@ -180,24 +198,6 @@ func (r *VmiReconciler) drainNode(ctx context.Context, cluster *clusterv1.Cluste
 
 	logger.Info("Drain successful", "node name", nodeName)
 	return true, 0, nil
-}
-
-// getKubeconfigForWorkloadCluster fetches kubeconfig for workload cluster from the corresponding secret.
-func (r *VmiReconciler) getKubeconfigForWorkloadCluster(ctx context.Context, cluster *clusterv1.Cluster) (string, error) {
-	// workload cluster kubeconfig can be found in a secret with suffix "-kubeconfig"
-	kubeconfigSecret := &corev1.Secret{}
-	kubeconfigSecretKey := client.ObjectKey{Namespace: cluster.Spec.InfrastructureRef.Namespace, Name: cluster.Spec.InfrastructureRef.Name + "-kubeconfig"}
-	if err := r.Client.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
-		return "", errors.Wrapf(err, "failed to fetch kubeconfig for workload cluster")
-	}
-
-	// read kubeconfig
-	value, ok := kubeconfigSecret.Data["value"]
-	if !ok {
-		return "", errors.New("error retrieving kubeconfig data: secret value key is missing")
-	}
-
-	return string(value), nil
 }
 
 // writer implements io.Writer interface as a pass-through for klog.

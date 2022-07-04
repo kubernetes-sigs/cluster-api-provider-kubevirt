@@ -9,6 +9,17 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - node
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
@@ -84,8 +95,11 @@ rules:
   resources:
   - virtualmachineinstances
   verbs:
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - kubevirt.io

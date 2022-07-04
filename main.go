@@ -173,9 +173,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		os.Exit(1)
 	}
 
-	if err := (&controllers.VmiReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(ctx, mgr); err != nil {
+	if err := (controllers.NewVmiEvictionReconciler(mgr.GetClient())).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VirtualMachineInstance")
 		os.Exit(1)
 	}

@@ -247,8 +247,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
 		kubevirtCluster = testing.NewKubevirtCluster(clusterName, machineName)
 
-		workloadClusterMock = workloadclustermock.NewMockWorkloadCluster(mockCtrl)
-		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
 		machineFactoryMock = machinemocks.NewMockMachineFactory(mockCtrl)
 		machineMock = machinemocks.NewMockMachineInterface(mockCtrl)
 
