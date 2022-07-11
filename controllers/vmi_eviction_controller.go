@@ -24,6 +24,10 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
+const (
+	vmiDeleteGraceTimeoutDurationSeconds = 600 // 10 minutes
+)
+
 type VmiEvictionReconciler struct {
 	client.Client
 	workloadCluster workloadcluster.WorkloadCluster
@@ -75,11 +79,15 @@ func (r VmiEvictionReconciler) Reconcile(ctx goContext.Context, req ctrl.Request
 	}
 
 	nodeDrained, retryDuration, err := r.drainNode(ctx, cluster, vmi.Status.EvacuationNodeName, logger)
-	if err != nil || !nodeDrained {
+	if err != nil {
 		return ctrl.Result{RequeueAfter: retryDuration}, err
 	}
 
-	// now, when the node is drained, we can safely delete the VMI
+	if !nodeDrained && r.waitingForTimeout(ctx, vmi, logger) {
+		return ctrl.Result{RequeueAfter: retryDuration}, nil
+	}
+
+	// now, when the node is drained (or vmiDeleteGraceTimeoutDurationSeconds has passed), we can safely delete the VMI
 	propagationPolicy := metav1.DeletePropagationForeground
 	err = r.Delete(ctx, vmi, &client.DeleteOptions{PropagationPolicy: &propagationPolicy})
 	if err != nil {
@@ -137,7 +145,7 @@ func (r VmiEvictionReconciler) getCluster(ctx goContext.Context, vmi *kubevirtv1
 // * drain done - boolean
 // * retry time, or 0 if not needed
 // * error - to be returned if we want to retry
-func (r *VmiEvictionReconciler) drainNode(goctx goContext.Context, cluster *clusterv1.Cluster, nodeName string, logger logr.Logger) (bool, time.Duration, error) {
+func (r VmiEvictionReconciler) drainNode(goctx goContext.Context, cluster *clusterv1.Cluster, nodeName string, logger logr.Logger) (bool, time.Duration, error) {
 	ctx := &context.MachineContext{Context: goctx, KubevirtCluster: &infrav1.KubevirtCluster{ObjectMeta: metav1.ObjectMeta{Namespace: cluster.Namespace, Name: cluster.Name}}}
 	kubeClient, err := r.workloadCluster.GenerateWorkloadClusterK8sClient(ctx)
 	if err != nil {
@@ -198,6 +206,33 @@ func (r *VmiEvictionReconciler) drainNode(goctx goContext.Context, cluster *clus
 
 	logger.Info("Drain successful", "node name", nodeName)
 	return true, 0, nil
+}
+
+// wait vmiDeleteGraceTimeoutDurationSeconds to the node to be drained. If this time had passed, don't wait anymore.
+func (r VmiEvictionReconciler) waitingForTimeout(ctx goContext.Context, vmi *kubevirtv1.VirtualMachineInstance, logger logr.Logger) bool {
+	if graceTime, found := vmi.Annotations[infrav1.VmiDeletionGraceTime]; found {
+		deletionGraceTime, err := time.Parse(time.RFC3339, graceTime)
+		if err != nil { // wrong format - rewrite
+			r.setVmiDeletionGraceTime(ctx, vmi, logger)
+		} else {
+			return !time.Now().UTC().After(deletionGraceTime)
+		}
+	} else {
+		r.setVmiDeletionGraceTime(ctx, vmi, logger)
+	}
+
+	return true
+}
+
+func (r VmiEvictionReconciler) setVmiDeletionGraceTime(ctx goContext.Context, vmi *kubevirtv1.VirtualMachineInstance, logger logr.Logger) {
+	logger.V(2).Info(fmt.Sprintf("setting the %s annotation", infrav1.VmiDeletionGraceTime))
+	graceTime := time.Now().Add(vmiDeleteGraceTimeoutDurationSeconds * time.Second).UTC().Format(time.RFC3339)
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "%s"}}}`, infrav1.VmiDeletionGraceTime, graceTime)
+	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
+
+	if err := r.Patch(ctx, vmi, patchRequest); err != nil {
+		logger.Error(err, fmt.Sprintf("failed to add the %s annotation to the node", infrav1.VmiDeletionGraceTime), "vmi name", vmi.Name)
+	}
 }
 
 // writer implements io.Writer interface as a pass-through for klog.
