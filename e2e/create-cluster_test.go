@@ -2,7 +2,9 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -15,11 +17,14 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	policy "k8s.io/api/policy/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/utils/pointer"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -124,22 +129,25 @@ var _ = Describe("CreateCluster", func() {
 				}
 			}
 			return nil
-		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
+		}).WithOffset(1).
+			WithTimeout(10*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
 
 	}
 
 	markExternalKubeVirtClusterReady := func(clusterName string, namespace string) {
 		By("Ensuring no other controller is managing the kvcluster's status")
-		Consistently(func() error {
+		Consistently(func(g Gomega) error {
 			kvCluster := &infrav1.KubevirtCluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: clusterName}
 			err := k8sclient.Get(context.Background(), key, kvCluster)
-			Expect(err).ToNot(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
-			Expect(kvCluster.Finalizers).To(BeEmpty())
-			Expect(kvCluster.Status.Ready).To(BeFalse())
-			Expect(kvCluster.Status.FailureDomains).To(BeEmpty())
-			Expect(kvCluster.Status.Conditions).To(BeEmpty())
+			g.Expect(kvCluster.Finalizers).To(BeEmpty())
+			g.Expect(kvCluster.Status.Ready).To(BeFalse())
+			g.Expect(kvCluster.Status.FailureDomains).To(BeEmpty())
+			g.Expect(kvCluster.Status.Conditions).To(BeEmpty())
 
 			return nil
 		}, 30*time.Second, 5*time.Second).Should(Succeed())
@@ -240,7 +248,10 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
+		}).WithOffset(1).
+			WithTimeout(5*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "waiting for expected readiness.")
 	}
 
 	waitForTenantPods := func() {
@@ -253,9 +264,9 @@ var _ = Describe("CreateCluster", func() {
 		clientSet, err := tenantAccessor.generateClient()
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(func() error {
+		Eventually(func(g Gomega) error {
 			podList, err := clientSet.CoreV1().Pods("kube-system").List(context.Background(), metav1.ListOptions{})
-			Expect(err).ToNot(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			offlinePodList := []string{}
 			for _, pod := range podList.Items {
@@ -269,7 +280,10 @@ var _ = Describe("CreateCluster", func() {
 				return fmt.Errorf("Waiting on tenant pods [%v] to reach a Running phase", offlinePodList)
 			}
 			return nil
-		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "waiting for pods to hit Running phase.")
+		}).WithOffset(1).
+			WithTimeout(8*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "waiting for pods to hit Running phase.")
 
 	}
 
@@ -291,7 +305,10 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
+		}).WithOffset(1).
+			WithTimeout(5*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "waiting for expected readiness.")
 
 		return clientSet
 	}
@@ -305,10 +322,10 @@ var _ = Describe("CreateCluster", func() {
 		clientSet, err := tenantAccessor.generateClient()
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(func() error {
+		Eventually(func(g Gomega) error {
 
 			nodeList, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-			Expect(err).ToNot(HaveOccurred())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			for _, node := range nodeList.Items {
 
@@ -330,7 +347,10 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "ensure healthy nodes.")
+		}).WithOffset(1).
+			WithTimeout(8*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "ensure healthy nodes.")
 
 		return clientSet
 	}
@@ -360,7 +380,7 @@ var _ = Describe("CreateCluster", func() {
 
 	waitForControlPlane := func() {
 		By("Waiting on cluster's control plane to initialize")
-		Eventually(func() error {
+		Eventually(func(g Gomega) error {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
 			err := k8sclient.Get(context.Background(), key, cluster)
@@ -369,11 +389,14 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
-				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
+				return fmt.Errorf("still waiting on controlPlaneReady condition to be true")
 			}
 
 			return nil
-		}, 20*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
+		}).WithOffset(1).
+			WithTimeout(20*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "cluster should have control plane initialized")
 
 		By("Waiting on cluster's control plane to be ready")
 		Eventually(func() error {
@@ -385,11 +408,14 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition) {
-				return fmt.Errorf("still waiting on controlPlaneReady condition to be true")
+				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
 			}
 
 			return nil
-		}, 15*time.Minute, 5*time.Second).Should(Succeed(), "cluster should have control plane initialized")
+		}).WithOffset(1).
+			WithTimeout(15*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "cluster should have control plane initialized")
 	}
 
 	injectKubevirtClusterExternallyManagedAnnotation := func(yamlStr string) string {
@@ -727,7 +753,8 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	It("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
+	// todo ==> It
+	FIt("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
 			"--target-namespace", namespace,
@@ -779,7 +806,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		clientSet := waitForTenantAccess(2)
 
 		By("posting calico CNI manifests to the guest cluster and waiting for network")
 		installCalicoCNI()
@@ -789,6 +816,122 @@ var _ = Describe("CreateCluster", func() {
 
 		By("waiting all tenant Pods to be Ready")
 		waitForTenantPods()
+
+		By("read the VMI again after it was recreated")
+		vmiName := chosenVMI.Name
+		Eventually(func(g Gomega) *kubevirtv1.VirtualMachineInstance {
+			chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+			g.Expect(err).ToNot(HaveOccurred())
+
+			return chosenVMI
+		}).
+			WithTimeout(time.Minute * 5).
+			WithPolling(time.Second * 10).ShouldNot(BeNil())
+
+		Expect(*chosenVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
+
+		By("Get VMI's pod")
+		var pods *corev1.PodList
+		Eventually(func(g Gomega) []corev1.Pod {
+			labelSelector := fmt.Sprintf("%s=%s", kubevirtv1.CreatedByLabel, chosenVMI.GetUID())
+			fieldSelector := fmt.Sprintf("status.phase==%s", corev1.PodRunning)
+			pods, err = virtClient.CoreV1().Pods(chosenVMI.Namespace).List(
+				context.Background(),
+				metav1.ListOptions{
+					LabelSelector: labelSelector,
+					FieldSelector: fieldSelector,
+				})
+			g.Expect(err).ToNot(HaveOccurred())
+
+			return pods.Items
+		}, 90*time.Second, 500*time.Millisecond).Should(HaveLen(1))
+
+		yenc := yaml.NewEncoder(GinkgoWriter)
+
+		GinkgoWriter.Println("=====================================================================")
+		GinkgoWriter.Println("Pod")
+		_ = yenc.Encode(pods.Items[0])
+		GinkgoWriter.Println("=====================================================================")
+		GinkgoWriter.Println("VMI")
+		_ = yenc.Encode(chosenVMI)
+		GinkgoWriter.Println("=====================================================================")
+
+		By("Evict the VMI pod")
+		err = virtClient.CoreV1().Pods(namespace).EvictV1beta1(context.Background(), &policy.Eviction{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pods.Items[0].Name,
+			},
+			DeleteOptions: &metav1.DeleteOptions{
+				GracePeriodSeconds: pointer.Int64(60 * 10), // 10 minutes
+			},
+		})
+		GinkgoWriter.Println("=====================================================================")
+		GinkgoWriter.Printf("eviction error %v\n", err)
+		GinkgoWriter.Println("=====================================================================")
+
+		// todo uncomment
+		// Expect(err).To(HaveOccurred())
+		// Expect(k8serrors.IsTooManyRequests(err)).To(BeTrue())
+
+		By("wait for a new VMI to be created")
+		var vmiAfterEviction *kubevirtv1.VirtualMachineInstance
+
+		enc := json.NewEncoder(GinkgoWriter)
+		enc.SetIndent("", "  ")
+		Eventually(func(g Gomega) types.UID {
+			vmiAfterEviction, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(vmiAfterEviction).ShouldNot(BeNil())
+
+			GinkgoWriter.Printf(`[Debug] vmiAfterEviction: {"UID": "%v", "DeletionTimestamp": "%v", "EvacuationNodeName": "%s"}`+"\n",
+				vmiAfterEviction.UID, vmiAfterEviction.DeletionTimestamp, vmiAfterEviction.Status.EvacuationNodeName)
+
+			g.Expect(vmiAfterEviction.Status.EvacuationNodeName).Should(BeEmpty())
+
+			return vmiAfterEviction.GetUID()
+
+		}).WithTimeout(time.Minute * 5).
+			WithPolling(time.Second * 5).
+			ShouldNot(Equal(chosenVMI.GetUID())) // make sure that a new VMI was created
+
+		GinkgoWriter.Println("[Debug] vmiAfterEviction just after recreate:")
+		_ = enc.Encode(vmiAfterEviction)
+
+		By("Read the worker node from the tenant cluster, and validate its IP")
+		Eventually(func(g Gomega) bool {
+			node, err := clientSet.CoreV1().Nodes().Get(context.Background(), vmiAfterEviction.Name, metav1.GetOptions{})
+			g.Expect(err).ToNot(HaveOccurred())
+
+			GinkgoWriter.Println("[DEBUG] Tenant node addresses:")
+			_ = enc.Encode(node.Status.Addresses)
+
+			var nodeIp string
+			for _, address := range node.Status.Addresses {
+				if address.Type == "InternalIP" {
+					nodeIp = address.Address
+				}
+			}
+
+			g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
+
+			vmiAfterEviction, err = virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
+
+			g.Expect(err).ShouldNot(HaveOccurred())
+			g.Expect(vmiAfterEviction).ShouldNot(BeNil())
+
+			GinkgoWriter.Println("vmiAfterEviction Interfaces:")
+			_ = enc.Encode(vmiAfterEviction.Status.Interfaces)
+
+			for _, ifs := range vmiAfterEviction.Status.Interfaces {
+				for _, ip := range ifs.IPs {
+					if ip == nodeIp {
+						return true
+					}
+				}
+			}
+			return false
+
+		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(BeTrue())
 	})
 
 	// This test will create a tenant cluster from `templates/cluster-template-ext-infra.yaml` template.

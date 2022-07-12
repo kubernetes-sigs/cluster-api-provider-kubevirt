@@ -93,9 +93,11 @@ function kubevirtci::up() {
 	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
 	echo "installing kubevirt..."
 	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml
-	echo "installing capi..."
+	curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml \
+	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration|" \
+	   | ${_kubectl} apply -f -
 
+	echo "installing capi..."
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
 ---
 cert-manager:

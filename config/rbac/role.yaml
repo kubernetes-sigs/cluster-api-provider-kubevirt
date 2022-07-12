@@ -9,17 +9,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - node
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - create

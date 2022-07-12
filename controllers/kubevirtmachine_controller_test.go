@@ -420,7 +420,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 		//Check finalizer is removed from machine
-		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
 	It("should ensure deletion of KubevirtMachine when bootstrap secret was never created", func() {
@@ -443,7 +443,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
 
 		//Check finalizer is removed from machine
-		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
 	It("should update userdata correctly at KubevirtMachine reconcile", func() {
@@ -868,7 +868,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
-				Expect(err).ShouldNot(BeNil())
+				Expect(err).Should(HaveOccurred())
 
 				conditions := machineContext.KubevirtMachine.GetConditions()
 				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))

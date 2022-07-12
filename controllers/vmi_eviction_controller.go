@@ -51,7 +51,6 @@ func (r *VmiEvictionReconciler) SetupWithManager(ctx goContext.Context, mgr ctrl
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;list;watch;patch;update;delete
-// +kubebuilder:rbac:groups="",resources=node;,verbs=get;list;watch;create;update;patch
 
 // Reconcile handles VMI events.
 func (r VmiEvictionReconciler) Reconcile(ctx goContext.Context, req ctrl.Request) (ctrl.Result, error) {
