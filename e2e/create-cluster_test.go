@@ -23,7 +23,6 @@ import (
 	"kubevirt.io/client-go/kubecli"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
@@ -581,15 +580,11 @@ var _ = Describe("CreateCluster", func() {
 		chosenVMI := chooseWorkerVMI()
 
 		By("Setting terminal state on VMI")
-		patchHelper, err := patch.NewHelper(chosenVMI, k8sclient)
-		Expect(err).ToNot(HaveOccurred())
-
 		kvmName, ok := chosenVMI.Labels["capk.cluster.x-k8s.io/kubevirt-machine-name"]
 		Expect(ok).To(BeTrue())
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
-
-		err = patchHelper.Patch(context.Background(), chosenVMI)
+		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(chosenVMI)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
@@ -655,17 +650,13 @@ var _ = Describe("CreateCluster", func() {
 		chosenVMI := chooseWorkerVMI()
 
 		By("Setting VM to runstrategy once")
-
-		patchHelper, err := patch.NewHelper(chosenVMI, k8sclient)
-		Expect(err).ToNot(HaveOccurred())
-
 		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		once := kubevirtv1.RunStrategyOnce
 		chosenVM.Spec.RunStrategy = &once
 
-		err = patchHelper.Patch(context.Background(), chosenVMI)
+		_, err = virtClient.VirtualMachine(namespace).Update(chosenVM)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("killing the chosen VMI's pod")
