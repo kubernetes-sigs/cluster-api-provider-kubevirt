@@ -384,7 +384,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition) {
-				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
+				return fmt.Errorf("still waiting on controlPlaneReady condition to be true")
 			}
 
 			return nil
