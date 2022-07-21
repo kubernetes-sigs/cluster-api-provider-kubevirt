@@ -170,6 +170,15 @@ function kubevirtci::create_cluster() {
 	echo "Using cluster template $template"
 
 	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
+
+	echo "Wait for tenant cluster to be ready"
+	${_kubectl} wait cluster -n kvcluster kvcluster --for=condition=Ready --timeout=5m
+
+	echo "Wait for tenant cluster kubernetes apiserver up"
+	kubevirtci::retry_until_success kubevirtci::kubectl_tenant get pods -n kube-system
+
+	echo "Waiting for worker VM in tenant cluster namespace"
+	kubevirtci::retry_until_success kubevirtci::vm_matches "${TENANT_CLUSTER_NAME}-md-"
 }
 
 
@@ -203,6 +212,9 @@ function kubevirtci::install_capk_release {
 
 function kubevirtci::install_calico {
 	kubevirtci::kubectl_tenant apply -f https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml
+	echo "Waiting for calico pods rollout"
+	kubevirtci::kubectl_tenant rollout status ds/calico-node -n kube-system --timeout=2m
+
 }
 
 function kubevirtci::install_metallb {
@@ -306,6 +318,21 @@ function kubevirtci::kubectl_tenant {
     $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
     sleep 0.1
     kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
+}
+
+function kubevirtci::retry_until_success {
+    local timeout=30
+    local interval=1
+    until $@; do
+        ((timeout--)) && ((timeout==0)) && echo "condition not met" && exit 1
+        echo "waiting for \"$@\""
+        sleep $interval 
+    done
+}
+
+function kubevirtci::vm_matches {
+    local vm_name=$1
+    ${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name" | grep -q $vm_name
 }
 
 kubevirtci::fetch_kubevirtci
