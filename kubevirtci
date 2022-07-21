@@ -16,6 +16,8 @@ export METALLB_VERSION="v0.12.1"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.0.0"
 export CALICO_VERSION="v3.21"
+export KUBEVIRT_VERSION="v0.53.0"
+
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
@@ -82,8 +84,7 @@ function kubevirtci::fetch_kubevirtci() {
 	fi
 	if [ ! -f "${_default_virtctl_path}" ]; then
 		echo >&2 "Downloading virtctl ..."
-		LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-		curl -L https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/virtctl-${LATEST}-linux-amd64 -o ${_default_virtctl_path}
+		curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64 -o ${_default_virtctl_path}
 		chmod u+x ${_default_virtctl_path}
 	fi
 }
@@ -92,9 +93,8 @@ function kubevirtci::up() {
 	make cluster-up -C cluster-up
 	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
 	echo "installing kubevirt..."
-	LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-operator.yaml
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-cr.yaml
+	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml
+	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml
 	echo "installing capi..."
 
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
