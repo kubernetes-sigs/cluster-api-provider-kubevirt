@@ -75,7 +75,7 @@ func newTenantClusterAccess(namespace string, tenantKubeconfigFile string) tenan
 }
 
 func (t *tenantClusterAccess) generateClient() (*kubernetes.Clientset, error) {
-	localPort := t.listener.Addr().(*net.TCPAddr).Port
+	localPort := t.getLocalPort()
 	cmd := exec.Command(ClusterctlPath, "get", "kubeconfig", "kvcluster",
 		"--namespace", t.namespace)
 	stdout, _ := RunCmd(cmd)
