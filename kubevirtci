@@ -3,7 +3,7 @@
 set -e
 
 export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
-export CAPK_GUEST_K8S_VERSION=${CAPK_GUEST_K8S_VERSION:-v1.21.0}
+export CAPK_GUEST_K8S_VERSION=${CAPK_GUEST_K8S_VERSION:-v1.22.0}
 export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
 export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
@@ -11,11 +11,12 @@ export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
-export KUBEVIRT_STORAGE="rook-ceph-default"
 export METALLB_VERSION="v0.12.1"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.0.0"
 export CALICO_VERSION="v3.21"
+export KUBEVIRT_VERSION="v0.53.0"
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:v1.22.0}
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
@@ -82,8 +83,7 @@ function kubevirtci::fetch_kubevirtci() {
 	fi
 	if [ ! -f "${_default_virtctl_path}" ]; then
 		echo >&2 "Downloading virtctl ..."
-		LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-		curl -L https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/virtctl-${LATEST}-linux-amd64 -o ${_default_virtctl_path}
+		curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64 -o ${_default_virtctl_path}
 		chmod u+x ${_default_virtctl_path}
 	fi
 }
@@ -92,9 +92,8 @@ function kubevirtci::up() {
 	make cluster-up -C cluster-up
 	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
 	echo "installing kubevirt..."
-	LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-operator.yaml
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-cr.yaml
+	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml
+	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml
 	echo "installing capi..."
 
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
@@ -158,8 +157,8 @@ function kubevirtci::destroy_cluster() {
 	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME} --ignore-not-found
 }
 
+
 function kubevirtci::create_cluster() {
-	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
 	template=templates/cluster-template.yaml
@@ -173,8 +172,8 @@ function kubevirtci::create_cluster() {
 	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
 }
 
+
 function kubevirtci::create_external_cluster() {
-	export NODE_VM_IMAGE_TEMPLATE=quay.io/capk/ubuntu-container-disk:20.04
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
 
