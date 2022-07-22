@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
@@ -424,6 +425,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
 	}
+
 	if externalMachine.Exists() {
 		if err := externalMachine.Delete(); err != nil {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete VM")
@@ -433,11 +435,13 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	// Machine is deleted so remove the finalizer.
 	controllerutil.RemoveFinalizer(ctx.KubevirtMachine, infrav1.MachineFinalizer)
 
-	// Set the VMProvisionedCondition reporting delete is started, and issue a patch in order to make
-	// this visible to the users.
+	// Set the VMProvisionedCondition reporting delete is started, and attempt to issue a patch in
+	// order to make this visible to the users.
 	conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 	if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
+		if !apierrors.IsNotFound(utilerrors.Reduce(err)) {
+			return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
+		}
 	}
 
 	return ctrl.Result{}, nil

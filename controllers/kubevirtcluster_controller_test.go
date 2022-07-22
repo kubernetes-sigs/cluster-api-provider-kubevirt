@@ -153,7 +153,7 @@ var _ = Describe("Reconcile", func() {
 
 		AfterEach(func() {})
 
-		It("should throw an error when reconciling deleted clusters.", func() {
+		It("should succeed with the kubevirt cluster being deleted.", func() {
 			objects := []client.Object{
 				cluster,
 				kubevirtCluster,
@@ -161,13 +161,20 @@ var _ = Describe("Reconcile", func() {
 			setupClient(objects)
 			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
-			_, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
-				NamespacedName: client.ObjectKey{
-					Namespace: kubevirtCluster.Namespace,
-					Name:      kubevirtCluster.Name,
-				},
+			namespacedName := client.ObjectKey{
+				Namespace: kubevirtCluster.Namespace,
+				Name:      kubevirtCluster.Name,
+			}
+
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
+				NamespacedName: namespacedName,
 			})
-			//test-kubevirt-cluster not found.
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+			Expect(result.Requeue).To(BeFalse())
+
+			kvc := &infrav1.KubevirtCluster{}
+			err = fakeClient.Get(fakeContext, namespacedName, kvc)
 			Expect(err).Should(HaveOccurred())
 		})
 	})
