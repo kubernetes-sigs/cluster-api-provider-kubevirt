@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -788,5 +789,58 @@ var _ = Describe("CreateCluster", func() {
 
 		By("waiting all tenant Pods to be Ready")
 		waitForTenantPods()
+	})
+
+	// This test will create a tenant cluster from `templates/cluster-template-ext-infra.yaml` template.
+	// 1. generate secret in 'capk-system' namespace, containing external infra kubeconfig and namespace data
+	// (note, the kubeconfig actually points to the same cluster, which is okay for the sake of the test)
+	// 2. generate tenant cluster yaml manifests with `clusterctl generate cluster` command
+	// 3. apply generated tenant cluster yaml manifests
+	// 4. verify that tenant cluster machines booted and bootstrapped
+	// 5. verify that tenant cluster control plane came up successfully
+	It("should create a simple tenant cluster on external infrastructure", func() {
+		By("generating a secret with external infrastructure kubeconfig and namespace")
+		kubeconfig, err := os.ReadFile(os.Getenv("KUBECONFIG"))
+		Expect(err).ToNot(HaveOccurred())
+		// replace api server url with default server value, so it's routable from CAPK pod
+		kubeconfigStr := string(kubeconfig)
+		m := regexp.MustCompile("(?m:(.*?server:).*$)")
+		kubeconfigStr = m.ReplaceAllString(kubeconfigStr, "${1} https://kubernetes.default")
+		externalInfraSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "external-infra-kubeconfig",
+				Namespace: "capk-system",
+			},
+			Data: map[string][]byte{
+				"namespace":  []byte(namespace),
+				"kubeconfig": []byte(kubeconfigStr),
+			},
+		}
+		err = k8sclient.Create(context.Background(), externalInfraSecret)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("generating cluster manifests from example template")
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--from", "templates/cluster-template-ext-infra.yaml",
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--target-namespace", namespace)
+		stdout, _ := RunCmd(cmd)
+		err = os.WriteFile(manifestsFile, stdout, 0644)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("applying cluster manifests")
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
+
+		By("waiting for machines to be ready")
+		waitForMachineReadiness(2, 0)
+
+		By("waiting for machines to bootstrap")
+		waitForBootstrappedMachines()
+
+		By("waiting for control plane")
+		waitForControlPlane()
 	})
 })
