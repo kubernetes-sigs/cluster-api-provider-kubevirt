@@ -240,7 +240,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
+		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
 	waitForTenantPods := func() {
@@ -269,7 +269,7 @@ var _ = Describe("CreateCluster", func() {
 				return fmt.Errorf("Waiting on tenant pods [%v] to reach a Running phase", offlinePodList)
 			}
 			return nil
-		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "waiting for pods to hit Running phase.")
+		}, 10*time.Minute, 5*time.Second).Should(Succeed(), "waiting for pods to hit Running phase.")
 
 	}
 
@@ -330,7 +330,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return nil
-		}, 8*time.Minute, 5*time.Second).Should(Succeed(), "ensure healthy nodes.")
+		}, 15*time.Minute, 5*time.Second).Should(Succeed(), "ensure healthy nodes.")
 
 		return clientSet
 	}
