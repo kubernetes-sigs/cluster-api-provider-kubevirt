@@ -114,6 +114,26 @@ func NewVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine) *kubevi
 	}
 }
 
+// NewExternalVirtualMachineInstance instantiates a new external VirtualMachineInstance; i.e. one in a specified
+// namespace that might differ from the kubevirtMachine one.
+func NewExternalVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine, namespace string) *kubevirtv1.VirtualMachineInstance {
+	return &kubevirtv1.VirtualMachineInstance{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "VirtualMachineInstance",
+			APIVersion: "kubevirt.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kubevirtMachine.Name,
+			Namespace: namespace,
+		},
+		Status: kubevirtv1.VirtualMachineInstanceStatus{
+			Interfaces: []kubevirtv1.VirtualMachineInstanceNetworkInterface{
+				{IP: "1.1.1.1"},
+			},
+		},
+	}
+}
+
 func NewVirtualMachine(vmi *kubevirtv1.VirtualMachineInstance) *kubevirtv1.VirtualMachine {
 	return &kubevirtv1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
