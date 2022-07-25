@@ -43,20 +43,25 @@ func (w *infraCluster) GenerateInfraClusterClient(infraClusterSecretRef *corev1.
 		return nil, "", errors.New("Failed to retrieve infra kubeconfig from secret: 'kubeconfig' key is missing.")
 	}
 
-	namespace := "default"
-	namespaceBytes, ok := infraKubeconfigSecret.Data["namespace"]
-	if ok {
+	clientConfig, err := clientcmd.NewClientConfigFromBytes(kubeConfig)
+	if err != nil {
+		return nil, "", errors.Wrap(err, "failed to create K8s-API client config")
+	}
+
+	namespace, _, err := clientConfig.Namespace()
+	if err != nil {
+		return nil, "", errors.Wrap(err, "failed to resolve namespace from client config")
+	}
+	if namespaceBytes, ok := infraKubeconfigSecret.Data["namespace"]; ok {
 		namespace = string(namespaceBytes)
 		namespace = strings.TrimSpace(namespace)
 	}
 
-	// generate REST config
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeConfig)
+	restConfig, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, "", errors.Wrap(err, "failed to create REST config")
 	}
 
-	// create the client
 	infraClusterClient, err := client.New(restConfig, client.Options{Scheme: w.Client.Scheme()})
 	if err != nil {
 		return nil, "", errors.Wrap(err, "failed to create infra cluster client")
