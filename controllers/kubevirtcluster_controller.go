@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -115,9 +116,11 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	// Always attempt to Patch the KubevirtCluster object and status after each reconciliation.
 	defer func() {
 		if err := clusterContext.PatchKubevirtCluster(patchHelper); err != nil {
-			clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
-			if rerr == nil {
-				rerr = err
+			if !apierrors.IsNotFound(utilerrors.Reduce(err)) {
+				clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
+				if rerr == nil {
+					rerr = err
+				}
 			}
 		}
 	}()
