@@ -25,13 +25,13 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -189,7 +189,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		sshKeySecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: sshKeySecretName,
+				Name:   sshKeySecretName,
+				Labels: map[string]string{"hello": "world"},
 			},
 			Data: map[string][]byte{
 				"pub": []byte("sha-rsa 1234"),
@@ -199,7 +200,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		bootstrapSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: bootstrapSecretName,
+				Name:   bootstrapSecretName,
+				Labels: map[string]string{"hello": "world"},
 			},
 			Data: map[string][]byte{
 				"value": []byte("shell-script"),
@@ -266,7 +268,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -289,6 +290,15 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
 	})
 
 	It("should ensure deletion of KubevirtMachine garbage collects everything successfully", func() {
@@ -332,8 +342,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).NotTo(HaveOccurred())
 		bootstrapDataSecret := &corev1.Secret{}
 		err = infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		expectedErrorMessage := "secrets \"" + *machineBootstrapSecretReferenceName + "-userdata" + "\" not found"
-		Expect(err.Error()).To(Equal(expectedErrorMessage))
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 		//Check finalizer is removed from machine
 		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
@@ -449,7 +458,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			machine,
 			kubevirtMachine,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -472,6 +480,15 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
 	})
 
 	It("should create KubeVirt VM in custom namespace", func() {
@@ -486,7 +503,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -509,6 +525,15 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: customNamespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
 	})
 
 	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {

@@ -596,6 +596,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
 			Namespace: vmNamespace,
+			Labels:    s.Labels,
 		},
 	}
 	ctx.BootstrapDataSecret = newBootstrapDataSecret
