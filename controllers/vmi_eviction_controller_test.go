@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 var _ = Describe("Test VMI Controller", func() {
@@ -287,6 +288,89 @@ var _ = Describe("Test VMI Controller", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 				Expect(readVMI).ToNot(BeNil())
 			})
+		})
+	})
+
+	Context("check the label predicate", func() {
+		sel, err := getLabelPredicate()
+		It("should successfully create the predicate", func() {
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should select if the label exist", func() {
+			Expect(sel.Create(event.CreateEvent{
+				Object: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: "machine-name"},
+					},
+				},
+			})).To(BeTrue())
+		})
+
+		It("should select if the label exist and empty", func() {
+			Expect(sel.Create(event.CreateEvent{
+				Object: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: ""},
+					},
+				},
+			})).To(BeTrue())
+		})
+
+		It("should select if the label does not exist", func() {
+			Expect(sel.Create(event.CreateEvent{
+				Object: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: nil,
+					},
+				},
+			})).To(BeFalse())
+		})
+
+		It("should select if the label exist", func() {
+			Expect(sel.Update(event.UpdateEvent{
+				ObjectOld: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: "machine-name"},
+					},
+				},
+				ObjectNew: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: "machine-name"},
+					},
+				},
+			})).To(BeTrue())
+		})
+
+		It("should select if the label now exist", func() {
+			Expect(sel.Update(event.UpdateEvent{
+				ObjectOld: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{"foo": "bar"},
+					},
+				},
+				ObjectNew: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: "machine-name"},
+					},
+				},
+			})).To(BeTrue())
+
+		})
+
+		It("should select if the label now not exist", func() {
+			Expect(sel.Update(event.UpdateEvent{
+				ObjectOld: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{infrav1.KubevirtMachineNameLabel: "machine-name"},
+					},
+				},
+				ObjectNew: &kubevirtv1.VirtualMachineInstance{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{"foo": "bar"},
+					},
+				},
+			})).To(BeFalse())
 		})
 	})
 })

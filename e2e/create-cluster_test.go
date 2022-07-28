@@ -2,9 +2,7 @@ package e2e_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -753,8 +751,7 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	// todo ==> It
-	FIt("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
+	It("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
 			"--target-namespace", namespace,
@@ -817,93 +814,32 @@ var _ = Describe("CreateCluster", func() {
 		By("waiting all tenant Pods to be Ready")
 		waitForTenantPods()
 
-		By("read the VMI again after it was recreated")
 		vmiName := chosenVMI.Name
-		Eventually(func(g Gomega) *kubevirtv1.VirtualMachineInstance {
-			chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
-			g.Expect(err).ToNot(HaveOccurred())
+		vmiUID := chosenVMI.GetUID()
 
-			return chosenVMI
-		}).
-			WithTimeout(time.Minute * 5).
-			WithPolling(time.Second * 10).ShouldNot(BeNil())
+		By("read the VMI again after it was recreated")
+		chosenVMI = getRecreatedVMI(vmiName, namespace, vmiUID)
+		vmiUID = chosenVMI.GetUID()
 
 		Expect(*chosenVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
 
 		By("Get VMI's pod")
-		var pods *corev1.PodList
-		Eventually(func(g Gomega) []corev1.Pod {
-			labelSelector := fmt.Sprintf("%s=%s", kubevirtv1.CreatedByLabel, chosenVMI.GetUID())
-			fieldSelector := fmt.Sprintf("status.phase==%s", corev1.PodRunning)
-			pods, err = virtClient.CoreV1().Pods(chosenVMI.Namespace).List(
-				context.Background(),
-				metav1.ListOptions{
-					LabelSelector: labelSelector,
-					FieldSelector: fieldSelector,
-				})
-			g.Expect(err).ToNot(HaveOccurred())
+		pod := getVMIPod(chosenVMI)
 
-			return pods.Items
-		}, 90*time.Second, 500*time.Millisecond).Should(HaveLen(1))
+		By("Try to evict the VMI pod; should fail, but trigger the VMI draining")
+		evictNode(pod)
 
-		yenc := yaml.NewEncoder(GinkgoWriter)
-
-		GinkgoWriter.Println("=====================================================================")
-		GinkgoWriter.Println("Pod")
-		_ = yenc.Encode(pods.Items[0])
-		GinkgoWriter.Println("=====================================================================")
-		GinkgoWriter.Println("VMI")
-		_ = yenc.Encode(chosenVMI)
-		GinkgoWriter.Println("=====================================================================")
-
-		By("Evict the VMI pod")
-		err = virtClient.CoreV1().Pods(namespace).EvictV1beta1(context.Background(), &policy.Eviction{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: pods.Items[0].Name,
-			},
-			DeleteOptions: &metav1.DeleteOptions{
-				GracePeriodSeconds: pointer.Int64(60 * 10), // 10 minutes
-			},
-		})
-		GinkgoWriter.Println("=====================================================================")
-		GinkgoWriter.Printf("eviction error %v\n", err)
-		GinkgoWriter.Println("=====================================================================")
-
-		// todo uncomment
-		// Expect(err).To(HaveOccurred())
-		// Expect(k8serrors.IsTooManyRequests(err)).To(BeTrue())
+		By("wait for a VMI to be marked for deletion")
+		waitForVMIDraining(vmiName, namespace)
 
 		By("wait for a new VMI to be created")
-		var vmiAfterEviction *kubevirtv1.VirtualMachineInstance
-
-		enc := json.NewEncoder(GinkgoWriter)
-		enc.SetIndent("", "  ")
-		Eventually(func(g Gomega) types.UID {
-			vmiAfterEviction, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
-			g.Expect(err).ShouldNot(HaveOccurred())
-			g.Expect(vmiAfterEviction).ShouldNot(BeNil())
-
-			GinkgoWriter.Printf(`[Debug] vmiAfterEviction: {"UID": "%v", "DeletionTimestamp": "%v", "EvacuationNodeName": "%s"}`+"\n",
-				vmiAfterEviction.UID, vmiAfterEviction.DeletionTimestamp, vmiAfterEviction.Status.EvacuationNodeName)
-
-			g.Expect(vmiAfterEviction.Status.EvacuationNodeName).Should(BeEmpty())
-
-			return vmiAfterEviction.GetUID()
-
-		}).WithTimeout(time.Minute * 5).
-			WithPolling(time.Second * 5).
-			ShouldNot(Equal(chosenVMI.GetUID())) // make sure that a new VMI was created
-
-		GinkgoWriter.Println("[Debug] vmiAfterEviction just after recreate:")
-		_ = enc.Encode(vmiAfterEviction)
+		getRecreatedVMI(vmiName, namespace, vmiUID)
 
 		By("Read the worker node from the tenant cluster, and validate its IP")
 		Eventually(func(g Gomega) bool {
-			node, err := clientSet.CoreV1().Nodes().Get(context.Background(), vmiAfterEviction.Name, metav1.GetOptions{})
+			// reading the node and the VMI again and again, because it takes time to the IPs to be synchronized
+			node, err := clientSet.CoreV1().Nodes().Get(context.Background(), vmiName, metav1.GetOptions{})
 			g.Expect(err).ToNot(HaveOccurred())
-
-			GinkgoWriter.Println("[DEBUG] Tenant node addresses:")
-			_ = enc.Encode(node.Status.Addresses)
 
 			var nodeIp string
 			for _, address := range node.Status.Addresses {
@@ -914,15 +850,12 @@ var _ = Describe("CreateCluster", func() {
 
 			g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
 
-			vmiAfterEviction, err = virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
+			vmi, err := virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
 
 			g.Expect(err).ShouldNot(HaveOccurred())
-			g.Expect(vmiAfterEviction).ShouldNot(BeNil())
+			g.Expect(vmi).ShouldNot(BeNil())
 
-			GinkgoWriter.Println("vmiAfterEviction Interfaces:")
-			_ = enc.Encode(vmiAfterEviction.Status.Interfaces)
-
-			for _, ifs := range vmiAfterEviction.Status.Interfaces {
+			for _, ifs := range vmi.Status.Interfaces {
 				for _, ip := range ifs.IPs {
 					if ip == nodeIp {
 						return true
@@ -987,3 +920,65 @@ var _ = Describe("CreateCluster", func() {
 		waitForControlPlane()
 	})
 })
+
+func waitForVMIDraining(vmiName, namespace string) {
+	var vmi *kubevirtv1.VirtualMachineInstance
+	var err error
+
+	By("wait for VMI is marked for deletion")
+	Eventually(func(g Gomega) bool {
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		g.Expect(err).ShouldNot(HaveOccurred())
+
+		vmiDebugPrintout(vmi)
+
+		g.Expect(vmi.Status.EvacuationNodeName).ShouldNot(BeEmpty())
+		g.Expect(vmi.DeletionTimestamp).ShouldNot(BeNil())
+
+		return true
+	}).WithOffset(1).
+		WithTimeout(time.Minute * 2).
+		WithPolling(time.Second).
+		Should(BeTrue())
+}
+
+func evictNode(pod *corev1.Pod) bool {
+	return ExpectWithOffset(1, virtClient.CoreV1().Pods(pod.Namespace).EvictV1beta1(context.Background(), &policy.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pod.Name,
+		},
+		DeleteOptions: &metav1.DeleteOptions{
+			GracePeriodSeconds: pointer.Int64(60 * 10), // 10 minutes
+		},
+	})).ShouldNot(Succeed())
+}
+
+func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
+	var (
+		vmi *kubevirtv1.VirtualMachineInstance
+		err error
+	)
+	Eventually(func(g Gomega) types.UID {
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		g.Expect(err).ShouldNot(HaveOccurred())
+		g.Expect(vmi).ShouldNot(BeNil())
+
+		vmiDebugPrintout(vmi)
+
+		g.Expect(vmi.Status.EvacuationNodeName).Should(BeEmpty())
+		g.Expect(vmi.DeletionTimestamp).Should(BeNil())
+
+		return vmi.GetUID()
+
+	}).WithOffset(1).
+		WithTimeout(time.Minute * 5).
+		WithPolling(time.Second * 5).
+		ShouldNot(Equal(originalUID)) // make sure that a new VMI was created
+
+	return vmi
+}
+
+func vmiDebugPrintout(vmi *kubevirtv1.VirtualMachineInstance) {
+	GinkgoWriter.Printf(`[Debug] VMI: {"UID": "%v", "DeletionTimestamp": "%v", "EvacuationNodeName": "%s"}`+"\n",
+		vmi.UID, vmi.DeletionTimestamp, vmi.Status.EvacuationNodeName)
+}

@@ -4,6 +4,7 @@ import (
 	goContext "context"
 	"fmt"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -15,7 +16,6 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
-	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,9 +40,15 @@ func NewVmiEvictionReconciler(cl client.Client) *VmiEvictionReconciler {
 
 // SetupWithManager will add watches for this controller.
 func (r *VmiEvictionReconciler) SetupWithManager(ctx goContext.Context, mgr ctrl.Manager) error {
-	_, err := ctrl.NewControllerManagedBy(mgr).
+	selector, err := getLabelPredicate()
+
+	if err != nil {
+		return fmt.Errorf("can't setup the VMI eviction controller; %w", err)
+	}
+
+	_, err = ctrl.NewControllerManagedBy(mgr).
 		For(&kubevirtv1.VirtualMachineInstance{}).
-		WithEventFilter(predicates.ResourceHasFilterLabel(ctrl.LoggerFrom(ctx), infrav1.KubevirtMachineNameLabel)).
+		WithEventFilter(selector).
 		Build(r)
 
 	return err
@@ -232,6 +238,17 @@ func (r VmiEvictionReconciler) setVmiDeletionGraceTime(ctx goContext.Context, vm
 	if err := r.Patch(ctx, vmi, patchRequest); err != nil {
 		logger.Error(err, fmt.Sprintf("failed to add the %s annotation to the node", infrav1.VmiDeletionGraceTime), "vmi name", vmi.Name)
 	}
+}
+
+func getLabelPredicate() (predicate.Predicate, error) {
+	return predicate.LabelSelectorPredicate(
+		metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key:      infrav1.KubevirtMachineNameLabel,
+				Operator: metav1.LabelSelectorOpExists,
+				Values:   nil,
+			}},
+		})
 }
 
 // writer implements io.Writer interface as a pass-through for klog.
