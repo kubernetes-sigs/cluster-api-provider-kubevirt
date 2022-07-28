@@ -297,8 +297,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		bootstrapDataSecret := &corev1.Secret{}
 		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should ensure deletion of KubevirtMachine garbage collects everything successfully", func() {
@@ -487,8 +488,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		bootstrapDataSecret := &corev1.Secret{}
 		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should create KubeVirt VM in custom namespace", func() {
@@ -532,8 +534,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		bootstrapDataSecret := &corev1.Secret{}
 		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bootstrapDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(Equal(map[string]string{"hello": "world"}))
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
