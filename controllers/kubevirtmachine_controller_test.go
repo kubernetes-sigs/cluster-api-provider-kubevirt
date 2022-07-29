@@ -136,12 +136,89 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 })
 
 var _ = Describe("utility functions", func() {
-	DescribeTable("should detect userdata is cloud-config", func(userData []byte, expected bool) {
-		Expect(isCloudConfigUserData(userData)).To(Equal(expected))
-	},
-		Entry("should detect cloud-config", []byte("#something\n\n#something else\n#cloud-config\nthe end"), true),
-		Entry("should not detect cloud-config", []byte("#something\n\n#something else\n#not-cloud-config\nthe end"), false),
-		Entry("should not detect cloud-config", []byte("#something\n\n#something else\n   #cloud-config\nthe end"), false),
+
+	DescribeTable("capk user",
+		func(userData []byte, sshAuthorizedKey string, expectedOrNil []byte) {
+			actual, modified, err := addCapkUserToCloudInitConfig(userData, []byte(sshAuthorizedKey))
+			Expect(err).ShouldNot(HaveOccurred())
+			if expectedOrNil == nil {
+				Expect(modified).To(BeFalse())
+				Expect(string(actual)).To(Equal(string(userData)))
+			} else {
+				Expect(modified).To(BeTrue())
+				Expect(string(actual)).To(Equal(string(expectedOrNil)))
+			}
+		},
+		Entry(
+			"should be added to cloud-init config",
+			[]byte(`## template: jinja
+#cloud-config
+
+write_files:
+-   path: /etc/kubernetes/pki/ca.crt
+    owner: root:root
+    permissions: '0640'
+
+-   path: /run/cluster-api/placeholder
+    owner: root:root
+    permissions: '0640'
+    content: "This placeholder file is used ..."
+users:
+  - name: johndoe
+    group: users
+runcmd:
+  - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+			"sha-rsa 5678",
+			[]byte(`## template: jinja
+#cloud-config
+
+write_files:
+    - path: /etc/kubernetes/pki/ca.crt
+      owner: root:root
+      permissions: '0640'
+    - path: /run/cluster-api/placeholder
+      owner: root:root
+      permissions: '0640'
+      content: "This placeholder file is used ..."
+users:
+    - name: johndoe
+      group: users
+    - name: capk
+      gecos: CAPK User
+      sudo: ALL=(ALL) NOPASSWD:ALL
+      groups: users, admin
+      ssh_authorized_keys:
+        - sha-rsa 5678
+runcmd:
+    - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+		),
+		Entry(
+			"should be overridden when already in cloud-init config",
+			[]byte(`## template: jinja
+#cloud-config
+users:
+  - name: capk
+    group: users
+runcmd:
+  - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+			"sha-rsa 5678",
+			[]byte(`## template: jinja
+#cloud-config
+users:
+    - name: capk
+      gecos: CAPK User
+      sudo: ALL=(ALL) NOPASSWD:ALL
+      groups: users, admin
+      ssh_authorized_keys:
+        - sha-rsa 5678
+runcmd:
+    - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+		),
+		Entry("should not be added to non cloud-init config", []byte("hello: world"), "sha-rsa 5678", nil),
 	)
 })
 
