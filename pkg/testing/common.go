@@ -3,6 +3,7 @@ package testing
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
@@ -151,5 +152,23 @@ func NewBootstrapDataSecret(userData []byte) *corev1.Secret {
 	s := &corev1.Secret{}
 	s.Data = make(map[string][]byte)
 	s.Data["userdata"] = userData
+	return s
+}
+
+// SetupScheme setups the scheme for a fake client.
+func SetupScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	if err := clusterv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := infrav1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := kubevirtv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := corev1.AddToScheme(s); err != nil {
+		panic(err)
+	}
 	return s
 }

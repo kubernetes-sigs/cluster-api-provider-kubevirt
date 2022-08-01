@@ -7,10 +7,7 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	. "sigs.k8s.io/controller-runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,7 +41,7 @@ var _ = Describe("Reconcile", func() {
 	})
 
 	setupClient := func(objects []client.Object) {
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
 			Client:       fakeClient,
 			InfraCluster: infraClusterMock,
@@ -62,7 +59,7 @@ var _ = Describe("Reconcile", func() {
 				cluster,
 				kubevirtCluster,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		})
 
 		AfterEach(func() {})
@@ -179,20 +176,3 @@ var _ = Describe("Reconcile", func() {
 		})
 	})
 })
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
-}

@@ -26,14 +26,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
@@ -84,7 +81,7 @@ var _ = Describe("Without KubeVirt VM running", func() {
 			kubevirtMachine,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 
 		fakeVMCommandExecutor = FakeVMCommandExecutor{false}
 	})
@@ -207,7 +204,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			virtualMachine,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 
 		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
 	})
@@ -351,7 +348,7 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 			virtualMachine,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 
 		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
 	})
@@ -480,23 +477,6 @@ func validateVMExist(expected *kubevirtv1.VirtualMachine, fakeClient client.Clie
 	ExpectWithOffset(1, err).ToNot(HaveOccurred())
 	Expect(vm.Name).To(Equal(expected.Name))
 	Expect(vm.Namespace).To(Equal(expected.Namespace))
-}
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
 }
 
 type FakeVMCommandExecutor struct {

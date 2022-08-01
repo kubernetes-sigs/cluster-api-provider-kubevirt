@@ -29,7 +29,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
@@ -109,7 +108,7 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			// add one more machine without corresponding kubevirt machine, to test that no request is created for it
 			testing.NewMachine(clusterName, "machine-without-corresponding-kubevirt-machine", nil),
 		}
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:         fakeClient,
 			MachineFactory: kubevirt.DefaultMachineFactory{},
@@ -324,7 +323,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Logger:          testLogger,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
@@ -1064,7 +1063,7 @@ var _ = Describe("updateNodeProviderID", func() {
 		objects := []client.Object{
 			kubevirtMachine,
 		}
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
@@ -1082,7 +1081,7 @@ var _ = Describe("updateNodeProviderID", func() {
 				},
 			},
 		}
-		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(workloadClusterObjects...).Build()
+		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(workloadClusterObjects...).Build()
 	})
 
 	AfterEach(func() {})
@@ -1132,20 +1131,3 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
 	})
 })
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
-}
