@@ -36,6 +36,8 @@ import (
 
 var virtClient kubecli.KubevirtClient
 
+const testFinalizer = "holdForTestFinalizer"
+
 var _ = Describe("CreateCluster", func() {
 
 	var tmpDir string
@@ -815,16 +817,17 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantPods()
 
 		vmiName := chosenVMI.Name
-		vmiUID := chosenVMI.GetUID()
 
 		By("read the VMI again after it was recreated")
-		chosenVMI = getRecreatedVMI(vmiName, namespace, vmiUID)
-		vmiUID = chosenVMI.GetUID()
+		recreatedVMI := getRecreatedVMI(vmiName, namespace, chosenVMI.GetUID())
 
-		Expect(*chosenVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
+		Expect(*recreatedVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
+
+		By("Set a testFinalizer to hold the VMI deletion so we could query it after eviction")
+		recreatedVMI = addFinalizerFromVMI(recreatedVMI.Name, namespace)
 
 		By("Get VMI's pod")
-		pod := getVMIPod(chosenVMI)
+		pod := getVMIPod(recreatedVMI)
 
 		By("Try to evict the VMI pod; should fail, but trigger the VMI draining")
 		evictNode(pod)
@@ -832,39 +835,14 @@ var _ = Describe("CreateCluster", func() {
 		By("wait for a VMI to be marked for deletion")
 		waitForVMIDraining(vmiName, namespace)
 
+		By("remove the test finalizer")
+		removeFinalizerFromVMI(recreatedVMI)
+
 		By("wait for a new VMI to be created")
-		getRecreatedVMI(vmiName, namespace, vmiUID)
+		getRecreatedVMI(vmiName, namespace, recreatedVMI.GetUID())
 
 		By("Read the worker node from the tenant cluster, and validate its IP")
-		Eventually(func(g Gomega) bool {
-			// reading the node and the VMI again and again, because it takes time to the IPs to be synchronized
-			node, err := clientSet.CoreV1().Nodes().Get(context.Background(), vmiName, metav1.GetOptions{})
-			g.Expect(err).ToNot(HaveOccurred())
-
-			var nodeIp string
-			for _, address := range node.Status.Addresses {
-				if address.Type == "InternalIP" {
-					nodeIp = address.Address
-				}
-			}
-
-			g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
-
-			vmi, err := virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
-
-			g.Expect(err).ShouldNot(HaveOccurred())
-			g.Expect(vmi).ShouldNot(BeNil())
-
-			for _, ifs := range vmi.Status.Interfaces {
-				for _, ip := range ifs.IPs {
-					if ip == nodeIp {
-						return true
-					}
-				}
-			}
-			return false
-
-		}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(BeTrue())
+		validateNewNodeIP(clientSet, vmiName, namespace)
 	})
 
 	// This test will create a tenant cluster from `templates/cluster-template-ext-infra.yaml` template.
@@ -942,15 +920,18 @@ func waitForVMIDraining(vmiName, namespace string) {
 		Should(BeTrue())
 }
 
-func evictNode(pod *corev1.Pod) bool {
-	return ExpectWithOffset(1, virtClient.CoreV1().Pods(pod.Namespace).EvictV1beta1(context.Background(), &policy.Eviction{
+func evictNode(pod *corev1.Pod) {
+
+	err := virtClient.CoreV1().Pods(pod.Namespace).EvictV1beta1(context.Background(), &policy.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pod.Name,
 		},
 		DeleteOptions: &metav1.DeleteOptions{
 			GracePeriodSeconds: pointer.Int64(60 * 10), // 10 minutes
 		},
-	})).ShouldNot(Succeed())
+	})
+
+	ExpectWithOffset(1, k8serrors.IsTooManyRequests(err)).To(BeTrue(), "should return TooManyRequests error; got %v instead", err)
 }
 
 func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
@@ -978,7 +959,85 @@ func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *k
 	return vmi
 }
 
+func validateNewNodeIP(cl *kubernetes.Clientset, vmiName, namespace string) {
+	Eventually(func(g Gomega) bool {
+		// reading the node and the VMI again and again, because it takes time to the IPs to be synchronized
+		node, err := cl.CoreV1().Nodes().Get(context.Background(), vmiName, metav1.GetOptions{})
+		g.Expect(err).ToNot(HaveOccurred())
+
+		var nodeIp string
+		for _, address := range node.Status.Addresses {
+			if address.Type == "InternalIP" {
+				nodeIp = address.Address
+			}
+		}
+
+		g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
+
+		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+
+		g.Expect(err).ShouldNot(HaveOccurred())
+		g.Expect(vmi).ShouldNot(BeNil())
+
+		for _, ifs := range vmi.Status.Interfaces {
+			for _, ip := range ifs.IPs {
+				if ip == nodeIp {
+					return true
+				}
+			}
+		}
+		return false
+
+	}).WithTimeout(5 * time.Minute).
+		WithOffset(1).
+		WithPolling(10 * time.Second).
+		Should(BeTrue())
+}
+
 func vmiDebugPrintout(vmi *kubevirtv1.VirtualMachineInstance) {
 	GinkgoWriter.Printf(`[Debug] VMI: {"UID": "%v", "DeletionTimestamp": "%v", "EvacuationNodeName": "%s"}`+"\n",
 		vmi.UID, vmi.DeletionTimestamp, vmi.Status.EvacuationNodeName)
+}
+
+func addFinalizerFromVMI(vmiName, namespace string) *kubevirtv1.VirtualMachineInstance {
+	var (
+		vmi *kubevirtv1.VirtualMachineInstance
+		err error
+	)
+	Eventually(func() error {
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		vmi.Finalizers = append(vmi.Finalizers, testFinalizer)
+		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(vmi)
+		return err
+	}).WithOffset(1).
+		WithTimeout(time.Minute).
+		WithPolling(2 * time.Second).
+		Should(Succeed())
+
+	return vmi
+}
+
+func removeFinalizerFromVMI(vmi *kubevirtv1.VirtualMachineInstance) {
+	index := -1
+	for i, finalizer := range vmi.Finalizers {
+		if finalizer == testFinalizer {
+			index = i
+			break
+		}
+	}
+	ExpectWithOffset(1, index).To(BeNumerically(">=", 0))
+
+	patch := []byte(fmt.Sprintf(`[{"op": "remove", "path": "/metadata/finalizers/%d"}]`, index))
+
+	Eventually(func() error {
+		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(vmi.Name, types.JSONPatchType, patch, &metav1.PatchOptions{})
+		return err
+	}).WithOffset(1).
+		WithTimeout(time.Minute).
+		WithPolling(2 * time.Second).
+		Should(Succeed())
 }

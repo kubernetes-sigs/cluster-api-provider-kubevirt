@@ -3,6 +3,8 @@ package controllers
 import (
 	gocontext "context"
 	"errors"
+	"time"
+
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -13,13 +15,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 )
 
 var _ = Describe("Test VMI Controller", func() {
@@ -51,6 +55,7 @@ var _ = Describe("Test VMI Controller", func() {
 						infrav1.KubevirtMachineNamespaceLabel: clusterNamespace,
 						clusterv1.ClusterLabelName:            clusterInstanceName,
 					},
+					Annotations: make(map[string]string),
 				},
 			}
 
@@ -72,7 +77,7 @@ var _ = Describe("Test VMI Controller", func() {
 		})
 
 		It("Should ignore vmi if it already deleted", func() {
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).Build()
 
 			// make sure we never get into darin process, but exit earlier
 			wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -90,7 +95,7 @@ var _ = Describe("Test VMI Controller", func() {
 			now := metav1.Now()
 			vmi.DeletionTimestamp = &now
 
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			// make sure we never get into darin process, but exit earlier
 			wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -105,7 +110,7 @@ var _ = Describe("Test VMI Controller", func() {
 			vmi.Spec.EvictionStrategy = nil
 			vmi.Status.EvacuationNodeName = nodeName
 
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			// make sure we never get into darin process, but exit earlier
 			wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -122,7 +127,7 @@ var _ = Describe("Test VMI Controller", func() {
 			vmi.Spec.EvictionStrategy = &es
 			vmi.Status.EvacuationNodeName = nodeName
 
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			// make sure we never get into darin process, but exit earlier
 			wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -138,7 +143,7 @@ var _ = Describe("Test VMI Controller", func() {
 			es := kubevirtv1.EvictionStrategyExternal
 			vmi.Spec.EvictionStrategy = &es
 
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			// make sure we never get into darin process, but exit earlier
 			wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -155,7 +160,7 @@ var _ = Describe("Test VMI Controller", func() {
 			vmi.Spec.EvictionStrategy = &es
 			vmi.Status.EvacuationNodeName = nodeName
 
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -189,7 +194,7 @@ var _ = Describe("Test VMI Controller", func() {
 			vmi.Spec.EvictionStrategy = &es
 
 			vmi.Status.EvacuationNodeName = nodeName
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 			Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
 			cl := k8sfake.NewSimpleClientset()
@@ -208,7 +213,7 @@ var _ = Describe("Test VMI Controller", func() {
 				vmi.Spec.EvictionStrategy = &es
 				vmi.Status.EvacuationNodeName = nodeName
 				delete(vmi.Labels, infrav1.KubevirtMachineNamespaceLabel)
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 				// make sure we never get into darin process, but exit earlier
 				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -224,7 +229,7 @@ var _ = Describe("Test VMI Controller", func() {
 				vmi.Spec.EvictionStrategy = &es
 				vmi.Status.EvacuationNodeName = nodeName
 				delete(vmi.Labels, clusterv1.ClusterLabelName)
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 				// make sure we never get into darin process, but exit earlier
 				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -240,7 +245,7 @@ var _ = Describe("Test VMI Controller", func() {
 				vmi.Spec.EvictionStrategy = &es
 				vmi.Status.EvacuationNodeName = nodeName
 
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi).Build()
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi).Build()
 
 				// make sure we never get into darin process, but exit earlier
 				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
@@ -256,7 +261,7 @@ var _ = Describe("Test VMI Controller", func() {
 				vmi.Spec.EvictionStrategy = &es
 				vmi.Status.EvacuationNodeName = nodeName
 
-				fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(vmi, cluster).Build()
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
 
 				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
 
@@ -287,6 +292,81 @@ var _ = Describe("Test VMI Controller", func() {
 				err = fakeClient.Get(gocontext.TODO(), client.ObjectKey{Namespace: clusterNamespace, Name: nodeName}, readVMI)
 				Expect(err).ShouldNot(HaveOccurred())
 				Expect(readVMI).ToNot(BeNil())
+			})
+		})
+
+		Context("test drainGracePeriodExceeded", func() {
+			It("should add the annotation", func() {
+				es := kubevirtv1.EvictionStrategyExternal
+				vmi.Spec.EvictionStrategy = &es
+				vmi.Status.EvacuationNodeName = nodeName
+
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
+				r := &VmiEvictionReconciler{Client: fakeClient, workloadCluster: wlCluster}
+				ctx := gocontext.Background()
+				Expect(r.drainGracePeriodExceeded(ctx, vmi, ctrl.LoggerFrom(ctx))).To(BeFalse())
+				timeoutAnnotation, found := vmi.Annotations[infrav1.VmiDeletionGraceTime]
+				Expect(found).To(BeTrue())
+				timeout, err := time.Parse(time.RFC3339, timeoutAnnotation)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(timeout).To(And(
+					BeTemporally(">", time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds-1)*time.Second)),
+					BeTemporally("<", time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds+1)*time.Second))))
+			})
+
+			It("should return false if timeout was not exceeded", func() {
+				es := kubevirtv1.EvictionStrategyExternal
+				vmi.Spec.EvictionStrategy = &es
+				vmi.Status.EvacuationNodeName = nodeName
+
+				timeout := time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds / 2) * time.Second).Format(time.RFC3339)
+				vmi.Annotations[infrav1.VmiDeletionGraceTime] = timeout
+
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
+				r := &VmiEvictionReconciler{Client: fakeClient, workloadCluster: wlCluster}
+				ctx := gocontext.Background()
+				Expect(r.drainGracePeriodExceeded(ctx, vmi, ctrl.LoggerFrom(ctx))).To(BeFalse())
+				timeoutAnnotation, found := vmi.Annotations[infrav1.VmiDeletionGraceTime]
+				Expect(found).To(BeTrue())
+				Expect(timeoutAnnotation).To(Equal(timeout))
+			})
+
+			It("should return true if timeout was exceeded", func() {
+				es := kubevirtv1.EvictionStrategyExternal
+				vmi.Spec.EvictionStrategy = &es
+				vmi.Status.EvacuationNodeName = nodeName
+
+				timeout := time.Now().UTC().Add(-(time.Millisecond)).Format(time.RFC3339)
+				vmi.Annotations[infrav1.VmiDeletionGraceTime] = timeout
+
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
+				r := &VmiEvictionReconciler{Client: fakeClient, workloadCluster: wlCluster}
+				ctx := gocontext.Background()
+				Expect(r.drainGracePeriodExceeded(ctx, vmi, ctrl.LoggerFrom(ctx))).To(BeTrue())
+				timeoutAnnotation, found := vmi.Annotations[infrav1.VmiDeletionGraceTime]
+				Expect(found).To(BeTrue())
+				Expect(timeoutAnnotation).To(Equal(timeout))
+			})
+
+			It("should fix the annotation if it's with a wrong format", func() {
+				es := kubevirtv1.EvictionStrategyExternal
+				vmi.Spec.EvictionStrategy = &es
+				vmi.Status.EvacuationNodeName = nodeName
+
+				origTimeout := time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds / 2) * time.Second).Format(time.RFC850)
+				vmi.Annotations[infrav1.VmiDeletionGraceTime] = origTimeout
+
+				fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(vmi, cluster).Build()
+				r := &VmiEvictionReconciler{Client: fakeClient, workloadCluster: wlCluster}
+				ctx := gocontext.Background()
+				Expect(r.drainGracePeriodExceeded(ctx, vmi, ctrl.LoggerFrom(ctx))).To(BeFalse())
+				timeoutAnnotation, found := vmi.Annotations[infrav1.VmiDeletionGraceTime]
+				Expect(found).To(BeTrue())
+				timeout, err := time.Parse(time.RFC3339, timeoutAnnotation)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(timeout).To(And(
+					BeTemporally(">", time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds-1)*time.Second)),
+					BeTemporally("<", time.Now().UTC().Add((vmiDeleteGraceTimeoutDurationSeconds+1)*time.Second))))
 			})
 		})
 	})
@@ -373,6 +453,7 @@ var _ = Describe("Test VMI Controller", func() {
 			})).To(BeFalse())
 		})
 	})
+
 })
 
 func setupRemoteScheme() *runtime.Scheme {
