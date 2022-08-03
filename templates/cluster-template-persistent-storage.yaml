@@ -68,6 +68,7 @@ spec:
                     - disk:
                         bus: virtio
                       name: dv-volume
+              evictionStrategy: External
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"
@@ -140,6 +141,7 @@ spec:
                     - disk:
                         bus: virtio
                       name: dv-volume
+              evictionStrategy: External
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"

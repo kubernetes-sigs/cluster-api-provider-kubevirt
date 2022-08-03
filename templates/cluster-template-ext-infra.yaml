@@ -58,6 +58,7 @@ spec:
                     - disk:
                         bus: virtio
                       name: containervolume
+              evictionStrategy: External
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"
@@ -114,6 +115,7 @@ spec:
                     - disk:
                         bus: virtio
                       name: containervolume
+              evictionStrategy: External
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"

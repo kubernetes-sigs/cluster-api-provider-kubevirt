@@ -28,11 +28,15 @@ const (
 	ClusterFinalizer = "kubevirtcluster.infrastructure.cluster.x-k8s.io"
 )
 
-const (
+const ( //labels
 	KubevirtMachineNameLabel      = "capk.cluster.x-k8s.io/kubevirt-machine-name"
 	KubevirtMachineNamespaceLabel = "capk.cluster.x-k8s.io/kubevirt-machine-namespace"
 
 	KubevirtMachineVMTerminalLabel = "capk.cluster.x-k8s.io/vm-is-terminal"
+)
+
+const ( // annotations
+	VmiDeletionGraceTime = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.

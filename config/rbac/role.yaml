@@ -84,8 +84,11 @@ rules:
   resources:
   - virtualmachineinstances
   verbs:
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - kubevirt.io

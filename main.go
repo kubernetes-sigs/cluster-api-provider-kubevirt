@@ -163,12 +163,18 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		setupLog.Error(err, "unable to create controller", "controller", "reconciler")
 		os.Exit(1)
 	}
+
 	if err := (&controllers.KubevirtClusterReconciler{
 		Client:       mgr.GetClient(),
 		InfraCluster: infracluster.New(mgr.GetClient()),
 		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
+		os.Exit(1)
+	}
+
+	if err := (controllers.NewVmiEvictionReconciler(mgr.GetClient())).SetupWithManager(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "VirtualMachineInstance")
 		os.Exit(1)
 	}
 }
