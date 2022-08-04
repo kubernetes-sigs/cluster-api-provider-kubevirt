@@ -173,6 +173,13 @@ generate-manifests: $(CONTROLLER_GEN) ## Generate manifests e.g. CRD, RBAC etc.
 		output:webhook:dir=./config/webhook \
 		webhook
 
+.PHONY: generate-kccm-flavors
+generate-kccm-flavors:
+	cd tools/kccm-flavor-gen && \
+		go run . && \
+		go run . --template $(ROOT_DIR)/templates/cluster-template-ext-infra.yaml && \
+		go run . --template $(ROOT_DIR)/templates/cluster-template-persistent-storage.yaml
+
 .PHONY: modules
 modules: ## Runs go mod to ensure modules are up to date.
 	go mod tidy
@@ -295,6 +302,18 @@ verify-gen: generate
 .PHONY: functest
 functest:
 	./hack/functest.sh
+
+.PHONY: cluster-up
+cluster-up:
+	./kubevirtci up
+
+.PHONY: cluster-down
+cluster-down:
+	./kubevirtci down
+
+.PHONY: cluster-sync
+cluster-sync:
+	./kubevirtci sync
 
 .PHONY: goimports
 goimports:
