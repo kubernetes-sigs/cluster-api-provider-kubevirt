@@ -1,7 +1,9 @@
 package testing
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -168,6 +170,12 @@ func SetupScheme() *runtime.Scheme {
 		panic(err)
 	}
 	if err := corev1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := appsv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := rbacv1.AddToScheme(s); err != nil {
 		panic(err)
 	}
 	return s
