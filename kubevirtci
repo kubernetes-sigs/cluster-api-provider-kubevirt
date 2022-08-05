@@ -289,12 +289,12 @@ EOF
 
 	${_kubectl} create -f $job_yaml
 	echo "-----------Waiting for curl job to complete"
-	${_kubectl} wait job curl-test-job -n default --for condition=Complete --timeout=5m
+	${_kubectl} wait job curl-test-job -n ${lb_namespace} --for condition=Complete --timeout=5m
 
-	pod_name=$($_kubectl get pods --selector=job-name=curl-test-job --output=jsonpath='{.items[*].metadata.name}')
+	pod_name=$($_kubectl get pods -n ${lb_namespace} --selector=job-name=curl-test-job --output=jsonpath='{.items[*].metadata.name}')
 
 	echo "-----------CURL LOG FOR POD $pod_name"
-	$_kubectl logs -n default $pod_name 2>/dev/null
+	$_kubectl logs -n ${lb_namespace} $pod_name 2>/dev/null
 
 	${_kubectl} delete -f ${job_yaml} --ignore-not-found > /dev/null 2>&1
 }
