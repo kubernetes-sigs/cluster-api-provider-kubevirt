@@ -100,6 +100,18 @@ build-e2e-test: ## Builds the test binary
 e2e-test: build-e2e-test ## run e2e tests
 	BIN_DIR=$(BIN_DIR) ./hack/run-e2e.sh
 
+.PHONY: functest
+functest:
+	./hack/functest.sh
+
+.PHONY: conformance
+conformance:
+	./hack/conformance.sh
+
+.PHONY: run-conformance
+run-conformance:
+	./hack/run-conformance.sh
+
 ## --------------------------------------
 ## Binaries
 ## --------------------------------------
@@ -291,10 +303,6 @@ verify-gen: generate
 		git diff; \
 		echo "generated files are out of date, run make generate"; exit 1; \
 	fi
-
-.PHONY: functest
-functest:
-	./hack/functest.sh
 
 .PHONY: goimports
 goimports:
