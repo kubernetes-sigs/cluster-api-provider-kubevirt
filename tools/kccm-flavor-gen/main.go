@@ -113,7 +113,7 @@ func kustomize(kustomizationPath, base string, clusterName string, namespace str
 }
 
 func main() {
-	var base = flag.String("base", "https://github.com/qinqon/cloud-provider-kubevirt/config/base?ref=kustomize-overlays-cm-secrets", "kccm kustomize base URL")
+	var base = flag.String("base", "https://github.com/rhrazdil/cloud-provider-kubevirt/config/base?ref=kustomize-overlays-cm-secrets", "kccm kustomize base URL")
 	var templatePath = flag.String("template", "../../templates/cluster-template.yaml", "Cluster template to generate flavor for it will append 'kccm' to the file base name")
 	flag.Parse()
 
