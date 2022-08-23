@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
       - name: build image
         shell: bash
         env:
@@ -19,8 +21,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           echo $QUAY_TOKEN | docker login -u="capk+capk_robot" quay.io --password-stdin
-          make docker-build
-          make docker-push
+          make docker-build-all
+          make docker-push-all
   build:
     name: Upload Release Asset
     needs: build-and-push-image
@@ -37,7 +39,7 @@ jobs:
       - name: Create infrastructure components
         env:
           REGISTRY: "quay.io/capk"
-          IMAGE_NAME: "capk-manager-amd64"
+          IMAGE_NAME: "capk-manager"
           TAG: ${{ github.ref_name }}
         run: |
           make create-infrastructure-components
