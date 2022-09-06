@@ -5,7 +5,7 @@ set -e
 export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
 export CAPK_GUEST_K8S_VERSION=${CAPK_GUEST_K8S_VERSION:-v1.22.0}
 export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
-export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+export KUBECONFIG=${KUBECONFIG:-$(cluster-up/cluster-up/kubeconfig.sh)}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
@@ -89,8 +89,9 @@ function kubevirtci::fetch_kubevirtci() {
 }
 
 function kubevirtci::up() {
-	make cluster-up -C cluster-up
-	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+    if [ "$KUBEVIRT_PROVIDER" != "external" ]; then
+	    make cluster-up -C cluster-up
+    fi
 	echo "installing kubevirt..."
 	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml
 	curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml \

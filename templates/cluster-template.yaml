@@ -33,6 +33,22 @@ spec:
     spec:
       type: ClusterIP
 ---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: ovn-storage
+  namespace: kvcluster
+spec:
+  config: '{
+      "cniVersion": "0.4.0",
+      "name": "ovn-storage",
+      "netAttachDefName": "kvcluster/ovn-storage",
+      "isSecondary": true,
+      "netCIDR": "10.193.0.0/16/26",
+      "mtu": 1500,
+      "type": "ovn-k8s-cni-overlay"
+    }'
+---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
 metadata:
@@ -54,11 +70,18 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  interfaces:
+                  - name: ovn
+                    bridge: {}
                   disks:
                     - disk:
                         bus: virtio
                       name: containervolume
               evictionStrategy: External
+              networks:
+              - name: ovn
+                multus:
+                  networkName: ovn-storage
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"
@@ -113,11 +136,18 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  interfaces:
+                  - name: ovn
+                    bridge: {}
                   disks:
                     - disk:
                         bus: virtio
                       name: containervolume
               evictionStrategy: External
+              networks:
+              - name: ovn
+                multus:
+                  networkName: ovn-storage
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"
