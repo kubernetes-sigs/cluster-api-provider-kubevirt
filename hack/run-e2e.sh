@@ -13,7 +13,7 @@ export ARTIFACTS=${ARTIFACTS:-k8s-reporter}
 mkdir -p $ARTIFACTS
 
 if [ ! -f "$DUMP_PATH" ]; then
-    curl -L https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${version}/testing/dump -o $DUMP_PATH
+    curl -L https://storage.googleapis.com/kubevirt-prow/devel/nightly/release/kubevirt/kubevirt/${DUMP_VERSION}/testing/dump -o $DUMP_PATH
     chmod 755 $DUMP_PATH
 fi
 
