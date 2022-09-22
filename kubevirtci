@@ -121,7 +121,7 @@ function kubevirtci::up() {
 	echo "installing kubevirt..."
 	${_kubectl} apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
 	curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml \
-	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration|" \
+	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration\n\1- Passt|" \
 	   | ${_kubectl} apply -f -
 
 	echo "installing capi..."
