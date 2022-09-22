@@ -62,8 +62,7 @@ function kubevirtci::usage() {
 	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
 	  create-cluster                    Create new kubernetes tenant cluster
 	  create-external-cluster           Create new kubernetes tenant cluster simulated as running on external infra
-	  destroy-cluster                   Destroy the tenant cluster
-
+	  destroy-cluster                   Destroy the tenant cluster and resources
 	  help                              Print usage
 	"
 }
@@ -163,7 +162,7 @@ function kubevirtci::destroy_cluster() {
 function kubevirtci::create_cluster() {
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
-	template=templates/cluster-template.yaml
+	template=templates/cluster-template-kccm.yaml
 
 	if [ ! -f $template ]; then
 		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
@@ -190,7 +189,7 @@ function kubevirtci::create_external_cluster() {
 
 	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
 	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_tenant_namespace {

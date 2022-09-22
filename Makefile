@@ -185,6 +185,10 @@ generate-manifests: $(CONTROLLER_GEN) ## Generate manifests e.g. CRD, RBAC etc.
 		output:webhook:dir=./config/webhook \
 		webhook
 
+.PHONY: generate-kccm-flavors
+generate-kccm-flavors:
+	./hack/kccm-flavor-gen.sh
+
 .PHONY: modules
 modules: ## Runs go mod to ensure modules are up to date.
 	go mod tidy
@@ -303,6 +307,18 @@ verify-gen: generate
 		git diff; \
 		echo "generated files are out of date, run make generate"; exit 1; \
 	fi
+
+.PHONY: cluster-up
+cluster-up:
+	./kubevirtci up
+
+.PHONY: cluster-down
+cluster-down:
+	./kubevirtci down
+
+.PHONY: cluster-sync
+cluster-sync:
+	./kubevirtci sync
 
 .PHONY: goimports
 goimports:
