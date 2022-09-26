@@ -132,6 +132,12 @@ cert-manager:
   url: "https://github.com/cert-manager/cert-manager/releases/latest/cert-manager.yaml"
 EOF
 	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
+	echo 'Applying recommended node configuration for Passt binding'
+	for node in $(${_kubectl} get nodes --no-headers | awk '{print $1}'); do
+		${_ssh_infra} ${node} -- sudo sysctl -w net.core.rmem_max=33554432
+		${_ssh_infra} ${node} -- sudo sysctl -w net.core.wmem_max=33554432
+		${_ssh_infra} ${node} -- sudo sysctl -w fs.file-max=9223372036854775807
+	done
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
 	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
 }
