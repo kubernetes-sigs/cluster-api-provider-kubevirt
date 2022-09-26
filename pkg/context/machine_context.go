@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	ipam "github.com/metal-stack/go-ipam"
 	corev1 "k8s.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -39,6 +40,7 @@ type MachineContext struct {
 	KubevirtCluster     *infrav1.KubevirtCluster
 	KubevirtMachine     *infrav1.KubevirtMachine
 	BootstrapDataSecret *corev1.Secret
+	Ipamer              ipam.Ipamer
 	Logger              logr.Logger
 }
 

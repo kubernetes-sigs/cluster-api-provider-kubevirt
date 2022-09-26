@@ -20,6 +20,8 @@ import (
 	gocontext "context"
 	"fmt"
 
+	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
+
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +33,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/nmstate"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 )
 
@@ -155,7 +158,10 @@ func (m *Machine) Exists() bool {
 func (m *Machine) Create(ctx gocontext.Context) error {
 	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
-	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+	virtualMachine, err := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+	if err != nil {
+		return err
+	}
 
 	mutateFn := func() (err error) {
 		if virtualMachine.Labels == nil {
@@ -233,10 +239,40 @@ func (m *Machine) IsBootstrapped() bool {
 	executor := m.getCommandExecutor(m.Address(), m.sshKeys)
 
 	output, err := executor.ExecuteCommand("cat /run/cluster-api/bootstrap-success.complete")
-	if err != nil || output != "success" {
-		return false
+	if err != nil {
+		m.machineContext.Logger.Error(err, "Failed checking bootstraping")
 	}
-	return true
+	return err == nil && output == "success"
+}
+
+func (m *Machine) EnsureNetworking() error {
+	if !m.IsReady() || m.sshKeys == nil {
+		return fmt.Errorf("VM is not ready or missing ssh keys")
+	}
+
+	clusterName, found := m.machineContext.KubevirtMachine.Labels["cluster.x-k8s.io/cluster-name"]
+	if !found {
+		return fmt.Errorf("missing cluster.x-k8s.io/cluster-name label")
+	}
+
+	nncpName := nmstate.GenerateNNCPName(clusterName, m.vmiInstance.Status.NodeName)
+	nncp := nmstatev1.NodeNetworkConfigurationPolicy{}
+	if err := m.client.Get(m.machineContext.Context, types.NamespacedName{Name: nncpName}, &nncp); err != nil {
+		return err
+	}
+
+	infraNodeIP, err := nmstate.FindInfraNodeIP(nncp.Spec.DesiredState)
+	if err != nil {
+		return err
+	}
+
+	//TODO: Add a more presistent mechanism, nmcli or networkd or netplan
+	executor := m.getCommandExecutor(m.Address(), m.sshKeys)
+	// Use infra node as gateway to reduce inter node communication
+	if _, err := executor.ExecuteCommand(fmt.Sprintf("sudo ip route replace default via %s", infraNodeIP)); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	nmstate "github.com/nmstate/kubernetes-nmstate/api/shared"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -38,6 +39,12 @@ const ( //labels
 const ( // annotations
 	VmiDeletionGraceTime = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
 )
+
+// InfraClusterNodeNetwork
+type InfraClusterNodeNetwork struct {
+	Setup    nmstate.NodeNetworkConfigurationPolicySpec `json:"setup,omitempty" valid:"required"`
+	TearDown nmstate.NodeNetworkConfigurationPolicySpec `json:"teardown,omitempty" valid:"required"`
+}
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.
 type KubevirtClusterSpec struct {
@@ -63,6 +70,14 @@ type KubevirtClusterSpec struct {
 	// InfraClusterSecretRef is a reference to a secret with a kubeconfig for external cluster used for infra.
 	// +optional
 	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
+
+	// ClusterNetwork
+	// + optional
+	Network string `json:"network,omitempty"`
+
+	// InfraClusterSecretRef
+	// +optional
+	InfraClusterNodeNetwork *InfraClusterNodeNetwork `json:"infraClusterNodeNetwork",omitempty`
 }
 
 // KubevirtClusterStatus defines the observed state of KubevirtCluster.
