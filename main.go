@@ -23,6 +23,8 @@ import (
 	"os"
 	"time"
 
+	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
+
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
@@ -30,6 +32,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 
+	ipam "github.com/metal-stack/go-ipam"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -70,6 +73,7 @@ func init() {
 	_ = infrav1.AddToScheme(myscheme)
 	_ = clusterv1.AddToScheme(myscheme)
 	_ = kubevirtv1.AddToScheme(myscheme)
+	_ = nmstatev1.AddToScheme(myscheme)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -152,11 +156,13 @@ func setupChecks(mgr ctrl.Manager) {
 }
 
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
+	ipamer := ipam.New()
 	if err := (&controllers.KubevirtMachineReconciler{
 		Client:          mgr.GetClient(),
 		InfraCluster:    infracluster.New(mgr.GetClient()),
 		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
 		MachineFactory:  kubevirt.DefaultMachineFactory{},
+		Ipamer:          ipamer,
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
@@ -167,6 +173,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	if err := (&controllers.KubevirtClusterReconciler{
 		Client:       mgr.GetClient(),
 		InfraCluster: infracluster.New(mgr.GetClient()),
+		Ipamer:       ipamer,
 		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")

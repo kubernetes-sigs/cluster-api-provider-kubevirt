@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"time"
 
+	ipam "github.com/metal-stack/go-ipam"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -59,14 +60,17 @@ type KubevirtMachineReconciler struct {
 	InfraCluster    infracluster.InfraCluster
 	WorkloadCluster workloadcluster.WorkloadCluster
 	MachineFactory  kubevirt.MachineFactory
+	Ipamer          ipam.Ipamer
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes;,verbs=list
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nmstate.io,resources=nodenetworkconfigurationpolicies;,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
@@ -103,6 +107,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 			Context:         goctx,
 			Machine:         machine,
 			KubevirtMachine: kubevirtMachine,
+			Ipamer:          r.Ipamer,
 			Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
 		}
 		return r.reconcileDelete(machineContext)
@@ -133,6 +138,11 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	log = log.WithValues("kubevirt-cluster", kubevirtCluster.Name)
+	if kubevirtCluster.Spec.Network == "" {
+		return ctrl.Result{}, fmt.Errorf("missing cluster network CIDR")
+	}
+
+	r.Ipamer.NewPrefix(goctx, kubevirtCluster.Spec.Network)
 
 	// Create the machine context for this request.
 	machineContext := &context.MachineContext{
@@ -141,6 +151,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		KubevirtCluster: kubevirtCluster,
 		Machine:         machine,
 		KubevirtMachine: kubevirtMachine,
+		Ipamer:          r.Ipamer,
 		Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
 	}
 
@@ -239,6 +250,16 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if infraClusterClient == nil {
 		ctx.Logger.Info("Waiting for infra cluster client...")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
+	// If KubevirtCluster is managed at external controller the infra networking
+	// has to be set up at KuevirtMachine controller.
+	if annotations.IsExternallyManaged(ctx.KubevirtCluster) {
+		if ctx.KubevirtCluster.Spec.InfraClusterNodeNetwork != nil {
+			if err := r.InfraCluster.EnsureNetworking(ctx.ClusterContext()); err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "failed configuring infra node networking")
+			}
+		}
 	}
 
 	if err := r.reconcileKubevirtBootstrapSecret(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys); err != nil {

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	ipam "github.com/metal-stack/go-ipam"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,6 +52,7 @@ import (
 type KubevirtClusterReconciler struct {
 	client.Client
 	InfraCluster infracluster.InfraCluster
+	Ipamer       ipam.Ipamer
 	Log          logr.Logger
 }
 
@@ -95,6 +97,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		Context:         goctx,
 		Cluster:         cluster,
 		KubevirtCluster: kubevirtCluster,
+		Ipamer:          r.Ipamer,
 		Logger:          ctrl.LoggerFrom(goctx).WithName(req.Namespace).WithName(req.Name),
 	}
 
@@ -202,6 +205,11 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 			}
 		}
 	}
+	if ctx.KubevirtCluster.Spec.InfraClusterNodeNetwork != nil {
+		if err := r.InfraCluster.EnsureNetworking(ctx); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed configuring infra node networking")
+		}
+	}
 
 	// Mark the KubevirtCluster ready
 	ctx.KubevirtCluster.Status.Ready = true
@@ -234,6 +242,12 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 	} {
 		if err := r.deleteExtraGVK(ctx, extraKind); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "failed to delete extra %s", extraKind)
+		}
+	}
+
+	if ctx.KubevirtCluster.Spec.InfraClusterNodeNetwork != nil {
+		if err := r.InfraCluster.TeardownNetworking(ctx); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed cleaning up infra node networking")
 		}
 	}
 

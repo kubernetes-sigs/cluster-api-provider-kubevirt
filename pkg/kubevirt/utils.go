@@ -68,8 +68,11 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
-func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
-	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
+func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) (*kubevirtv1.VirtualMachine, error) {
+	vmiTemplate, err := buildVirtualMachineInstanceTemplate(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
 		Spec: *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DeepCopy(),
@@ -102,7 +105,7 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	// make each datavolume unique by appending machine name as a prefix
 	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
 
-	return virtualMachine
+	return virtualMachine, nil
 }
 
 func mapCopy(src map[string]string) map[string]string {
@@ -115,7 +118,7 @@ func mapCopy(src map[string]string) map[string]string {
 }
 
 // buildVirtualMachineInstanceTemplate creates VirtualMachineInstanceTemplateSpec.
-func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
+func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirtv1.VirtualMachineInstanceTemplateSpec, error) {
 	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      map[string]string{},
@@ -137,15 +140,19 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
-
+	networkData, err := buildNetworkData(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cloudInitVolumeName := "cloudinitvolume"
 	cloudInitVolume := kubevirtv1.Volume{
 		Name: cloudInitVolumeName,
 		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
+			CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{ // ConfigDrive with userData and networkData is broken https://github.com/kubevirt/kubevirt/issues/8551
 				UserDataSecretRef: &corev1.LocalObjectReference{
 					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
 				},
+				NetworkData: networkData,
 			},
 		},
 	}
@@ -161,7 +168,24 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	}
 	template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 
-	return template
+	return template, nil
+}
+
+// FIXME: Just for one worker for the draft PR
+//        this should works similar to IPAM where you generate addresses
+func buildNetworkData(ctx *context.MachineContext) (string, error) {
+	address, err := ctx.Ipamer.AcquireIP(ctx, ctx.KubevirtCluster.Spec.Network)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`version: 2
+ethernets:
+  enp1s0:
+    addresses: [%s/%s]
+    dhcp4: false
+  enp2s0:
+    dhcp4: true
+`, address.IP, "24"), nil
 }
 
 // nodeRole returns the role of this node ("control-plane" or "worker").
