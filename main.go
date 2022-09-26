@@ -23,6 +23,8 @@ import (
 	"os"
 	"time"
 
+	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
+
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
@@ -70,6 +72,7 @@ func init() {
 	_ = infrav1.AddToScheme(myscheme)
 	_ = clusterv1.AddToScheme(myscheme)
 	_ = kubevirtv1.AddToScheme(myscheme)
+	_ = nmstatev1.AddToScheme(myscheme)
 	// +kubebuilder:scaffold:scheme
 }
 

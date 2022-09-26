@@ -24,8 +24,10 @@ type MachineInterface interface {
 	Exists() bool
 	// IsReady checks if the VM is ready
 	IsReady() bool
-	// Address returns the IP address of the VM.
-	Address() string
+	// ExternalAddress returns the external IP address of the VM.
+	ExternalAddress() string
+	//InternalAddress returns the internal IP address of the VM.
+	InternalAddress() string
 	// SupportsCheckingIsBootstrapped checks if we have a method of checking
 	// that this bootstrapper has completed.
 	SupportsCheckingIsBootstrapped() bool

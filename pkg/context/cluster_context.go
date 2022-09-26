@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	ipam "github.com/metal-stack/go-ipam"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -33,6 +34,7 @@ type ClusterContext struct {
 	context.Context
 	Cluster         *clusterv1.Cluster
 	KubevirtCluster *infrav1.KubevirtCluster
+	Ipamer          ipam.Ipamer
 	Logger          logr.Logger
 }
 

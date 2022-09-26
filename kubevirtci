@@ -16,6 +16,12 @@ export CLUSTERCTL_VERSION="v1.2.4"
 export CALICO_VERSION="v3.21"
 export KUBEVIRT_VERSION="v0.53.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+export CAPK_TEMPLATE=${CAPK_TEMPLATE:-templates/cluster-template-secondary.yaml}
+export CNAO_VERSION="v0.78.0"
+export KUBERNETES_NMSTATE_VERSION="v0.74.0"
+export WHEREABOUTS_VERSION="v0.5.4"
+export CLUSTER_NETWORK="192.168.6.0/24"
+export APISERVER_ADVERTISE_ADDRESS="192.168.6.41"
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
 KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"
@@ -115,6 +121,52 @@ function kubevirtci::ensure_tools() {
 	fi
 }
 
+function kubevirtci::install_network_operators() {
+    ${_kubectl} apply -f https://github.com/kubevirt/cluster-network-addons-operator/releases/download/${CNAO_VERSION}/namespace.yaml
+    ${_kubectl} apply -f https://github.com/kubevirt/cluster-network-addons-operator/releases/download/${CNAO_VERSION}/network-addons-config.crd.yaml
+    ${_kubectl} apply -f https://github.com/kubevirt/cluster-network-addons-operator/releases/download/${CNAO_VERSION}/operator.yaml
+    
+    cat <<EOF | ${_kubectl} apply -f -
+---
+apiVersion: networkaddonsoperator.network.kubevirt.io/v1
+kind: NetworkAddonsConfig
+metadata:
+  name: cluster
+spec:
+  imagePullPolicy: IfNotPresent
+  linuxBridge: {}
+  multus: {}
+  kubeMacPool: {}
+EOF
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/nmstate.io_nmstates.yaml
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/namespace.yaml
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/service_account.yaml
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/role.yaml
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/role_binding.yaml
+    ${_kubectl} apply -f https://github.com/nmstate/kubernetes-nmstate/releases/download/${KUBERNETES_NMSTATE_VERSION}/operator.yaml
+    
+ 
+    
+    cat <<EOF | ${_kubectl} apply -f -
+---
+apiVersion: nmstate.io/v1
+kind: NMState
+metadata:
+  name: nmstate
+EOF
+    local whereabouts_url="https://raw.githubusercontent.com/k8snetworkplumbingwg/whereabouts/${WHEREABOUTS_VERSION}"
+    ${_kubectl} apply \
+    -f ${whereabouts_url}/doc/crds/daemonset-install.yaml \
+    -f ${whereabouts_url}/doc/crds/whereabouts.cni.cncf.io_ippools.yaml \
+    -f ${whereabouts_url}/doc/crds/whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml \
+    -f ${whereabouts_url}/doc/crds/ip-reconciler-job.yaml
+    
+    ${_kubectl} wait networkaddonsconfig cluster --for condition=Available --timeout=2m
+    ${_kubectl} rollout status -w -n nmstate ds nmstate-handler --timeout=2m
+    ${_kubectl} rollout status -w -n nmstate deployment nmstate-webhook --timeout=2m
+
+}
+
 function kubevirtci::up() {
 	"${KUBEVIRTCI_PATH}/cluster-up/up.sh"
 	export KUBECONFIG=$(kubevirtci::kubeconfig)
@@ -133,6 +185,10 @@ EOF
 	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
 	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
+    
+    kubevirtci::install_metallb
+    kubevirtci::install_network_operators
+
 }
 
 function kubevirtci::down() {
@@ -155,18 +211,19 @@ EOF
 function kubevirtci::ssh_tenant() {
 	vmi_name=$1
 	vmi_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
-
-	mkdir -p $_default_tmp_path
+    svc_name=${vmi_name}-ssh
 
 	echo "vmi $vmi_name namespace $vmi_namespace"
 
 	${_kubectl} get secret -n $TENANT_CLUSTER_NAMESPACE kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
 
 	chmod 600 ${_default_tmp_path}/key.pem
+    docker cp ${_default_tmp_path}/key.pem $KUBEVIRT_PROVIDER-node01:/tmp/
 
-	ssh -o IdentitiesOnly=yes -o "ProxyCommand=$_default_virtctl_path port-forward --stdio=true $vmi_name.$vmi_namespace 22" capk@$vmi_name.$vmi_namespace -i ${_default_tmp_path}/key.pem
-
-	rm ${_default_tmp_path}/key.pem
+    ${_kubectl} delete svc -n $vmi_namespace $svc_name --ignore-not-found 
+    ${_default_virtctl_path} expose vmi -n $vmi_namespace $vmi_name --port=22 --name=$svc_name --type=LoadBalancer
+    local ssh_ip=$(${_kubectl} get svc -n kvcluster $svc_name --no-headers |awk '{ print $4}')
+    docker exec -ti $KUBEVIRT_PROVIDER-node01 ssh -o IdentitiesOnly=yes -i /tmp/key.pem capk@$ssh_ip
 }
 
 function kubevirtci::refresh() {
@@ -196,7 +253,7 @@ function kubevirtci::destroy_cluster() {
 
 function kubevirtci::create_cluster() {
 	export CRI_PATH="/var/run/containerd/containerd.sock"
-	template=templates/cluster-template-kccm.yaml
+	template=${CAPK_TEMPLATE}
 
 	if [ ! -f $template ]; then
 		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
@@ -222,7 +279,7 @@ function kubevirtci::create_external_cluster() {
 
 	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
 	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-secondary.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_tenant_namespace {
@@ -245,7 +302,9 @@ function kubevirtci::install_capk_release {
 
 
 function kubevirtci::install_calico {
-	kubevirtci::kubectl_tenant apply -f https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml
+	curl -L https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml  |sed "s/docker\.io/quay.io/g" > /tmp/calico.yaml
+    cat /tmp/calico.yaml | kubevirtci::kubectl_tenant apply -f -
+    kubevirtci::kubectl_tenant set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=cidr=$CLUSTER_NETWORK
 	echo "Waiting for calico pods rollout"
 	kubevirtci::kubectl_tenant rollout status ds/calico-node -n kube-system --timeout=2m
 
@@ -333,25 +392,10 @@ EOF
 
 
 function kubevirtci::kubectl_tenant {
-    vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
-    for vm in $vms_list
-    do
-	if [[ "$vm" == ${TENANT_CLUSTER_NAME}-control-plane* ]]; then
-            control_plane_vm_name=$vm
-	fi
-    done
-    if [ -n "${control_plane_vm_name}" ]; then
-  	echo "Found control plane VM: ${control_plane_vm_name} in namespace ${TENANT_CLUSTER_NAMESPACE}"
-    else
-  	echo "control-plane vm is not found in namespace ${TENANT_CLUSTER_NAMESPACE} (looking for regex ${TENANT_CLUSTER_NAME}-control-plane*)"
-	exit 1
-    fi
-    ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
-    trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
-    rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
     $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
-    sleep 0.1
-    kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
+    docker cp $KUBEVIRTCI_PATH/_ci-configs/$KUBEVIRT_PROVIDER/.kubectl $KUBEVIRT_PROVIDER-node01:/tmp/
+    docker cp .${TENANT_CLUSTER_NAME}-kubeconfig $KUBEVIRT_PROVIDER-node01:/tmp/
+    docker exec -i $KUBEVIRT_PROVIDER-node01 /tmp/.kubectl --kubeconfig /tmp/.${TENANT_CLUSTER_NAME}-kubeconfig "$@"
 }
 
 function kubevirtci::retry_until_success {
