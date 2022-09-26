@@ -1,0 +1,13 @@
+kind: Service                                                                   
+apiVersion: v1                                                                  
+metadata:                                                                       
+  name: tcprobe-server
+  labels:                                                                       
+    app: tcprobe-server
+spec:                                                                           
+  selector:                                                                     
+    app: tcprobe-server
+  ports:                                                                        
+  - name: tcprobe-server
+    port: 4444 
+  type: LoadBalancer

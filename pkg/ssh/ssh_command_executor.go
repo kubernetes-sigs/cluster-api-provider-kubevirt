@@ -17,7 +17,6 @@ limitations under the License.
 package ssh
 
 import (
-	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -74,13 +73,10 @@ func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 	}
 	defer session.Close()
 
-	var b bytes.Buffer
-	session.Stdout = &b
-	if err := session.Run(command); err != nil {
-		return "", fmt.Errorf("ssh: failed to run command `%s`, error: %s", command, err.Error())
+	var output []byte
+	if output, err = session.CombinedOutput(command); err != nil {
+		return "", fmt.Errorf("ssh: failed to run command `%s`:%s :%s", command, strings.Trim(string(output), "\n"), err.Error())
 	}
 
-	output := strings.Trim(b.String(), "\n")
-
-	return output, nil
+	return strings.Trim(string(output), "\n"), nil
 }

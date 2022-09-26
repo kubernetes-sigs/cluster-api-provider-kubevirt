@@ -64,9 +64,12 @@ type KubevirtMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=nodes;,verbs=list
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;list;watch
+// +kubebuilder:rbac:groups=nmstate.io,resources=nodenetworkconfigurationpolicies;,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
@@ -133,6 +136,9 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	log = log.WithValues("kubevirt-cluster", kubevirtCluster.Name)
+	if kubevirtCluster.Spec.Network == "" {
+		return ctrl.Result{}, fmt.Errorf("missing cluster network CIDR")
+	}
 
 	// Create the machine context for this request.
 	machineContext := &context.MachineContext{
@@ -283,9 +289,16 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
-	ipAddress := externalMachine.Address()
-	if ipAddress == "" {
-		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
+	externalIPAddress := externalMachine.ExternalAddress()
+	if externalIPAddress == "" {
+		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty external ipAddress, requeue", ctx.KubevirtMachine.Name))
+		ctx.KubevirtMachine.Status.Ready = false
+		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
+
+	internalIPAddress := externalMachine.InternalAddress()
+	if externalIPAddress == "" {
+		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty internal ipAddress, requeue", ctx.KubevirtMachine.Name))
 		ctx.KubevirtMachine.Status.Ready = false
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
@@ -309,11 +322,11 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		},
 		{
 			Type:    clusterv1.MachineInternalIP,
-			Address: ipAddress,
+			Address: internalIPAddress,
 		},
 		{
 			Type:    clusterv1.MachineExternalIP,
-			Address: ipAddress,
+			Address: externalIPAddress,
 		},
 		{
 			Type:    clusterv1.MachineInternalDNS,

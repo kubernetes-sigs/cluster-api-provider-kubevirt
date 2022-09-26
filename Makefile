@@ -323,6 +323,18 @@ cluster-down:
 cluster-sync:
 	./kubevirtci sync
 
+.PHONY: cluster-patch
+cluster-patch:
+	./kubevirtci refresh
+
+.PHONY: create-cluster
+create-cluster:
+	./kubevirtci create-cluster
+
+.PHONY: destroy-cluster
+destroy-cluster:
+	./kubevirtci destroy-cluster
+
 .PHONY: goimports
 goimports:
 	go install golang.org/x/tools/cmd/goimports@latest

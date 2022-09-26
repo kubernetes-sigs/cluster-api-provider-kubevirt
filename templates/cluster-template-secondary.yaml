@@ -1,0 +1,271 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.243.0.0/16
+    services:
+      cidrBlocks:
+        - 10.95.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtCluster
+    name: '${CLUSTER_NAME}'
+    namespace: "${NAMESPACE}"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: '${CLUSTER_NAME}-control-plane'
+    namespace: "${NAMESPACE}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  network: "${CLUSTER_NETWORK}"
+  infraClusterNodeNetwork:
+    teardown:
+      desiredState:
+        interfaces:
+          - name: base.10
+            state: absent
+          - name: br-${CLUSTER_NAME}
+            state: absent
+    setup:
+      capture:
+        default-gw: routes.running.destination=="0.0.0.0/0"
+        base-iface: interfaces.name==capture.default-gw.routes.running.0.next-hop-interface
+      desiredState:
+        interfaces:
+        - name: base.10
+          type: vlan
+          state: up 
+          vlan:
+            base-iface: "{{ capture.base-iface.interfaces.0.name }}"
+            id: 10
+        - name: br-${CLUSTER_NAME}
+          description:  "capk.cluster.x-k8s.io/interface"
+          type: linux-bridge
+          state: up
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          bridge:
+            options:
+              stp:
+                enabled: false
+            port:
+            - name: base.10
+  controlPlaneServiceTemplate:
+    spec:
+      type: LoadBalancer
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  interfaces:
+                  - name: multus 
+                    bridge: {}
+                  - name: pod
+                    masquerade: {}
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              evictionStrategy: External
+              networks:
+              - name: multus
+                multus:
+                  networkName: bridge-network-vms
+              - name: pod
+                pod: {}
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
+---
+kind: KubeadmControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  machineTemplate:
+    infrastructureRef:
+      kind: KubevirtMachineTemplate
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      name: "${CLUSTER_NAME}-control-plane"
+      namespace: "${NAMESPACE}"
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      networking:
+        dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
+        podSubnet: 10.243.0.0/16
+        serviceSubnet: 10.95.0.0/16
+    initConfiguration:
+      localAPIEndpoint:
+        advertiseAddress: "${APISERVER_ADVERTISE_ADDRESS}"
+      nodeRegistration:
+        criSocket: "${CRI_PATH}"
+    joinConfiguration:
+      nodeRegistration:
+        criSocket: "{CRI_PATH}"
+  version: "${KUBERNETES_VERSION}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+          annotations:
+          capk.cluster.x-k8s.io/interface: 
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  interfaces:
+                  - name: multus
+                    bridge: {}
+                  - name: pod 
+                    masquerade: {}
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              evictionStrategy: External
+              networks:
+              - name: multus
+                multus:
+                  networkName: bridge-network-vms
+              - name: pod
+                pod: {}
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "bridge-network-vms"
+  namespace: "${NAMESPACE}"
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/br-${CLUSTER_NAME}
+spec:
+  config: >
+    {
+        "cniVersion": "0.3.1",
+        "name": "br-${CLUSTER_NAME}",
+        "plugins": [{
+            "type": "bridge",
+            "bridge": "br-${CLUSTER_NAME}",
+            "vlan": 10,
+            "ipam": {}
+        }]
+    }
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "bridge-network-pods"
+  namespace: "${NAMESPACE}"
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/br-${CLUSTER_NAME}
+spec:
+  config: >
+    {
+        "cniVersion": "0.3.1",
+        "name": "br-${CLUSTER_NAME}",
+        "plugins": [{
+            "type": "bridge",
+            "bridge": "br-${CLUSTER_NAME}",
+            "vlan": 10,
+            "ipam": {
+              "type": "whereabouts",
+              "range": "${CLUSTER_NETWORK}"
+          }
+        }]
+    }
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs: {}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT}
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          name: "${CLUSTER_NAME}-md-0"
+          namespace: "${NAMESPACE}"
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0"
+        namespace: "${NAMESPACE}"
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KubevirtMachineTemplate

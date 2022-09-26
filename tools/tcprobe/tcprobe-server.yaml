@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tcprobe-server
+  labels:
+    app: tcprobe-server
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: "${SERVER_NODE}"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 107
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: tcprobe-server
+    image: quay.io/ellorent/tcprobe
+    imagePullPolicy: Always
+    args: ["s", "0.0.0.0:4444"]
+    ports:
+    - containerPort: 4444
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL

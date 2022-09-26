@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
@@ -68,8 +69,11 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
-func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
-	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
+func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) (*kubevirtv1.VirtualMachine, error) {
+	vmiTemplate, err := buildVirtualMachineInstanceTemplate(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
 		Spec: *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DeepCopy(),
@@ -102,7 +106,7 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	// make each datavolume unique by appending machine name as a prefix
 	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
 
-	return virtualMachine
+	return virtualMachine, nil
 }
 
 func mapCopy(src map[string]string) map[string]string {
@@ -115,7 +119,7 @@ func mapCopy(src map[string]string) map[string]string {
 }
 
 // buildVirtualMachineInstanceTemplate creates VirtualMachineInstanceTemplateSpec.
-func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
+func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirtv1.VirtualMachineInstanceTemplateSpec, error) {
 	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      map[string]string{},
@@ -137,17 +141,10 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
-
 	cloudInitVolumeName := "cloudinitvolume"
 	cloudInitVolume := kubevirtv1.Volume{
-		Name: cloudInitVolumeName,
-		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
-				UserDataSecretRef: &corev1.LocalObjectReference{
-					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
-				},
-			},
-		},
+		Name:         cloudInitVolumeName,
+		VolumeSource: generateCloudInitVolumeSource(ctx),
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 
@@ -161,7 +158,35 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	}
 	template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 
-	return template
+	return template, nil
+}
+
+func generateCloudInitVolumeSource(ctx *context.MachineContext) kubevirtv1.VolumeSource {
+	userDataName := *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"
+	if annotations.IsExternallyManaged(ctx.KubevirtCluster) {
+		return kubevirtv1.VolumeSource{
+			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
+				UserDataSecretRef: &corev1.LocalObjectReference{
+					Name: userDataName,
+				},
+			},
+		}
+	} else {
+		return kubevirtv1.VolumeSource{
+			CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+				UserDataSecretRef: &corev1.LocalObjectReference{
+					Name: userDataName,
+				},
+				NetworkData: `version: 2
+ethernets:
+  enp1s0:
+    dhcp4: true
+  enp2s0:
+    dhcp4: true
+`,
+			},
+		}
+	}
 }
 
 // nodeRole returns the role of this node ("control-plane" or "worker").

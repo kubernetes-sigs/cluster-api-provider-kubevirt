@@ -1,0 +1,127 @@
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstance
+metadata:
+  labels:
+    special: proxy-arp
+  name: proxy-arp
+spec:
+  domain:
+    devices:
+      disks:
+      - disk:
+          bus: virtio
+        name: containerdisk
+      - disk:
+          bus: virtio
+        name: cloudinitdisk
+      interfaces:
+      - bridge: {}
+        name: multus
+        macAddress: 6a:f0:93:58:ec:3f
+      rng: {}
+    resources:
+      requests:
+        memory: 1024M
+  networks:
+  - multus:
+      networkName: br1
+    name: multus 
+  terminationGracePeriodSeconds: 0
+  volumes:
+  - containerDisk:
+      image: quay.io/kubevirt/fedora-with-test-tooling-container-disk:devel
+    name: containerdisk
+  - cloudInitNoCloud:
+      userData: |-
+        #cloud-config
+        password: fedora
+        chpasswd: { expire: False }
+    name: cloudinitdisk
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: br1
+spec:
+  config: >
+    {
+      "cniVersion": "0.4.0", 
+      "name": "br1-vmi",
+      "plugins": [{
+              "type": "bridge",
+              "bridge": "br1",
+              "ipam": {}
+      }]
+    }
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: br1-proxy-arp
+spec:
+  config: >
+    {
+      "cniVersion": "0.4.0", 
+      "name": "br1-pods",
+      "plugins": [{
+              "type": "bridge",
+              "bridge": "br1",
+              "ipam": {}
+      }, 
+      {
+        "type": "tuning",
+        "sysctl": {
+                "net.ipv4.conf.net1.proxy_arp": "1"
+        }
+      }]
+    }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: proxy
+  annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br1-proxy-arp","namespace":"default"}]'
+spec:
+  containers:
+  - image: alpine
+    command:
+      - /bin/sh
+      - "-c"
+      - "ip route replace 192.168.6.0/24 dev net1 && apk update && apk add iptables && iptables -t nat -A PREROUTING -p tcp -d $MY_POD_IP -j DNAT --to-destination 192.168.6.2 && iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE && sleep infinity"
+    env:
+    - name: MY_POD_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
+    imagePullPolicy: IfNotPresent
+    name: alpine
+    securityContext:
+      privileged: true
+      capabilities:
+        add: 
+        - ALL
+  restartPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dnsmasq
+  annotations:
+    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br1","namespace":"default"}]'
+spec:
+  containers:
+  - image: quay.io/coreos/dnsmasq
+    command:
+      - /bin/sh
+      - "-c"
+      - "ip a add 192.168.6.1/24 dev net1 && dnsmasq -d --interface=net1 --dhcp-option=option:router,169.254.1.2 --dhcp-host=6a:f0:93:58:ec:3f,192.168.6.2 --dhcp-range=192.168.6.2,192.168.6.200,infinite"
+    imagePullPolicy: IfNotPresent
+    name: dnsmasq
+    securityContext:
+      privileged: true
+      capabilities:
+        add: 
+        - ALL
+  restartPolicy: Always

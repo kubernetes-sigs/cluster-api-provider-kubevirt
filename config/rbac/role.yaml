@@ -17,7 +17,22 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - list
+- apiGroups:
+  - ""
+  resources:
   - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - serviceaccounts
   verbs:
   - create
   - delete
@@ -43,8 +58,13 @@ rules:
   resources:
   - deployments
   verbs:
+  - create
   - delete
+  - get
   - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - cluster.x-k8s.io
   resources:
@@ -109,6 +129,18 @@ rules:
   - kubevirt.io
   resources:
   - virtualmachines
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nmstate.io
+  resources:
+  - nodenetworkconfigurationpolicies
   verbs:
   - create
   - delete

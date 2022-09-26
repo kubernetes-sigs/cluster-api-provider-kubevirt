@@ -58,7 +58,7 @@ type KubevirtClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services;,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;configmaps,verbs=delete;list
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=delete;list
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;list
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=delete;list
 
 // Reconcile reads that state of the cluster for a KubevirtCluster object and makes changes based on the state read
@@ -234,6 +234,12 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 	} {
 		if err := r.deleteExtraGVK(ctx, extraKind); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "failed to delete extra %s", extraKind)
+		}
+	}
+
+	if ctx.KubevirtCluster.Spec.InfraClusterNodeNetwork != nil {
+		if err := r.InfraCluster.TeardownNetworking(ctx); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed cleaning up infra node networking")
 		}
 	}
 

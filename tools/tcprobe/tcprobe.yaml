@@ -1,0 +1,8 @@
+repo: quay.io/ellorent
+cri: podman
+client:
+  kubeconfig: /root/quique/ocp-dev-cluster/dev-scripts/ocp/hypershift1/auth/kubeconfig
+  node: worker-0
+server:
+  kubeconfig: tenant-kubeconfig
+  node: test1-2ghnh
