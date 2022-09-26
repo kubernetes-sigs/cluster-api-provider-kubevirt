@@ -169,6 +169,15 @@ function kubevirtci::create_cluster() {
 		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
 	fi
 
+	if [[ $CAPK_TEMPLATE =~ "passt" ]]; then
+		echo 'Configuring node for Passt binding'
+		for node in $(${_kubectl} get nodes --no-headers | awk '{print $1}'); do
+			${_ssh_infra} ${node} -- sudo sysctl -w net.core.rmem_max=33554432
+			${_ssh_infra} ${node} -- sudo sysctl -w net.core.wmem_max=33554432
+			${_ssh_infra} ${node} -- sudo sysctl -w fs.file-max=9223372036854775807
+		done
+	fi
+
 	echo "Using cluster template $template"
 
 	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
