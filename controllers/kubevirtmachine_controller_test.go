@@ -110,8 +110,9 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 		}
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
-			Client:         fakeClient,
-			MachineFactory: kubevirt.DefaultMachineFactory{},
+			Client:                    fakeClient,
+			MachineFactory:            kubevirt.DefaultMachineFactory{},
+			ExternalClusterSyncPeriod: 90 * time.Second,
 		}
 	})
 
@@ -325,10 +326,11 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
-			Client:          fakeClient,
-			WorkloadCluster: workloadClusterMock,
-			InfraCluster:    infraClusterMock,
-			MachineFactory:  machineFactory,
+			Client:                    fakeClient,
+			WorkloadCluster:           workloadClusterMock,
+			InfraCluster:              infraClusterMock,
+			MachineFactory:            machineFactory,
+			ExternalClusterSyncPeriod: 90 * time.Second,
 		}
 
 	}
@@ -613,7 +615,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
-	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
+	DescribeTable("should detect when VMI is ready and mark KubevirtMachine ready", func(hasKubeconfigSecret bool) {
 		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
 			{
 				Type:   kubevirtv1.VirtualMachineInstanceReady,
@@ -625,6 +627,10 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			{
 				IP: "1.1.1.1",
 			},
+		}
+
+		if hasKubeconfigSecret {
+			kubevirtMachine.Spec.InfraClusterSecretRef = &corev1.ObjectReference{}
 		}
 
 		objects := []client.Object{
@@ -648,8 +654,13 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		Expect(err).ShouldNot(HaveOccurred())
 
-		// should expect to re-enqueue while waiting for VMI to come online
-		Expect(out).To(Equal(ctrl.Result{}))
+		if hasKubeconfigSecret {
+			// should expect to re-enqueue if we're polling an external cluster for VM status
+			Expect(out.RequeueAfter > kubevirtMachineReconciler.ExternalClusterSyncPeriod).To(BeTrue())
+		} else {
+			// should not expect to re-enqueue if we're using the local cluster with informers
+			Expect(out).To(Equal(ctrl.Result{}))
+		}
 
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
@@ -659,7 +670,10 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		Expect(*machineContext.KubevirtMachine.Spec.ProviderID).To(Equal("kubevirt://" + kubevirtMachineName))
-	})
+	},
+		Entry("without kubeconfig secret", false),
+		Entry("with kubeconfig secret", true),
+	)
 
 	It("should detect when VMI is marked for eviction and set FailureReason", func() {
 		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{

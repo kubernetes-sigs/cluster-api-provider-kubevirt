@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
@@ -56,9 +57,10 @@ import (
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
 type KubevirtMachineReconciler struct {
 	client.Client
-	InfraCluster    infracluster.InfraCluster
-	WorkloadCluster workloadcluster.WorkloadCluster
-	MachineFactory  kubevirt.MachineFactory
+	InfraCluster              infracluster.InfraCluster
+	WorkloadCluster           workloadcluster.WorkloadCluster
+	MachineFactory            kubevirt.MachineFactory
+	ExternalClusterSyncPeriod time.Duration
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
@@ -337,6 +339,17 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.KubevirtMachine.Status.Ready = true
 	} else {
 		ctx.KubevirtMachine.Status.Ready = false
+	}
+
+	// If the kubevirtMachine's VM is not managed using the default infra client
+	// provided to this pod, then we are not watching the object using an informer.
+	// Use the VM poll interval with some jitter to ensure the reconcile for this VM
+	// wakes up periodically. This is important to detect state changes such as an
+	// IP change
+	if ctx.KubevirtMachine.Spec.InfraClusterSecretRef != nil {
+		// add 10% jitter to the requeue period
+		requeueAfter := wait.Jitter(r.ExternalClusterSyncPeriod, 1.1)
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -634,7 +647,10 @@ func (r *KubevirtMachineReconciler) deleteKubevirtBootstrapSecret(ctx *context.M
 	bootstrapDataSecretKey := client.ObjectKey{Namespace: vmNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err != nil {
 		// the secret does not exist, exit without error
-		return nil
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
 	}
 
 	if err := infraClusterClient.Delete(ctx, bootstrapDataSecret); err != nil {

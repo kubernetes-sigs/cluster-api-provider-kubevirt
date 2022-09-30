@@ -53,14 +53,15 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 
 	//flags.
-	metricsBindAddr      string
-	enableLeaderElection bool
-	syncPeriod           time.Duration
-	concurrency          int
-	healthAddr           string
-	webhookPort          int
-	webhookCertDir       string
-	watchNamespace       string
+	metricsBindAddr           string
+	enableLeaderElection      bool
+	syncPeriod                time.Duration
+	externalClusterSyncPeriod time.Duration
+	concurrency               int
+	healthAddr                string
+	webhookPort               int
+	webhookCertDir            string
+	watchNamespace            string
 )
 
 func init() {
@@ -82,6 +83,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
 	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
+	fs.DurationVar(&externalClusterSyncPeriod, "external-cluster-sync-period", 90*time.Second,
+		"The minimum interval resources in clusters external to the local cluster are reconciled (e.g. 15m)")
 	fs.StringVar(&healthAddr, "health-addr", ":9440",
 		"The address the health endpoint binds to.")
 	fs.IntVar(&webhookPort, "webhook-port", 9443,
@@ -153,10 +156,11 @@ func setupChecks(mgr ctrl.Manager) {
 
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	if err := (&controllers.KubevirtMachineReconciler{
-		Client:          mgr.GetClient(),
-		InfraCluster:    infracluster.New(mgr.GetClient()),
-		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
-		MachineFactory:  kubevirt.DefaultMachineFactory{},
+		Client:                    mgr.GetClient(),
+		InfraCluster:              infracluster.New(mgr.GetClient()),
+		WorkloadCluster:           workloadcluster.New(mgr.GetClient()),
+		MachineFactory:            kubevirt.DefaultMachineFactory{},
+		ExternalClusterSyncPeriod: externalClusterSyncPeriod,
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
