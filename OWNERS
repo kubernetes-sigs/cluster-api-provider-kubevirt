@@ -8,3 +8,6 @@ approvers:
   - nirarg
   - nunnatsa
   - sig-cluster-lifecycle-leads
+reviewers:
+  - qinqon
+
