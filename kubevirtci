@@ -16,7 +16,7 @@ export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.0.0"
 export CALICO_VERSION="v3.21"
 export KUBEVIRT_VERSION="v0.53.0"
-export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${CAPK_GUEST_K8S_VERSION}}
+export NODE_VM_IMAGE_TEMPLATE="quay.io/dvossel/ubuntu-2004-container-disk:v1.23.10"
 
 _default_bin_path=./hack/tools/bin
 _default_tmp_path=./hack/tools/bin/tmp
