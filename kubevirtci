@@ -12,10 +12,9 @@ export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
 export METALLB_VERSION="v0.12.1"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
-export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION="v1.0.0"
 export CALICO_VERSION="v3.21"
-export KUBEVIRT_VERSION="v0.58.0"
+export KUBEVIRT_VERSION="v0.53.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${CAPK_GUEST_K8S_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
@@ -122,7 +121,7 @@ function kubevirtci::up() {
 	echo "installing kubevirt..."
 	${_kubectl} apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
 	curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml \
-	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration\n\1- Passt|" \
+	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration|" \
 	   | ${_kubectl} apply -f -
 
 	echo "installing capi..."
@@ -191,19 +190,10 @@ function kubevirtci::destroy_cluster() {
 function kubevirtci::create_cluster() {
 	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
-	template=templates/${CAPK_TEMPLATE}
+	template=templates/cluster-template-kccm.yaml
 
 	if [ ! -f $template ]; then
 		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
-	fi
-
-	if [[ $CAPK_TEMPLATE =~ "passt" ]]; then
-		echo 'Configuring node for Passt binding'
-		for node in $(${_kubectl} get nodes --no-headers | awk '{print $1}'); do
-			${_ssh_infra} ${node} -- sudo sysctl -w net.core.rmem_max=33554432
-			${_ssh_infra} ${node} -- sudo sysctl -w net.core.wmem_max=33554432
-			${_ssh_infra} ${node} -- sudo sysctl -w fs.file-max=9223372036854775807
-		done
 	fi
 
 	echo "Using cluster template $template"

@@ -64,18 +64,11 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
-                  interfaces:
-                  - bridge: {}
-                    name: pod
-                    macAddress: 00:10:fa:6e:38:4a
                   disks:
                     - disk:
                         bus: virtio
                       name: dv-volume
               evictionStrategy: External
-              networks:
-              - name: pod
-                pod: {}
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"
@@ -144,18 +137,11 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
-                  interfaces:
-                  - bridge: {}
-                    name: pod
-                    macAddress: 00:10:fa:6e:38:4b
                   disks:
                     - disk:
                         bus: virtio
                       name: dv-volume
               evictionStrategy: External
-              networks:
-              - name: pod
-                pod: {}
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"
