@@ -28,6 +28,10 @@ kind: KubevirtCluster
 metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: ClusterIP
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
@@ -41,20 +45,6 @@ spec:
         metadata:
           namespace: "${NAMESPACE}"
         spec:
-          dataVolumeTemplates:
-          - metadata:
-              name: "${CLUSTER_NAME}-boot-volume"
-            spec:
-              pvc:
-                accessModes:
-                - ReadWriteOnce
-                resources:
-                  requests:
-                    storage: "${ROOT_VOLUME_SIZE}"
-                storageClassName: "${STORAGE_CLASS_NAME}"
-              source:
-                registry:
-                  url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
           runStrategy: Always
           template:
             spec:
@@ -65,21 +55,20 @@ spec:
                   guest: "4Gi"
                 devices:
                   interfaces:
-                  - bridge: {}
-                    name: pod
-                    macAddress: 00:10:fa:6e:38:4a
+                    - name: pod
+                      passt: {}
                   disks:
                     - disk:
                         bus: virtio
-                      name: dv-volume
-              evictionStrategy: External
+                      name: containervolume
               networks:
-              - name: pod
-                pod: {}
+                - name: pod
+                  pod: {}
+              evictionStrategy: External
               volumes:
-                - dataVolume:
-                    name: "${CLUSTER_NAME}-boot-volume"
-                  name: dv-volume
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 kind: KubeadmControlPlane
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -121,20 +110,6 @@ spec:
         metadata:
           namespace: "${NAMESPACE}"
         spec:
-          dataVolumeTemplates:
-          - metadata:
-              name: "${CLUSTER_NAME}-boot-volume"
-            spec:
-              pvc:
-                accessModes:
-                - ReadWriteOnce
-                resources:
-                  requests:
-                    storage: "${ROOT_VOLUME_SIZE}"
-                storageClassName: "${STORAGE_CLASS_NAME}"
-              source:
-                registry:
-                  url: "docker://${NODE_VM_IMAGE_TEMPLATE}"
           runStrategy: Always
           template:
             spec:
@@ -145,21 +120,20 @@ spec:
                   guest: "4Gi"
                 devices:
                   interfaces:
-                  - bridge: {}
-                    name: pod
-                    macAddress: 00:10:fa:6e:38:4b
+                    - name: pod
+                      passt: {}
                   disks:
                     - disk:
                         bus: virtio
-                      name: dv-volume
-              evictionStrategy: External
+                      name: containervolume
               networks:
-              - name: pod
-                pod: {}
+                - name: pod
+                  pod: {}
+              evictionStrategy: External
               volumes:
-                - dataVolume:
-                    name: "${CLUSTER_NAME}-boot-volume"
-                  name: dv-volume
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
