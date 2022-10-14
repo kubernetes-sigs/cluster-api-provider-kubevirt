@@ -1,4 +1,5 @@
 cluster-up/
+.kubevirtci/
 hack/tools/bin/
 bin/
 .idea/
