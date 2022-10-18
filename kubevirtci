@@ -3,7 +3,7 @@
 set -e
 
 export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
-export CAPK_GUEST_K8S_VERSION=${CAPK_GUEST_K8S_VERSION:-v1.23.10}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.23.10}
 export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
@@ -15,7 +15,7 @@ export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.0.0"
 export CALICO_VERSION="v3.21"
 export KUBEVIRT_VERSION="v0.53.0"
-export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${CAPK_GUEST_K8S_VERSION}}
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
 KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"
@@ -198,7 +198,7 @@ function kubevirtci::create_cluster() {
 
 	echo "Using cluster template $template"
 
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
 
 	echo "Wait for tenant cluster to be ready"
 	${_kubectl} wait cluster -n kvcluster kvcluster --for=condition=Ready --timeout=5m
@@ -217,7 +217,7 @@ function kubevirtci::create_external_cluster() {
 
 	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
 	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
-	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${CAPK_GUEST_K8S_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
 }
 
 function kubevirtci::create_tenant_namespace {
