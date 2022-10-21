@@ -252,13 +252,14 @@ func (m *Machine) GenerateProviderID() (string, error) {
 
 // Delete deletes VM for this machine.
 func (m *Machine) Delete() error {
-	namespacedName := types.NamespacedName{Namespace: m.machineContext.KubevirtMachine.Namespace, Name: m.machineContext.KubevirtMachine.Name}
+	namespacedName := types.NamespacedName{Namespace: m.namespace, Name: m.machineContext.KubevirtMachine.Name}
 	vm := &kubevirtv1.VirtualMachine{}
 	if err := m.client.Get(m.machineContext.Context, namespacedName, vm); err != nil {
 		if apierrors.IsNotFound(err) {
 			m.machineContext.Logger.Info("VM does not exist, nothing to do.")
 			return nil
 		}
+		return errors.Wrapf(err, "failed to retrieve VM to delete")
 	}
 
 	if err := m.client.Delete(gocontext.Background(), vm); err != nil {

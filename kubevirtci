@@ -1,68 +1,130 @@
 #!/bin/bash
 
-# Usage:
-#
-# ./kubevirtci up # start a cluster with kubevirt, cert-manager and capi
-# ./kubevirtci sync # build and deploy current capik
-# ./kubevirtci kubectl get pods --all-namespaces # interact with the cluster
-# ./kubevirtci clusterctl create cluster # run clusterctl commands against the cluster
-# ./kubevirtci oc get pods --all-namespaces # interact with the HOSTED cluster
-# ./kubevirtci down # destroy the cluster
-
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.21}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2110251848-8198e9c}
-export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.23.10}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
-export KUBEVIRT_STORAGE="rook-ceph-default"
+export METALLB_VERSION="v0.12.1"
+export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
+export CLUSTERCTL_VERSION="v1.0.0"
+export CALICO_VERSION="v3.21"
+export KUBEVIRT_VERSION="v0.53.0"
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+
+KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
+KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"
 
 _default_bin_path=./hack/tools/bin
+_default_tmp_path=./hack/tools/bin/tmp
 _default_clusterctl_path=./hack/tools/bin/clusterctl
 _default_virtctl_path=./hack/tools/bin/virtctl
 
 export CLUSTERCTL_PATH=${CLUSTERCTL_PATH:-${_default_clusterctl_path}}
+export TENANT_CLUSTER_NAME=${TENANT_CLUSTER_NAME:-kvcluster}
+export TENANT_CLUSTER_NAMESPACE=${TENANT_CLUSTER_NAMESPACE:-kvcluster}
 
-_kubectl=cluster-up/cluster-up/kubectl.sh
+_kubectl=${KUBEVIRTCI_PATH}/cluster-up/kubectl.sh
+_ssh_infra=${KUBEVIRTCI_PATH}/cluster-up/ssh.sh
 
 _action=$1
 shift
 
 
-function kubevirtci::kubeconfig() {
-	cluster-up/cluster-up/kubeconfig.sh
+function kubevirtci::usage() {
+	echo "Usage:
+
+	./kubevirtci <cammand>
+
+	Commands:
+
+	  up                                Start a cluster with kubevirt, cert-manager and capi
+	  sync                              Build and deploy current capk from source (must be executed from within capk source tree)
+	  down                              Destroy the cluster
+	  refresh                           Build current capk and trigger creating new capk pods
+	  clean-cache                       Removes all files cached by kubevirtci
+
+	  kubeconfig                        Return the kubeconfig of the cluster
+	  kubectl <kubectl options>         Interact with the cluster
+	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
+	  virtctl <virtctl options>         Run virtctl commands against the cluster
+	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
+
+	  install-capk                      Installs capk from published release manifests
+	  install-metallb                   Installs metallb into the infra cluster
+	  install-calico                    Installs calico cni into tenant cluster
+	  curl-lb <lb name> [lb namespace]  Curls lb service within infra cluster
+
+	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
+	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
+	  create-cluster                    Create new kubernetes tenant cluster
+	  create-external-cluster           Create new kubernetes tenant cluster simulated as running on external infra
+	  destroy-cluster                   Destroy the tenant cluster and resources
+	  help                              Print usage
+	"
 }
 
-function kubevirtci::fetch_kubevirtci() {
-	[[ -d cluster-up ]] || git clone https://github.com/kubevirt/kubevirtci.git cluster-up
-	(cd cluster-up && git checkout ${KUBEVIRTCI_TAG} > /dev/null)
+function kubevirtci::kubeconfig() {
+	${KUBEVIRTCI_PATH}/cluster-up/kubeconfig.sh
+}
+
+function kubevirtci::_get_repo() {
+	git --git-dir "${KUBEVIRTCI_PATH}/.git" remote get-url origin
+}
+
+function kubevirtci::_get_tag() {
+	git -C ${KUBEVIRTCI_PATH} describe --tags
+}
+
+function kubevirtci::ensure() {
+	# Remove cloned kubevirtci repository if it does not match the requested one
+	if [ -d ${KUBEVIRTCI_PATH} ]; then
+		if [ $(kubevirtci::_get_repo) != ${KUBEVIRTCI_REPO} -o $(kubevirtci::_get_tag) != ${KUBEVIRTCI_TAG} ]; then
+			rm -rf ${KUBEVIRTCI_PATH}
+		fi
+	fi
+
+	if [ ! -d ${KUBEVIRTCI_PATH} ]; then
+		git clone ${KUBEVIRTCI_REPO} ${KUBEVIRTCI_PATH}
+		(
+			cd ${KUBEVIRTCI_PATH}
+			git checkout ${KUBEVIRTCI_TAG}
+		)
+	fi
+    export KUBECONFIG=$(kubevirtci::kubeconfig)
+	kubevirtci::ensure_tools
+}
+
+
+function kubevirtci::ensure_tools() {
 	mkdir -p ./hack/tools/bin/
 	if [ ! -f "${_default_clusterctl_path}" ]; then
-		echo >&2 "Downloading clusterctl ..."
-		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.0.0/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
+		echo >&2 "Downloading clusterctl version ${CLUSTERCTL_VERSION}..."
+		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/${CLUSTERCTL_VERSION}/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
 		chmod u+x ${_default_clusterctl_path}
 	fi
 	if [ ! -f "${_default_virtctl_path}" ]; then
 		echo >&2 "Downloading virtctl ..."
-		LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-		curl -L https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/virtctl-${LATEST}-linux-amd64 -o ${_default_virtctl_path}
+		curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64 -o ${_default_virtctl_path}
 		chmod u+x ${_default_virtctl_path}
 	fi
 }
 
 function kubevirtci::up() {
-	make cluster-up -C cluster-up
-	export KUBECONFIG=$(cluster-up/cluster-up/kubeconfig.sh)
+	"${KUBEVIRTCI_PATH}/cluster-up/up.sh"
+	export KUBECONFIG=$(kubevirtci::kubeconfig)
 	echo "installing kubevirt..."
-	LATEST=$(curl -L https://storage.googleapis.com/kubevirt-prow/devel/release/kubevirt/kubevirt/stable.txt)
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-operator.yaml
-	${_kubectl} apply -f https://github.com/kubevirt/kubevirt/releases/download/${LATEST}/kubevirt-cr.yaml
-	echo "installing capi..."
+	${_kubectl} apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
+	curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml \
+	   | sed -e "s|\( \+\)\(featureGates:\).*$|\1\2\n\1- LiveMigration|" \
+	   | ${_kubectl} apply -f -
 
+	echo "installing capi..."
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
 ---
 cert-manager:
@@ -74,13 +136,30 @@ EOF
 }
 
 function kubevirtci::down() {
-	make cluster-down -C cluster-up
+	"${KUBEVIRTCI_PATH}/cluster-up/down.sh"
 }
 
 function kubevirtci::build() {
-	export REGISTRY="localhost:$(cluster-up/cluster-up/cli.sh ports registry)"
+	export REGISTRY="127.0.0.1:$(${KUBEVIRTCI_PATH}/cluster-up/cli.sh ports registry)"
 	make docker-build
 	make docker-push
+}
+
+function kubevirtci::ssh_tenant() {
+	vmi_name=$1
+	vmi_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	mkdir -p $_default_tmp_path
+
+	echo "vmi $vmi_name namespace $vmi_namespace"
+
+	${_kubectl} get secret -n $TENANT_CLUSTER_NAMESPACE kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
+
+	chmod 600 ${_default_tmp_path}/key.pem
+
+	ssh -o IdentitiesOnly=yes -o "ProxyCommand=$_default_virtctl_path port-forward --stdio=true $vmi_name.$vmi_namespace 22" capk@$vmi_name.$vmi_namespace -i ${_default_tmp_path}/key.pem
+
+	rm ${_default_tmp_path}/key.pem
 }
 
 function kubevirtci::refresh() {
@@ -98,20 +177,194 @@ function kubevirtci::install() {
 
 function kubevirtci::generate_kubeconfig() {
         make clusterkubevirtadm-linux
-        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace e2e-test
-        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=e2e-test --output-kubeconfig=kubeconfig-e2e
+        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace ${TENANT_CLUSTER_NAMESPACE} 
+        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=${TENANT_CLUSTER_NAMESPACE} --output-kubeconfig=kubeconfig-e2e
         sed -i -r 's/127.0.0.1:[0-9]+/192.168.66.101:6443/g' kubeconfig-e2e
 }
 
-function kubevirtci::create_cluster() {
-	export NODE_VM_IMAGE_TEMPLATE=quay.io/kubevirtci/fedora-kubeadm:35
-	export IMAGE_REPO=k8s.gcr.io
-	export CRI_PATH="/var/run/crio/crio.sock"
-	oc create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=e2e-test
-	$CLUSTERCTL_PATH generate cluster kvcluster --kubernetes-version v1.21.0 --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra.yaml | ${_kubectl} apply -f -
+function kubevirtci::destroy_cluster() {
+	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME} --ignore-not-found
 }
 
-kubevirtci::fetch_kubevirtci
+
+function kubevirtci::create_cluster() {
+	export IMAGE_REPO=k8s.gcr.io
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+	template=templates/cluster-template-kccm.yaml
+
+	if [ ! -f $template ]; then
+		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
+	fi
+
+	echo "Using cluster template $template"
+
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
+
+	echo "Wait for tenant cluster to be ready"
+	${_kubectl} wait cluster -n kvcluster kvcluster --for=condition=Ready --timeout=5m
+
+	echo "Wait for tenant cluster kubernetes apiserver up"
+	kubevirtci::retry_until_success kubevirtci::kubectl_tenant get pods -n kube-system
+
+	echo "Waiting for worker VM in tenant cluster namespace"
+	kubevirtci::retry_until_success kubevirtci::vm_matches "${TENANT_CLUSTER_NAME}-md-"
+}
+
+
+function kubevirtci::create_external_cluster() {
+	export IMAGE_REPO=k8s.gcr.io
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+
+	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
+	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
+}
+
+function kubevirtci::create_tenant_namespace {
+	${_kubectl} apply -f - <<EOF
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TENANT_CLUSTER_NAMESPACE}
+EOF
+}
+
+function kubevirtci::install_capk_release {
+	${_kubectl} apply -f https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/releases/download/${CAPK_RELEASE_VERSION}/infrastructure-components.yaml
+
+	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
+
+	echo "capk release $CAPK_RELEASE_VERSION installed!"
+}
+
+
+function kubevirtci::install_calico {
+	kubevirtci::kubectl_tenant apply -f https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml
+	echo "Waiting for calico pods rollout"
+	kubevirtci::kubectl_tenant rollout status ds/calico-node -n kube-system --timeout=2m
+
+}
+
+function kubevirtci::install_metallb {
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/namespace.yaml
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/metallb.yaml
+
+	echo "waiting for metallb to come online"
+	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
+
+	mkdir -p ${_default_tmp_path}
+	local metal_config=${_default_tmp_path}/metallb-config.yaml
+
+	cat << EOF > $metal_config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - 192.168.66.201-192.168.66.250
+EOF
+
+	${_kubectl} apply -f ${metal_config}
+
+	rm $metal_config
+	echo "metallb installed!"
+}
+
+function kubevirtci::curl_lb {
+	mkdir -p ${_default_tmp_path}
+	job_yaml=${_default_tmp_path}/curl-test-pod.yaml
+	if [ -f ${job_yaml} ]; then
+		${_kubectl} delete -f ${job_yaml} --ignore-not-found
+	fi
+
+	lb_name=$1
+	lb_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	$_kubectl get service $lb_name -n $lb_namespace
+
+	lb_ip=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "ip:" | awk '{print $3}')
+	lb_port=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "port:" | awk '{print $2}')
+
+
+	cat << EOF > $job_yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: curl-test-job
+  namespace: ${lb_namespace}
+spec:
+  template:
+    spec:
+      containers:
+      - name: fedora
+        image: fedora:35
+        command:
+          - curl
+          - "${lb_ip}:${lb_port}"
+      restartPolicy: Never
+  backoffLimit: 4
+EOF
+
+	${_kubectl} create -f $job_yaml
+	echo "-----------Waiting for curl job to complete"
+	${_kubectl} wait job curl-test-job -n ${lb_namespace} --for condition=Complete --timeout=5m
+
+	pod_name=$($_kubectl get pods -n ${lb_namespace} --selector=job-name=curl-test-job --output=jsonpath='{.items[*].metadata.name}')
+
+	echo "-----------CURL LOG FOR POD $pod_name"
+	$_kubectl logs -n ${lb_namespace} $pod_name 2>/dev/null
+
+	${_kubectl} delete -f ${job_yaml} --ignore-not-found > /dev/null 2>&1
+}
+
+
+function kubevirtci::kubectl_tenant {
+    vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
+    for vm in $vms_list
+    do
+	if [[ "$vm" == ${TENANT_CLUSTER_NAME}-control-plane* ]]; then
+            control_plane_vm_name=$vm
+	fi
+    done
+    if [ -n "${control_plane_vm_name}" ]; then
+  	echo "Found control plane VM: ${control_plane_vm_name} in namespace ${TENANT_CLUSTER_NAMESPACE}"
+    else
+  	echo "control-plane vm is not found in namespace ${TENANT_CLUSTER_NAMESPACE} (looking for regex ${TENANT_CLUSTER_NAME}-control-plane*)"
+	exit 1
+    fi
+    ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
+    trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
+    rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
+    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
+    sleep 0.1
+    kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
+}
+
+function kubevirtci::retry_until_success {
+    local timeout=30
+    local interval=1
+    until $@; do
+        ((timeout--)) && ((timeout==0)) && echo "condition not met" && exit 1
+        echo "waiting for \"$@\""
+        sleep $interval 
+    done
+}
+
+function kubevirtci::vm_matches {
+    local vm_name=$1
+    ${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name" | grep -q $vm_name
+}
+
+kubevirtci::ensure
 
 case ${_action} in
 "up")
@@ -128,24 +381,64 @@ case ${_action} in
 	kubevirtci::build
 	kubevirtci::install
 	;;
+"install-capk")
+	kubevirtci::install_capk_release
+	;;
+"install-metallb")
+	kubevirtci::install_metallb
+	;;
+"install-calico")
+	kubevirtci::install_calico
+	;;
+"curl-lb")
+	kubevirtci::curl_lb "$@"
+	;;
 "kubeconfig")
 	kubevirtci::kubeconfig
 	;;
 "kubectl")
 	${_kubectl} "$@"
 	;;
+"kubectl-tenant")
+	kubevirtci::kubectl_tenant "$@"
+	;;
 "virtctl")
 	${_default_virtctl_path} "$@"
+	;;
+"ssh-infra")
+	$_ssh_infra "$@"
+	;;
+"ssh-tenant")
+	kubevirtci::ssh_tenant "$@"
 	;;
 "clusterctl")
 	$CLUSTERCTL_PATH "$@"
 	;;
 "create-cluster")
-	kubevirtci::generate_kubeconfig
+	kubevirtci::create_tenant_namespace
 	kubevirtci::create_cluster
 	;;
+"create-external-cluster")
+	kubevirtci::create_tenant_namespace
+	kubevirtci::generate_kubeconfig
+	kubevirtci::create_external_cluster
+	;;
+"destroy-cluster")
+	kubevirtci::destroy_cluster
+	;;
+
+"clean-cache")
+	rm ${_default_clusterctl_path}
+	rm ${_default_virtctl_path}
+	rm -rf ${_default_tmp_path}
+	;;
+"help")
+	kubevirtci::usage
+	;;
 *)
-	echo "No command provided, known commands are 'up', 'down', 'sync', 'kubectl', 'clusterctl', 'create-cluster', 'virtctl'"
+	echo "Error: Unknown kubevirtci command"
+	echo ""
+	kubevirtci::usage
 	exit 1
 	;;
 esac

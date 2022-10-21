@@ -29,11 +29,9 @@ metadata:
   name: "${CLUSTER_NAME}"
   namespace: "${NAMESPACE}"
 spec:
-  infraClusterSecretRef:
-    apiVersion: v1
-    kind: Secret
-    name: external-infra-kubeconfig
-    namespace: capk-system
+  controlPlaneServiceTemplate:
+    spec:
+      type: ClusterIP
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
@@ -44,6 +42,8 @@ spec:
   template:
     spec:
       virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
         spec:
           runStrategy: Always
           template:
@@ -101,6 +101,8 @@ spec:
   template:
     spec:
       virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
         spec:
           runStrategy: Always
           template:
@@ -158,3 +160,151 @@ spec:
         namespace: "${NAMESPACE}"
         apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
         kind: KubevirtMachineTemplate
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm
+  namespace: ${NAMESPACE}
+rules:
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachineinstances
+  verbs:
+  - get
+  - watch
+  - list
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm-sa
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kccm
+subjects:
+- kind: ServiceAccount
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: v1
+data:
+  cloud-config: |
+    loadBalancer:
+      creationPollInterval: 30
+    namespace: kvcluster
+    instancesV2:
+      enabled: true
+      zoneAndRegionEnabled: false
+kind: ConfigMap
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-config
+  namespace: ${NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    k8s-app: kubevirt-cloud-controller-manager
+  name: kubevirt-cloud-controller-manager
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      capk.cluster.x-k8s.io/template-kind: extra-resource
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+      k8s-app: kubevirt-cloud-controller-manager
+  template:
+    metadata:
+      labels:
+        capk.cluster.x-k8s.io/template-kind: extra-resource
+        cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+        k8s-app: kubevirt-cloud-controller-manager
+    spec:
+      containers:
+      - args:
+        - --cloud-provider=kubevirt
+        - --cloud-config=/etc/cloud/cloud-config
+        - --kubeconfig=/etc/kubernetes/kubeconfig/value
+        - --cluster-name=kvcluster
+        - --authentication-skip-lookup=true
+        command:
+        - /bin/kubevirt-cloud-controller-manager
+        image: quay.io/kubevirt/kubevirt-cloud-controller-manager:main
+        imagePullPolicy: Always
+        name: kubevirt-cloud-controller-manager
+        resources:
+          requests:
+            cpu: 100m
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/kubernetes/kubeconfig
+          name: kubeconfig
+          readOnly: true
+        - mountPath: /etc/cloud
+          name: cloud-config
+          readOnly: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      serviceAccountName: cloud-controller-manager
+      tolerations:
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - configMap:
+          name: cloud-config
+        name: cloud-config
+      - name: kubeconfig
+        secret:
+          secretName: ${CLUSTER_NAME}-kubeconfig

@@ -18,16 +18,17 @@ package controllers
 
 import (
 	gocontext "context"
-	"encoding/base64"
 	"fmt"
 	"regexp"
 	"time"
 
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
@@ -424,6 +425,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
 	}
+
 	if externalMachine.Exists() {
 		if err := externalMachine.Delete(); err != nil {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete VM")
@@ -433,11 +435,13 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	// Machine is deleted so remove the finalizer.
 	controllerutil.RemoveFinalizer(ctx.KubevirtMachine, infrav1.MachineFinalizer)
 
-	// Set the VMProvisionedCondition reporting delete is started, and issue a patch in order to make
-	// this visible to the users.
+	// Set the VMProvisionedCondition reporting delete is started, and attempt to issue a patch in
+	// order to make this visible to the users.
 	conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 	if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
+		if !apierrors.IsNotFound(utilerrors.Reduce(err)) {
+			return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -583,15 +587,21 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		return errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	if sshKeys != nil && isCloudConfigUserData(value) {
-		ctx.Logger.Info("Adding users and ssh config to bootstrap userdata...")
-		value = []byte(string(value) + usersCloudConfig(sshKeys.PublicKey))
+	if sshKeys != nil {
+		var err error
+		var modified bool
+		if value, modified, err = addCapkUserToCloudInitConfig(value, sshKeys.PublicKey); err != nil {
+			return errors.Wrapf(err, "failed to add capk user to KubevirtMachine %s/%s userdata", ctx.Machine.GetNamespace(), ctx.Machine.GetName())
+		} else if modified {
+			ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
+		}
 	}
 
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
 			Namespace: vmNamespace,
+			Labels:    s.Labels,
 		},
 	}
 	ctx.BootstrapDataSecret = newBootstrapDataSecret
@@ -634,20 +644,102 @@ func (r *KubevirtMachineReconciler) deleteKubevirtBootstrapSecret(ctx *context.M
 	return nil
 }
 
-func isCloudConfigUserData(userData []byte) bool {
-	return regexp.MustCompile(`(?m)^#cloud-config`).MatchString(string(userData))
+// addCapkUserToCloudInitConfig adds the 'capk' user with the provided ssh authorized key to the
+// machine cloud-init bootstrap user-data.
+// If the user-data is not the expected cloud-init config, then returns the latter content as-is.
+// If a capk user is already defined, then overrides it.
+// The returned boolean indicates whether the userdata was modified or not.
+func addCapkUserToCloudInitConfig(userdata, sshAuthorizedKey []byte) ([]byte, bool, error) {
+
+	// This uses yaml.Node and not an interface{} to preserve the comments, ordering, etc. of the
+	// cloud-init user-data (the indentation might be modified and aligned).
+	// Note that go yaml nodes are not a direct representation of the logic structure of the content;
+	// e.g.
+	//  - the 'users' key and the list (aka sequence) of actual users are sibling nodes
+	//  - the 'name' key and the name value (like 'capk') are sibling nodes
+
+	root := &yaml.Node{}
+	if err := yaml.Unmarshal(userdata, root); err != nil {
+		return nil, false, fmt.Errorf("failed to parse userdata yaml: %w", err)
+	}
+
+	if root.Kind != yaml.DocumentNode || len(root.Content) != 1 {
+		return userdata, false, nil
+	}
+	data := root.Content[0]
+	if data.Kind != yaml.MappingNode || len(data.Content) == 0 {
+		return userdata, false, nil
+	}
+
+	// This resolves the first comment in the document; which can be associated with different nodes
+	// based on how it is written.
+	var headerComment string
+	for _, headerComment = range []string{root.HeadComment, data.HeadComment, data.Content[0].HeadComment} {
+		if headerComment != "" {
+			break
+		}
+	}
+	if !regexp.MustCompile(`(?m)^#cloud-config`).MatchString(headerComment) {
+		return userdata, false, nil
+	}
+
+	var users *yaml.Node
+	for i, section := range data.Content {
+		if i%2 == 1 && section.Kind == yaml.SequenceNode && data.Content[i-1].Value == "users" {
+			users = section
+			break
+		}
+	}
+
+	usersKey, usersWithCapk, err := usersYamlNodes(sshAuthorizedKey)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// If the users section is not defined in the user-data, simply adds the one with the capk user.
+	// Otherwise, loops through the users and, either, override the existing capk user or append it
+	// to the sequence.
+	if users == nil {
+		data.Content = append(data.Content, usersKey, usersWithCapk)
+	} else {
+
+		for i, user := range users.Content {
+			for j, field := range user.Content {
+				if j%2 == 1 && user.Content[j-1].Value == "name" {
+					if field.Value == "capk" {
+						users.Content[i] = usersWithCapk.Content[0]
+						ud, err := yaml.Marshal(root)
+						return ud, true, err
+					}
+					break
+				}
+			}
+		}
+
+		users.Content = append(users.Content, usersWithCapk.Content...)
+	}
+
+	ud, err := yaml.Marshal(root)
+	return ud, true, err
 }
 
-// usersCloudConfig generates 'users' cloud config for capk user with a given ssh public key
-func usersCloudConfig(sshPublicKey []byte) string {
-	sshPublicKeyString := base64.StdEncoding.EncodeToString(sshPublicKey)
-	sshPublicKeyDecoded, _ := base64.StdEncoding.DecodeString(sshPublicKeyString)
+// usersYamlNodes generates the yaml.Nodes representing the 'users' key and the sequence of users
+// with the capk user and the specified ssh authorized key.
+func usersYamlNodes(sshAuthorizedKey []byte) (*yaml.Node, *yaml.Node, error) {
+	usersYaml :=
+		`users:
+- name: capk
+  gecos: CAPK User
+  sudo: ALL=(ALL) NOPASSWD:ALL
+  groups: users, admin
+  ssh_authorized_keys:
+  - ` + string(sshAuthorizedKey)
 
-	return `users:
-  - name: capk
-    gecos: CAPK User
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    groups: users, admin
-    ssh_authorized_keys:
-      - ` + string(sshPublicKeyDecoded)
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(usersYaml), &node); err != nil {
+		return nil, nil, fmt.Errorf("failed to render capk user as valid yaml: %w", err)
+	}
+
+	data := node.Content[0].Content
+	return data[0], data[1], nil
 }

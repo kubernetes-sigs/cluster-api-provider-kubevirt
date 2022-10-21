@@ -707,10 +707,6 @@ spec:
                             description: Name is the name of the VirtualMachineFlavor
                               or VirtualMachineClusterFlavor
                             type: string
-                          profile:
-                            description: Profile is the name of a custom profile in
-                              the flavor. If left empty, the default profile is used.
-                            type: string
                         required:
                         - name
                         type: object
@@ -2472,6 +2468,8 @@ spec:
                                                 boot order are not tried.
                                               type: integer
                                             bridge:
+                                              description: InterfaceBridge connects
+                                                to a given network via a linux bridge.
                                               type: object
                                             dhcpOptions:
                                               description: If specified the network
@@ -2526,8 +2524,15 @@ spec:
                                                 DE-AD-00-00-BE-AF.'
                                               type: string
                                             macvtap:
+                                              description: InterfaceMacvtap connects
+                                                to a given network by extending the
+                                                Kubernetes node's L2 networks via
+                                                a macvtap interface.
                                               type: object
                                             masquerade:
+                                              description: InterfaceMasquerade connects
+                                                to a given network using netfilter
+                                                rules to nat the traffic.
                                               type: object
                                             model:
                                               description: 'Interface model. One of:
@@ -2583,8 +2588,14 @@ spec:
                                                 type: object
                                               type: array
                                             slirp:
+                                              description: InterfaceSlirp connects
+                                                to a given network using QEMU user
+                                                networking mode.
                                               type: object
                                             sriov:
+                                              description: InterfaceSRIOV connects
+                                                to a given network by passing-through
+                                                an SR-IOV PCI device via vfio.
                                               type: object
                                             tag:
                                               description: If specified, the virtual
@@ -2624,6 +2635,9 @@ spec:
                                             type: string
                                         required:
                                         - name
+                                        type: object
+                                      tpm:
+                                        description: Whether to emulate a TPM device.
                                         type: object
                                       useVirtioTransitional:
                                         description: Fall back to legacy virtio 0.9

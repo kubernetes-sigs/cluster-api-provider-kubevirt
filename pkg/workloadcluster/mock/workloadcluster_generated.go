@@ -8,9 +8,9 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	client "sigs.k8s.io/controller-runtime/pkg/client"
-
+	kubernetes "k8s.io/client-go/kubernetes"
 	context "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MockWorkloadCluster is a mock of WorkloadCluster interface.
@@ -49,4 +49,19 @@ func (m *MockWorkloadCluster) GenerateWorkloadClusterClient(ctx *context.Machine
 func (mr *MockWorkloadClusterMockRecorder) GenerateWorkloadClusterClient(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateWorkloadClusterClient", reflect.TypeOf((*MockWorkloadCluster)(nil).GenerateWorkloadClusterClient), ctx)
+}
+
+// GenerateWorkloadClusterK8sClient mocks base method.
+func (m *MockWorkloadCluster) GenerateWorkloadClusterK8sClient(ctx *context.MachineContext) (kubernetes.Interface, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateWorkloadClusterK8sClient", ctx)
+	ret0, _ := ret[0].(kubernetes.Interface)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GenerateWorkloadClusterK8sClient indicates an expected call of GenerateWorkloadClusterK8sClient.
+func (mr *MockWorkloadClusterMockRecorder) GenerateWorkloadClusterK8sClient(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateWorkloadClusterK8sClient", reflect.TypeOf((*MockWorkloadCluster)(nil).GenerateWorkloadClusterK8sClient), ctx)
 }

@@ -23,9 +23,6 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	kubevirtv1 "kubevirt.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -63,7 +60,7 @@ var _ = Describe("Load Balancer", func() {
 				cluster,
 				kubevirtCluster,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		})
 
 		It("should initialize load balancer without error", func() {
@@ -93,7 +90,7 @@ var _ = Describe("Load Balancer", func() {
 				kubevirtCluster,
 				loadBalancerService,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		})
 
 		It("should initialize load balancer without error", func() {
@@ -117,23 +114,6 @@ var _ = Describe("Load Balancer", func() {
 		})
 	})
 })
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
-}
 
 func newLoadBalancerService(kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
 	return &corev1.Service{

@@ -1,0 +1,19 @@
+namespace: ${NAMESPACE}
+patchesJson6902:
+- patch: |
+    - op: replace
+      path: /spec/template/spec/volumes/1
+      value:
+        secret:
+          secretName: ${CLUSTER_NAME}-kubeconfig
+        name: kubeconfig
+  target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: kubevirt-cloud-controller-manager
+bases:
+- https://github.com/kubevirt/cloud-provider-kubevirt/config/isolated?ref=v0.3.2
+commonLabels:
+  cluster.x-k8s.io/cluster-name: "${CLUSTER_NAME}"
+  capk.cluster.x-k8s.io/template-kind: "extra-resource"
