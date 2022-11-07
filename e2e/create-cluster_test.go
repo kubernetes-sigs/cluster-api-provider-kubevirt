@@ -1022,6 +1022,9 @@ func addFinalizerFromVMI(vmiName, namespace string) *kubevirtv1.VirtualMachineIn
 }
 
 func removeFinalizerFromVMI(vmi *kubevirtv1.VirtualMachineInstance) {
+	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(vmi.Name, &metav1.GetOptions{})
+	Expect(err).NotTo(HaveOccurred())
+
 	index := -1
 	for i, finalizer := range vmi.Finalizers {
 		if finalizer == testFinalizer {
