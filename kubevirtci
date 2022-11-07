@@ -12,7 +12,7 @@ export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
 export METALLB_VERSION="v0.12.1"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
-export CLUSTERCTL_VERSION="v1.0.0"
+export CLUSTERCTL_VERSION="v1.2.4"
 export CALICO_VERSION="v3.21"
 export KUBEVIRT_VERSION="v0.53.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
@@ -188,7 +188,6 @@ function kubevirtci::destroy_cluster() {
 
 
 function kubevirtci::create_cluster() {
-	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
 	template=templates/cluster-template-kccm.yaml
 
@@ -212,7 +211,6 @@ function kubevirtci::create_cluster() {
 
 
 function kubevirtci::create_external_cluster() {
-	export IMAGE_REPO=k8s.gcr.io
 	export CRI_PATH="/var/run/containerd/containerd.sock"
 
 	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
