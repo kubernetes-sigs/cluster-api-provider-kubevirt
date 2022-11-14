@@ -89,7 +89,6 @@ spec:
       namespace: "${NAMESPACE}"
   kubeadmConfigSpec:
     clusterConfiguration:
-      imageRepository: ${IMAGE_REPO}
       networking:
         dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
         podSubnet: 10.243.0.0/16
