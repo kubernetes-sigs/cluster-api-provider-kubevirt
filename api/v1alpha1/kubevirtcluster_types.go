@@ -136,6 +136,10 @@ type ServiceSpecTemplate struct {
 	// More info: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
 	// +optional
 	Type corev1.ServiceType `json:"type,omitempty"`
+
+	// Selector
+	// +optional
+	Selector map[string]string `json:"selector,omitempty"`
 }
 
 // +kubebuilder:resource:path=kubevirtclusters,scope=Namespaced,categories=cluster-api

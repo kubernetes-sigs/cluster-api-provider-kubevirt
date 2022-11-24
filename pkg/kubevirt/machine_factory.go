@@ -37,6 +37,8 @@ type MachineInterface interface {
 	GenerateProviderID() (string, error)
 	// IsTerminal reports back if a VM is in a permanent terminal state
 	IsTerminal() (bool, string, error)
+	// EnsureNetworking
+	EnsureNetworking() error
 }
 
 // MachineFactory allows creating new instances of kubevirt.machine

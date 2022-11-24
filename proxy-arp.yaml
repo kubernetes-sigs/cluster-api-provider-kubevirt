@@ -1,4 +1,34 @@
 ---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: br-100
+spec:
+  capture:
+    default-gw: routes.running.destination=="0.0.0.0/0"
+    base-iface: interfaces.name==capture.default-gw.routes.running.0.next-hop-interface
+  desiredState:
+    interfaces:
+        - name: "base.100"
+          type: vlan
+          state: up 
+          vlan:
+            base-iface: "{{ capture.base-iface.interfaces.0.name }}"
+            id: 100
+        - name: br-100
+          type: linux-bridge
+          state: up
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          bridge:
+            options:
+              stp:
+                enabled: false
+            port:
+            - name: base.100
+---
 apiVersion: kubevirt.io/v1
 kind: VirtualMachineInstance
 metadata:
@@ -25,7 +55,7 @@ spec:
         memory: 1024M
   networks:
   - multus:
-      networkName: br1
+      networkName: br-100
     name: multus 
   terminationGracePeriodSeconds: 0
   volumes:
@@ -42,15 +72,15 @@ spec:
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
-  name: br1
+  name: br-100
 spec:
   config: >
     {
       "cniVersion": "0.4.0", 
-      "name": "br1-vmi",
+      "name": "br-100-vmi",
       "plugins": [{
               "type": "bridge",
-              "bridge": "br1",
+              "bridge": "br-100",
               "ipam": {}
       }]
     }
@@ -58,15 +88,15 @@ spec:
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
-  name: br1-proxy-arp
+  name: br-100-proxy-arp
 spec:
   config: >
     {
       "cniVersion": "0.4.0", 
-      "name": "br1-pods",
+      "name": "br-100-pods",
       "plugins": [{
               "type": "bridge",
-              "bridge": "br1",
+              "bridge": "br-100",
               "ipam": {}
       }, 
       {
@@ -81,20 +111,17 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: proxy
+  labels:
+    name: proxy
   annotations:
-    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br1-proxy-arp","namespace":"default"}]'
+    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br-100-proxy-arp","namespace":"default"}]'
 spec:
   containers:
   - image: alpine
     command:
       - /bin/sh
       - "-c"
-      - "ip route replace 192.168.6.0/24 dev net1 && apk update && apk add iptables && iptables -t nat -A PREROUTING -p tcp -d $MY_POD_IP -j DNAT --to-destination 192.168.6.2 && iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE && sleep infinity"
-    env:
-    - name: MY_POD_IP
-      valueFrom:
-        fieldRef:
-          fieldPath: status.podIP
+      - "ip route replace 192.168.6.0/24 dev net1 && apk update && apk add iptables && iptables -t nat -A PREROUTING -p tcp -i eth0 -j DNAT --to-destination 192.168.6.2 && iptables -t nat -A POSTROUTING -s 192.168.6.2 -j MASQUERADE && sleep infinity"
     imagePullPolicy: IfNotPresent
     name: alpine
     securityContext:
@@ -109,7 +136,7 @@ kind: Pod
 metadata:
   name: dnsmasq
   annotations:
-    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br1","namespace":"default"}]'
+    k8s.v1.cni.cncf.io/networks: '[{"interface":"net1","name":"br-100","namespace":"default"}]'
 spec:
   containers:
   - image: quay.io/coreos/dnsmasq
@@ -125,3 +152,6 @@ spec:
         add: 
         - ALL
   restartPolicy: Always
+
+
+

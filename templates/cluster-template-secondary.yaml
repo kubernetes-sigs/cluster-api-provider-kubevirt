@@ -44,12 +44,12 @@ spec:
         base-iface: interfaces.name==capture.default-gw.routes.running.0.next-hop-interface
       desiredState:
         interfaces:
-        - name: base.10
+        - name: "base.${CLUSTER_VLAN}"
           type: vlan
           state: up 
           vlan:
             base-iface: "{{ capture.base-iface.interfaces.0.name }}"
-            id: 10
+            id: ${CLUSTER_VLAN}
         - name: br-${CLUSTER_NAME}
           description:  "capk.cluster.x-k8s.io/interface"
           type: linux-bridge
@@ -63,10 +63,12 @@ spec:
               stp:
                 enabled: false
             port:
-            - name: base.10
+            - name: base.${CLUSTER_VLAN}
   controlPlaneServiceTemplate:
     spec:
       type: LoadBalancer
+      selector:
+        app: virt-proxy
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: KubevirtMachineTemplate
@@ -92,8 +94,6 @@ spec:
                   interfaces:
                   - name: multus 
                     bridge: {}
-                  - name: pod
-                    masquerade: {}
                   disks:
                     - disk:
                         bus: virtio
@@ -102,9 +102,7 @@ spec:
               networks:
               - name: multus
                 multus:
-                  networkName: bridge-network-vms
-              - name: pod
-                pod: {}
+                  networkName: bridge-network-vmis
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"
@@ -165,8 +163,6 @@ spec:
                   interfaces:
                   - name: multus
                     bridge: {}
-                  - name: pod 
-                    masquerade: {}
                   disks:
                     - disk:
                         bus: virtio
@@ -175,9 +171,7 @@ spec:
               networks:
               - name: multus
                 multus:
-                  networkName: bridge-network-vms
-              - name: pod
-                pod: {}
+                  networkName: bridge-network-vmis
               volumes:
                 - containerDisk:
                     image: "${NODE_VM_IMAGE_TEMPLATE}"
@@ -186,7 +180,7 @@ spec:
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
-  name: "bridge-network-vms"
+  name: "bridge-network-vmis"
   namespace: "${NAMESPACE}"
   labels:
     capk.cluster.x-k8s.io/template-kind: extra-resource
@@ -201,7 +195,6 @@ spec:
         "plugins": [{
             "type": "bridge",
             "bridge": "br-${CLUSTER_NAME}",
-            "vlan": 10,
             "ipam": {}
         }]
     }
@@ -224,7 +217,6 @@ spec:
         "plugins": [{
             "type": "bridge",
             "bridge": "br-${CLUSTER_NAME}",
-            "vlan": 10,
             "ipam": {
               "type": "whereabouts",
               "range": "${CLUSTER_NETWORK}"
