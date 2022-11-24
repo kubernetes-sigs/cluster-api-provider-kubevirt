@@ -72,6 +72,11 @@ spec:
                       in the service spec. Note, it does not aim cover all fields
                       of the service spec.
                     properties:
+                      selector:
+                        additionalProperties:
+                          type: string
+                        description: Selector
+                        type: object
                       type:
                         description: 'Type determines how the Service is exposed.
                           Defaults to ClusterIP. Valid options are ExternalName, ClusterIP,

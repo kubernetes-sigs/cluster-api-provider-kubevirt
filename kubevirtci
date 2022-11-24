@@ -15,12 +15,13 @@ export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CLUSTERCTL_VERSION="v1.2.4"
 export CALICO_VERSION="v3.21"
 export KUBEVIRT_VERSION="v0.53.0"
-export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/ellorent/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-templates/cluster-template-secondary.yaml}
 export CNAO_VERSION="v0.78.0"
 export KUBERNETES_NMSTATE_VERSION="v0.74.0"
 export WHEREABOUTS_VERSION="v0.5.4"
 export CLUSTER_NETWORK="192.168.6.0/24"
+export CLUSTER_VLAN="2"
 export APISERVER_ADVERTISE_ADDRESS="192.168.6.41"
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
@@ -185,10 +186,16 @@ EOF
 	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
 	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
-    
+ 
+    echo 'Disabling bridge-nf-call-*'
+    for node in $(${_kubectl} get nodes --no-headers | awk '{print $1}'); do
+        ${_ssh_infra} ${node} -- sudo sysctl -w net.bridge.bridge-nf-call-arptables=0
+        ${_ssh_infra} ${node} -- sudo sysctl -w net.bridge.bridge-nf-call-iptables=0
+        ${_ssh_infra} ${node} -- sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=0
+    done
+   
     kubevirtci::install_metallb
     kubevirtci::install_network_operators
-
 }
 
 function kubevirtci::down() {
@@ -221,9 +228,10 @@ function kubevirtci::ssh_tenant() {
     docker cp ${_default_tmp_path}/key.pem $KUBEVIRT_PROVIDER-node01:/tmp/
 
     ${_kubectl} delete svc -n $vmi_namespace $svc_name --ignore-not-found 
-    ${_default_virtctl_path} expose vmi -n $vmi_namespace $vmi_name --port=22 --name=$svc_name --type=LoadBalancer
+    virt_proxy_deployment=$(${_kubectl} get deployment -n kvcluster -l app=virt-proxy --no-headers |awk '{print $1}')
+    ${_kubectl} expose -n kvcluster deployment ${virt_proxy_deployment} --port=22 --name=$svc_name --type=LoadBalancer
     local ssh_ip=$(${_kubectl} get svc -n kvcluster $svc_name --no-headers |awk '{ print $4}')
-    docker exec -ti $KUBEVIRT_PROVIDER-node01 ssh -o IdentitiesOnly=yes -i /tmp/key.pem capk@$ssh_ip
+    docker exec -it $KUBEVIRT_PROVIDER-node01 ssh -o IdentitiesOnly=yes -i /tmp/key.pem capk@$ssh_ip
 }
 
 function kubevirtci::refresh() {

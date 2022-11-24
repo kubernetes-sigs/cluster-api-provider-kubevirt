@@ -64,7 +64,7 @@ type KubevirtMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes;,verbs=list
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;list;watch;create;update;patch;delete
@@ -276,6 +276,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		}
 		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
+
+	if err := externalMachine.EnsureNetworking(); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Checks to see if a VM's active VMI is ready or not
@@ -740,7 +744,11 @@ func addCapkUserToCloudInitConfig(userdata, sshAuthorizedKey []byte) ([]byte, bo
 // with the capk user and the specified ssh authorized key.
 func usersYamlNodes(sshAuthorizedKey []byte) (*yaml.Node, *yaml.Node, error) {
 	usersYaml :=
-		`users:
+		`
+password: ubuntu
+chpasswd: { expire: False }
+users:
+- default
 - name: capk
   gecos: CAPK User
   sudo: ALL=(ALL) NOPASSWD:ALL

@@ -181,8 +181,6 @@ func generateCloudInitVolumeSource(ctx *context.MachineContext) kubevirtv1.Volum
 ethernets:
   enp1s0:
     dhcp4: true
-  enp2s0:
-    dhcp4: true
 `,
 			},
 		}
