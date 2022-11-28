@@ -1063,6 +1063,36 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
 	})
+
+	It("should fetch the latest bootstrap secret and update the machine context if changed", func() {
+		kubevirtMachine.Status.Ready = true
+		bootstrapSecret.Data["value"] = append(bootstrapSecret.Data["value"], []byte(" some change")...)
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+		}
+
+		// test that if the source secret has changed, and there is alredy a secret exist, we still copy the source
+		// to the dest.
+		// the source is the bootstrap secret, the dest is the bootstrap user data secret
+
+		setupClient(kubevirt.DefaultMachineFactory{}, objects)
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+		Expect(machineContext.BootstrapDataSecret.Data["userdata"]).To(Equal(bootstrapSecret.Data["value"]))
+	})
 })
 
 var _ = Describe("updateNodeProviderID", func() {

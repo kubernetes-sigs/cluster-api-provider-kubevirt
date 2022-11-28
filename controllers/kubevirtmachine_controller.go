@@ -515,14 +515,6 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		return errors.New("error retrieving bootstrap data: linked Machine's bootstrap.dataSecretName is nil")
 	}
 
-	// Exit early if exists.
-	bootstrapDataSecret := &corev1.Secret{}
-	bootstrapDataSecretKey := client.ObjectKey{Namespace: vmNamespace, Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
-	if err := infraClusterClient.Get(ctx, bootstrapDataSecretKey, bootstrapDataSecret); err == nil {
-		ctx.BootstrapDataSecret = bootstrapDataSecret
-		return nil
-	}
-
 	s := &corev1.Secret{}
 	key := client.ObjectKey{Namespace: ctx.Machine.GetNamespace(), Name: *ctx.Machine.Spec.Bootstrap.DataSecretName}
 	if err := r.Client.Get(ctx, key, s); err != nil {
