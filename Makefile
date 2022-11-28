@@ -163,6 +163,7 @@ check-gen: generate
 generate: $(CONTROLLER_GEN) ## Generate code
 	$(MAKE) generate-manifests
 	$(MAKE) generate-go
+	$(MAKE) generate-kccm-flavors
 
 .PHONY: generate-go
 generate-go: $(CONTROLLER_GEN) $(CONVERSION_GEN) ## Runs Go related generate targets

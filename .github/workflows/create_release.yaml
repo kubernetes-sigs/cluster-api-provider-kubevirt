@@ -44,52 +44,12 @@ jobs:
         run: |
           make create-infrastructure-components
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-      - name: Upload infrastructure-components.yaml
-        id: upload-infrastructure-components 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-          asset_path: ./infrastructure-components.yaml
-          asset_name: infrastructure-components.yaml
-          asset_content_type: text/plain
-      - name: Upload metadata.yaml
-        id: upload-metadata 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
-          asset_path: ./metadata.yaml
-          asset_name: metadata.yaml
-          asset_content_type: text/plain
-      - name: Upload cluster-template.yaml
-        id: upload-cluster-template
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
-          asset_path: ./templates/cluster-template.yaml
-          asset_name: cluster-template.yaml
-          asset_content_type: text/plain
-      - name: Upload cluster-template-lb.yaml
-        id: upload-cluster-template-lb
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
-          asset_path: ./templates/cluster-template-lb.yaml
-          asset_name: cluster-template-lb.yaml
-          asset_content_type: text/plain
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: | 
+            Release.txt
+            infrastructure-components.yaml
+            metadata.yaml
+            templates/*.yaml
