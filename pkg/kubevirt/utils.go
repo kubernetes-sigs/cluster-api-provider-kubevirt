@@ -28,6 +28,10 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
+var (
+	cloudInitVolumeName = "cloudinitvolume"
+)
+
 type CommandExecutor interface {
 	ExecuteCommand(command string) (string, error)
 }
@@ -138,26 +142,13 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
-	cloudInitVolumeName := "cloudinitvolume"
-	cloudInitVolume := kubevirtv1.Volume{
-		Name: cloudInitVolumeName,
-		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
-				UserDataSecretRef: &corev1.LocalObjectReference{
-					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
-				},
-			},
-		},
-	}
-	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
-
-	cloudInitDisk := kubevirtv1.Disk{
-		Name: cloudInitVolumeName,
-		DiskDevice: kubevirtv1.DiskDevice{
-			Disk: &kubevirtv1.DiskTarget{
-				Bus: "virtio",
-			},
-		},
+	foundNoCloud, index := noCloudVolume(template)
+	cloudInitVolume := cloudinitVolume(template, ctx)
+	cloudInitDisk := cloudinitDisk(template)
+	if foundNoCloud {
+		template.Spec.Volumes[index] = cloudInitVolume
+	} else {
+		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 	}
 	template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 
@@ -170,4 +161,70 @@ func nodeRole(ctx *context.MachineContext) string {
 		return constants.ControlPlaneNodeRoleValue
 	}
 	return constants.WorkerNodeRoleValue
+}
+
+func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *context.MachineContext) kubevirtv1.Volume {
+	foundNoCloud, _ := noCloudVolume(vmi)
+	switch foundNoCloud {
+	case true:
+		return kubevirtv1.Volume{
+			Name: cloudInitVolumeName,
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserDataSecretRef: &corev1.LocalObjectReference{
+						Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
+					},
+				},
+			},
+		}
+	default:
+		return kubevirtv1.Volume{
+			Name: cloudInitVolumeName,
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
+					UserDataSecretRef: &corev1.LocalObjectReference{
+						Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
+					},
+				},
+			},
+		}
+	}
+}
+
+func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) kubevirtv1.Disk {
+	foundNoCloud, _ := noCloudVolume(vmi)
+	switch foundNoCloud {
+	case true:
+		return kubevirtv1.Disk{
+			Name: cloudInitVolumeName,
+			DiskDevice: kubevirtv1.DiskDevice{
+				CDRom: &kubevirtv1.CDRomTarget{
+					Bus: kubevirtv1.DiskBusSATA,
+					ReadOnly: func() *bool {
+						b := true
+						return &b
+					}(),
+				},
+			},
+		}
+	default:
+		return kubevirtv1.Disk{
+			Name: cloudInitVolumeName,
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		}
+	}
+}
+
+func noCloudVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (found bool, index int) {
+	for i, v := range vmi.Spec.Volumes {
+		if v.CloudInitNoCloud != nil && v.Name == "cloudinitvolume" {
+			found, index = true, i
+			break
+		}
+	}
+	return found, index
 }
