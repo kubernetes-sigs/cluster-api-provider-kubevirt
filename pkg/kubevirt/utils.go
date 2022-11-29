@@ -218,11 +218,12 @@ func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, preferred
 }
 
 func noCloudVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredType string, index int) {
+	preferredType = "CloudInitConfigDrive"
 	for i, v := range vmi.Spec.Volumes {
 		if v.CloudInitNoCloud != nil && v.Name == "cloudinitvolume" {
 			preferredType, index = "CloudInitNoCloud", i
 			break
 		}
 	}
-	return "CloudInitConfigDrive", index
+	return preferredType, index
 }
