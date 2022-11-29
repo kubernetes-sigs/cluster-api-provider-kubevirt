@@ -142,10 +142,10 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
-	foundNoCloud, index := noCloudVolume(template)
-	cloudInitVolume := cloudinitVolume(template, ctx)
-	cloudInitDisk := cloudinitDisk(template)
-	if foundNoCloud {
+	cloudInitType, index := noCloudVolume(template)
+	cloudInitVolume := cloudinitVolume(template, ctx, cloudInitType)
+	cloudInitDisk := cloudinitDisk(template, cloudInitType)
+	if cloudInitType == "CloudInitNoCloud" {
 		template.Spec.Volumes[index] = cloudInitVolume
 	} else {
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
@@ -163,10 +163,9 @@ func nodeRole(ctx *context.MachineContext) string {
 	return constants.WorkerNodeRoleValue
 }
 
-func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *context.MachineContext) kubevirtv1.Volume {
-	foundNoCloud, _ := noCloudVolume(vmi)
-	switch foundNoCloud {
-	case true:
+func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *context.MachineContext, preferredType string) kubevirtv1.Volume {
+	switch preferredType {
+	case "CloudInitNoCloud":
 		return kubevirtv1.Volume{
 			Name: cloudInitVolumeName,
 			VolumeSource: kubevirtv1.VolumeSource{
@@ -191,10 +190,9 @@ func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *co
 	}
 }
 
-func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) kubevirtv1.Disk {
-	foundNoCloud, _ := noCloudVolume(vmi)
-	switch foundNoCloud {
-	case true:
+func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, preferredType string) kubevirtv1.Disk {
+	switch preferredType {
+	case "CloudInitNoCloud":
 		return kubevirtv1.Disk{
 			Name: cloudInitVolumeName,
 			DiskDevice: kubevirtv1.DiskDevice{
@@ -219,12 +217,12 @@ func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) kubevirtv
 	}
 }
 
-func noCloudVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (found bool, index int) {
+func noCloudVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredType string, index int) {
 	for i, v := range vmi.Spec.Volumes {
 		if v.CloudInitNoCloud != nil && v.Name == "cloudinitvolume" {
-			found, index = true, i
+			preferredType, index = "CloudInitNoCloud", i
 			break
 		}
 	}
-	return found, index
+	return "CloudInitConfigDrive", index
 }
