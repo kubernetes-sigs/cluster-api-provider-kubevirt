@@ -142,7 +142,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
-	cloudInitType, index := noCloudVolume(template)
+	cloudInitType, index := detectCloudInitVolumeType(template)
 	cloudInitVolume := cloudinitVolume(template, ctx, cloudInitType)
 	cloudInitDisk := cloudinitDisk(template, cloudInitType)
 	if cloudInitType == "CloudInitNoCloud" {
@@ -217,7 +217,7 @@ func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, preferred
 	}
 }
 
-func noCloudVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredType string, index int) {
+func detectCloudInitVolumeType(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredType string, index int) {
 	preferredType = "CloudInitConfigDrive"
 	for i, v := range vmi.Spec.Volumes {
 		if v.CloudInitNoCloud != nil && v.Name == "cloudinitvolume" {
