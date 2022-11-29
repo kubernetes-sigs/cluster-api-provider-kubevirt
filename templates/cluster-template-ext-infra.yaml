@@ -54,6 +54,7 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  networkInterfaceMultiqueue: true
                   disks:
                     - disk:
                         bus: virtio
@@ -110,6 +111,7 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  networkInterfaceMultiqueue: true
                   disks:
                     - disk:
                         bus: virtio
