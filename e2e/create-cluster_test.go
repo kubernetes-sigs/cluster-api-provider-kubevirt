@@ -571,6 +571,44 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantPods()
 	})
 
+	It("creates a simple cluster with ephemeral VMs with Passt", Label("ephemeralVMs"), func() {
+		By("generating cluster manifests from example template")
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", "templates/cluster-template-passt-kccm.yaml")
+		stdout, _ := RunCmd(cmd)
+		err := os.WriteFile(manifestsFile, stdout, 0644)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("posting cluster manifests example template")
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
+
+		By("Waiting for control plane")
+		waitForControlPlane()
+
+		By("Waiting on kubevirt machines to bootstrap")
+		waitForBootstrappedMachines()
+
+		By("Waiting on kubevirt machines to be ready")
+		waitForMachineReadiness(2, 0)
+
+		By("Waiting for getting access to the tenant cluster")
+		waitForTenantAccess(2)
+
+		By("posting calico CNI manifests to the guest cluster and waiting for network")
+		installCalicoCNI()
+
+		By("Waiting for node readiness")
+		waitForNodeReadiness()
+
+		By("waiting all tenant Pods to be Ready")
+		waitForTenantPods()
+	})
+
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
