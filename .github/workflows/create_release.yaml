@@ -49,7 +49,6 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: | 
-            Release.txt
             infrastructure-components.yaml
             metadata.yaml
             templates/*.yaml
