@@ -148,7 +148,10 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	cloudInitDisk := cloudinitDisk(template, cloudInitType)
 	switch cloudInitType {
 	case "CloudInitNoCloud":
-		mergo.Merge(&template.Spec.Volumes[index], cloudInitVolume)
+		err := mergo.Merge(&template.Spec.Volumes[index], cloudInitVolume)
+		if err != nil {
+			panic(err)
+		}
 		break
 	case "CloudInitConfigDrive":
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
