@@ -152,10 +152,8 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 		if err != nil {
 			panic(err)
 		}
-		break
 	case "CloudInitConfigDrive":
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
-		break
 	}
 	if found, _ := detectCloudInitDisk(template); !found {
 		template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
