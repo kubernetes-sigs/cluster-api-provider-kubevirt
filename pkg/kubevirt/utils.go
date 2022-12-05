@@ -73,8 +73,11 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
-func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
-	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
+func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) (*kubevirtv1.VirtualMachine, error) {
+	vmiTemplate, err := buildVirtualMachineInstanceTemplate(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
 		Spec: *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DeepCopy(),
@@ -107,7 +110,7 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	// make each datavolume unique by appending machine name as a prefix
 	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
 
-	return virtualMachine
+	return virtualMachine, nil
 }
 
 func mapCopy(src map[string]string) map[string]string {
@@ -120,7 +123,7 @@ func mapCopy(src map[string]string) map[string]string {
 }
 
 // buildVirtualMachineInstanceTemplate creates VirtualMachineInstanceTemplateSpec.
-func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
+func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirtv1.VirtualMachineInstanceTemplateSpec, error) {
 	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      map[string]string{},
@@ -149,9 +152,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	switch cloudInitType {
 	case "CloudInitNoCloud":
 		err := mergo.Merge(&template.Spec.Volumes[index], cloudInitVolume)
-		if err != nil {
-			panic(err)
-		}
+		return nil, err
 	case "CloudInitConfigDrive":
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 	}
@@ -159,7 +160,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 		template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 	}
 
-	return template
+	return template, nil
 }
 
 // nodeRole returns the role of this node ("control-plane" or "worker").

@@ -155,7 +155,10 @@ func (m *Machine) Exists() bool {
 func (m *Machine) Create(ctx gocontext.Context) error {
 	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
-	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+	virtualMachine, err := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+	if err != nil {
+		return err
+	}
 
 	mutateFn := func() (err error) {
 		if virtualMachine.Labels == nil {
