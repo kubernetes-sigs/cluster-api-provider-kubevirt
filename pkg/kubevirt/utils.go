@@ -218,12 +218,11 @@ func detectCloudInitVolumeType(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpe
 	return "CloudInitConfigDrive", 0
 }
 
-func detectCloudInitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (found bool, index int) {
-	for i, v := range vmi.Spec.Domain.Devices.Disks {
+func detectCloudInitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (foundCloudInitDisk bool) {
+	for _, v := range vmi.Spec.Domain.Devices.Disks {
 		if v.Disk != nil && v.Name == cloudInitVolumeName {
-			found, index = true, i
-			break
+			return true
 		}
 	}
-	return found, index
+	return false
 }
