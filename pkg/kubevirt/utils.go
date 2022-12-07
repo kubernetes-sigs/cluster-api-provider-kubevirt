@@ -156,7 +156,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirt
 	case "CloudInitConfigDrive":
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 	}
-	if found, _ := detectCloudInitDisk(template); !found {
+	if !detectCloudInitDisk(template) {
 		template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 	}
 
