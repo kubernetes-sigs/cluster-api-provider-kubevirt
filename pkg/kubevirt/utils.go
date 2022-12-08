@@ -222,7 +222,7 @@ func detectCloudInitVolumeType(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpe
 			return cloudInitNoCloud, i
 		}
 	}
-	return cloudInitConfigDrive, 0
+	return cloudInitConfigDrive, -1
 }
 
 func detectCloudInitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (foundCloudInitDisk bool) {
