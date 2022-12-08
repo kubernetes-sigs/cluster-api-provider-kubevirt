@@ -33,6 +33,13 @@ var (
 	cloudInitVolumeName = "cloudinitvolume"
 )
 
+type cloudInitType int
+
+const (
+	cloudInitConfigDrive cloudInitType = iota
+	cloudInitNoCloud
+)
+
 type CommandExecutor interface {
 	ExecuteCommand(command string) (string, error)
 }
@@ -148,12 +155,12 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirt
 
 	cloudInitType, index := detectCloudInitVolumeType(template)
 	cloudInitVolume := cloudinitVolume(template, ctx, cloudInitType)
-	cloudInitDisk := cloudinitDisk(template, cloudInitType)
+	cloudInitDisk := cloudinitDisk(template)
 	switch cloudInitType {
-	case "CloudInitNoCloud":
+	case cloudInitNoCloud:
 		err := mergo.Merge(&template.Spec.Volumes[index], cloudInitVolume)
 		return nil, err
-	case "CloudInitConfigDrive":
+	case cloudInitConfigDrive:
 		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 	}
 	if !detectCloudInitDisk(template) {
@@ -171,9 +178,9 @@ func nodeRole(ctx *context.MachineContext) string {
 	return constants.WorkerNodeRoleValue
 }
 
-func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *context.MachineContext, preferredType string) kubevirtv1.Volume {
+func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *context.MachineContext, preferredType cloudInitType) kubevirtv1.Volume {
 	switch preferredType {
-	case "CloudInitNoCloud":
+	case cloudInitNoCloud:
 		return kubevirtv1.Volume{
 			Name: cloudInitVolumeName,
 			VolumeSource: kubevirtv1.VolumeSource{
@@ -198,7 +205,7 @@ func cloudinitVolume(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, ctx *co
 	}
 }
 
-func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, preferredType string) kubevirtv1.Disk {
+func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) kubevirtv1.Disk {
 	return kubevirtv1.Disk{
 		Name: cloudInitVolumeName,
 		DiskDevice: kubevirtv1.DiskDevice{
@@ -209,13 +216,13 @@ func cloudinitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec, preferred
 	}
 }
 
-func detectCloudInitVolumeType(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredCloudInitVolumeType string, existingCloudInitVolumeIndex int) {
+func detectCloudInitVolumeType(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (preferredCloudInitVolumeType cloudInitType, existingCloudInitVolumeIndex int) {
 	for i, v := range vmi.Spec.Volumes {
 		if v.CloudInitNoCloud != nil && v.Name == cloudInitVolumeName {
-			return "CloudInitNoCloud", i
+			return cloudInitNoCloud, i
 		}
 	}
-	return "CloudInitConfigDrive", 0
+	return cloudInitConfigDrive, 0
 }
 
 func detectCloudInitDisk(vmi *kubevirtv1.VirtualMachineInstanceTemplateSpec) (foundCloudInitDisk bool) {
