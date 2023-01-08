@@ -1,0 +1,311 @@
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.243.0.0/16
+    services:
+      cidrBlocks:
+        - 10.95.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtCluster
+    name: '${CLUSTER_NAME}'
+    namespace: "${NAMESPACE}"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: '${CLUSTER_NAME}-control-plane'
+    namespace: "${NAMESPACE}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: LoadBalancer
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              evictionStrategy: External
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
+---
+kind: KubeadmControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  machineTemplate:
+    infrastructureRef:
+      kind: KubevirtMachineTemplate
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      name: "${CLUSTER_NAME}-control-plane"
+      namespace: "${NAMESPACE}"
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      networking:
+        dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
+        podSubnet: 10.243.0.0/16
+        serviceSubnet: 10.95.0.0/16
+    initConfiguration:
+      nodeRegistration:
+        criSocket: "${CRI_PATH}"
+    joinConfiguration:
+      nodeRegistration:
+        criSocket: "${CRI_PATH}"
+  version: "${KUBERNETES_VERSION}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+        spec:
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                cpu:
+                  cores: 2
+                memory:
+                  guest: "4Gi"
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: containervolume
+              evictionStrategy: External
+              volumes:
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs: {}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT}
+  selector:
+    matchLabels:
+  template:
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          name: "${CLUSTER_NAME}-md-0"
+          namespace: "${NAMESPACE}"
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0"
+        namespace: "${NAMESPACE}"
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KubevirtMachineTemplate
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm
+  namespace: ${NAMESPACE}
+rules:
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachineinstances
+  verbs:
+  - get
+  - watch
+  - list
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm-sa
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kccm
+subjects:
+- kind: ServiceAccount
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: v1
+data:
+  cloud-config: |
+    loadBalancer:
+      creationPollInterval: 30
+    namespace: kvcluster
+    instancesV2:
+      enabled: true
+      zoneAndRegionEnabled: false
+kind: ConfigMap
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-config
+  namespace: ${NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    k8s-app: kubevirt-cloud-controller-manager
+  name: kubevirt-cloud-controller-manager
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      capk.cluster.x-k8s.io/template-kind: extra-resource
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+      k8s-app: kubevirt-cloud-controller-manager
+  template:
+    metadata:
+      labels:
+        capk.cluster.x-k8s.io/template-kind: extra-resource
+        cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+        k8s-app: kubevirt-cloud-controller-manager
+    spec:
+      containers:
+      - args:
+        - --cloud-provider=kubevirt
+        - --cloud-config=/etc/cloud/cloud-config
+        - --kubeconfig=/etc/kubernetes/kubeconfig/value
+        - --cluster-name=kvcluster
+        - --authentication-skip-lookup=true
+        command:
+        - /bin/kubevirt-cloud-controller-manager
+        image: quay.io/kubevirt/kubevirt-cloud-controller-manager:main
+        imagePullPolicy: Always
+        name: kubevirt-cloud-controller-manager
+        resources:
+          requests:
+            cpu: 100m
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/kubernetes/kubeconfig
+          name: kubeconfig
+          readOnly: true
+        - mountPath: /etc/cloud
+          name: cloud-config
+          readOnly: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      serviceAccountName: cloud-controller-manager
+      tolerations:
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - configMap:
+          name: cloud-config
+        name: cloud-config
+      - name: kubeconfig
+        secret:
+          secretName: ${CLUSTER_NAME}-kubeconfig

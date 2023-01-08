@@ -6,9 +6,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	kubevirtv1 "kubevirt.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -43,7 +40,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 				cluster,
 				kubevirtCluster,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
 				Client:         fakeClient,
 				ClusterContext: clusterContext,
@@ -78,7 +75,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 				cluster,
 				kubevirtCluster,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 			clusterNodeSshKeys = ssh.ClusterNodeSshKeys{
 				Client:         fakeClient,
 				ClusterContext: clusterContext,
@@ -108,20 +105,3 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 		})
 	})
 })
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
-}

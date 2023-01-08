@@ -73,20 +73,22 @@ func (c *ClusterNodeSshKeys) PersistKeysToSecret() (*corev1.Secret, error) {
 	}
 
 	_, err := controllerutil.CreateOrUpdate(c.ClusterContext.Context, c.Client, newSecret, func() error {
-		newSecret.Type = clusterv1.ClusterSecretType
-		newSecret.Data = map[string][]byte{
-			"pub": c.PublicKey,
-			"key": c.PrivateKey,
+		if newSecret.Labels == nil {
+			newSecret.Labels = map[string]string{}
 		}
 
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create ssh keys secret for cluster")
-	}
+		newSecret.Labels[clusterv1.ClusterLabelName] = c.ClusterContext.Cluster.Name
+		newSecret.Type = clusterv1.ClusterSecretType
+		if newSecret.Data == nil {
+			newSecret.Data = map[string][]byte{}
+		}
 
-	// set owner reference for secret
-	mutateFn := func() (err error) {
+		_, exists := newSecret.Data["key"]
+		if !exists {
+			newSecret.Data["pub"] = c.PublicKey
+			newSecret.Data["key"] = c.PrivateKey
+		}
+
 		newSecret.SetOwnerReferences(clusterutil.EnsureOwnerRef(
 			newSecret.OwnerReferences,
 			metav1.OwnerReference{
@@ -95,16 +97,10 @@ func (c *ClusterNodeSshKeys) PersistKeysToSecret() (*corev1.Secret, error) {
 				Name:       c.ClusterContext.KubevirtCluster.Name,
 				UID:        c.ClusterContext.KubevirtCluster.UID,
 			}))
-
-		if newSecret.Labels == nil {
-			newSecret.Labels = map[string]string{}
-		}
-		newSecret.Labels[clusterv1.ClusterLabelName] = c.ClusterContext.Cluster.Name
-
 		return nil
-	}
-	if _, err := controllerutil.CreateOrUpdate(c.ClusterContext.Context, c.Client, newSecret, mutateFn); err != nil {
-		return nil, errors.Wrapf(err, "failed to set owner reference for secret")
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to reconcile ssh keys secret for cluster")
 	}
 
 	return newSecret, nil

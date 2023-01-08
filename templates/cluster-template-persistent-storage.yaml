@@ -8,10 +8,10 @@ spec:
   clusterNetwork:
     pods:
       cidrBlocks:
-        - 10.244.0.0/16
+        - 10.243.0.0/16
     services:
       cidrBlocks:
-        - 10.96.0.0/12
+        - 10.95.0.0/16
   infrastructureRef:
     apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
     kind: KubevirtCluster
@@ -64,10 +64,12 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  networkInterfaceMultiqueue: true
                   disks:
                     - disk:
                         bus: virtio
                       name: dv-volume
+              evictionStrategy: External
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"
@@ -88,13 +90,16 @@ spec:
       namespace: "${NAMESPACE}"
   kubeadmConfigSpec:
     clusterConfiguration:
-      imageRepository: ${IMAGE_REPO}
+      networking:
+        dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
+        podSubnet: 10.243.0.0/16
+        serviceSubnet: 10.95.0.0/16
     initConfiguration:
       nodeRegistration:
         criSocket: "${CRI_PATH}"
     joinConfiguration:
       nodeRegistration:
-        criSocket: "{CRI_PATH}"
+        criSocket: "${CRI_PATH}"
   version: "${KUBERNETES_VERSION}"
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -132,10 +137,12 @@ spec:
                 memory:
                   guest: "4Gi"
                 devices:
+                  networkInterfaceMultiqueue: true
                   disks:
                     - disk:
                         bus: virtio
                       name: dv-volume
+              evictionStrategy: External
               volumes:
                 - dataVolume:
                     name: "${CLUSTER_NAME}-boot-volume"

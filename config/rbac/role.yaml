@@ -9,6 +9,14 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - serviceaccounts
+  verbs:
+  - delete
+  - list
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - create
@@ -30,6 +38,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - delete
+  - list
 - apiGroups:
   - cluster.x-k8s.io
   resources:
@@ -84,8 +99,11 @@ rules:
   resources:
   - virtualmachineinstances
   verbs:
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - kubevirt.io
@@ -99,3 +117,11 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - delete
+  - list
