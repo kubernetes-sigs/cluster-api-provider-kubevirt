@@ -3,6 +3,7 @@ package workloadcluster
 import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -12,6 +13,7 @@ import (
 //go:generate mockgen -source=./workloadcluster.go -destination=./mock/workloadcluster_generated.go -package=mock
 type WorkloadCluster interface {
 	GenerateWorkloadClusterClient(ctx *context.MachineContext) (client.Client, error)
+	GenerateWorkloadClusterK8sClient(ctx *context.MachineContext) (k8sclient.Interface, error)
 }
 
 func New(client client.Client) WorkloadCluster {
@@ -41,6 +43,29 @@ func (w *workloadCluster) GenerateWorkloadClusterClient(ctx *context.MachineCont
 
 	// create the client
 	workloadClusterClient, err := client.New(restConfig, client.Options{Scheme: w.Client.Scheme()})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create workload cluster client")
+	}
+
+	return workloadClusterClient, nil
+}
+
+// GenerateWorkloadClusterK8sClient creates a kubernetes client for workload cluster.
+func (w *workloadCluster) GenerateWorkloadClusterK8sClient(ctx *context.MachineContext) (k8sclient.Interface, error) {
+	// get workload cluster kubeconfig
+	kubeConfig, err := w.getKubeconfigForWorkloadCluster(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get kubeconfig for workload cluster")
+	}
+
+	// generate REST config
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeConfig))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create REST config")
+	}
+
+	// create the client
+	workloadClusterClient, err := k8sclient.NewForConfig(restConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create workload cluster client")
 	}

@@ -25,6 +25,9 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -54,6 +57,9 @@ type KubevirtClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services;,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts;configmaps,verbs=delete;list
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=delete;list
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=delete;list
 
 // Reconcile reads that state of the cluster for a KubevirtCluster object and makes changes based on the state read
 // and what is in the KubevirtCluster.Spec.
@@ -83,8 +89,6 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		log.Info("Waiting for Cluster Controller to set OwnerRef on KubevirtCluster")
 		return ctrl.Result{}, nil
 	}
-
-	log = log.WithValues("cluster", cluster.Name)
 
 	// Create the cluster context for this request.
 	clusterContext := &context.ClusterContext{
@@ -117,9 +121,11 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	// Always attempt to Patch the KubevirtCluster object and status after each reconciliation.
 	defer func() {
 		if err := clusterContext.PatchKubevirtCluster(patchHelper); err != nil {
-			clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
-			if rerr == nil {
-				rerr = err
+			if !apierrors.IsNotFound(utilerrors.Reduce(err)) {
+				clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
+				if rerr == nil {
+					rerr = err
+				}
 			}
 		}
 	}()
@@ -219,6 +225,17 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 	if err := ctx.PatchKubevirtCluster(patchHelper); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtCluster")
 	}
+	for _, extraKind := range []schema.GroupVersionKind{
+		schema.FromAPIVersionAndKind("/v1", "ConfigMapList"),
+		schema.FromAPIVersionAndKind("/v1", "ServiceAccountList"),
+		schema.FromAPIVersionAndKind("apps/v1", "DeploymentList"),
+		schema.FromAPIVersionAndKind("rbac.authorization.k8s.io/v1", "RoleList"),
+		schema.FromAPIVersionAndKind("rbac.authorization.k8s.io/v1", "RoleBindingList"),
+	} {
+		if err := r.deleteExtraGVK(ctx, extraKind); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to delete extra %s", extraKind)
+		}
+	}
 
 	// Cluster is deleted so remove the finalizer.
 	controllerutil.RemoveFinalizer(ctx.KubevirtCluster, infrav1.ClusterFinalizer)
@@ -241,4 +258,26 @@ func (r *KubevirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtCluster"))),
 		predicates.ClusterUnpaused(r.Log),
 	)
+}
+
+func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, extraGVK schema.GroupVersionKind) error {
+	if ctx.KubevirtCluster == nil {
+		return nil
+	}
+
+	// List the Pods matching the PodTemplate Labels, but only their metadata
+	var extraResourceMetaList metav1.PartialObjectMetadataList
+	extraResourceMetaList.SetGroupVersionKind(extraGVK)
+	extraResourceLabels := map[string]string{"cluster.x-k8s.io/cluster-name": ctx.Cluster.Name, "capk.cluster.x-k8s.io/template-kind": "extra-resource"}
+	if err := r.List(ctx, &extraResourceMetaList, client.InNamespace(ctx.Cluster.Namespace), client.MatchingLabels(extraResourceLabels)); err != nil {
+		return errors.Wrap(err, "failed listing cluster extra object meta")
+	}
+
+	for _, extraResourceMeta := range extraResourceMetaList.Items {
+		if err := r.Delete(ctx.Context, &extraResourceMeta, &client.DeleteOptions{}); err != nil {
+			return errors.Wrap(err, "failed deleting cluster extra object meta")
+		}
+	}
+	return nil
+
 }

@@ -1,8 +1,11 @@
 package testing
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
@@ -114,6 +117,26 @@ func NewVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine) *kubevi
 	}
 }
 
+// NewExternalVirtualMachineInstance instantiates a new external VirtualMachineInstance; i.e. one in a specified
+// namespace that might differ from the kubevirtMachine one.
+func NewExternalVirtualMachineInstance(kubevirtMachine *infrav1.KubevirtMachine, namespace string) *kubevirtv1.VirtualMachineInstance {
+	return &kubevirtv1.VirtualMachineInstance{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "VirtualMachineInstance",
+			APIVersion: "kubevirt.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kubevirtMachine.Name,
+			Namespace: namespace,
+		},
+		Status: kubevirtv1.VirtualMachineInstanceStatus{
+			Interfaces: []kubevirtv1.VirtualMachineInstanceNetworkInterface{
+				{IP: "1.1.1.1"},
+			},
+		},
+	}
+}
+
 func NewVirtualMachine(vmi *kubevirtv1.VirtualMachineInstance) *kubevirtv1.VirtualMachine {
 	return &kubevirtv1.VirtualMachine{
 		TypeMeta: metav1.TypeMeta{
@@ -131,5 +154,29 @@ func NewBootstrapDataSecret(userData []byte) *corev1.Secret {
 	s := &corev1.Secret{}
 	s.Data = make(map[string][]byte)
 	s.Data["userdata"] = userData
+	return s
+}
+
+// SetupScheme setups the scheme for a fake client.
+func SetupScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	if err := clusterv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := infrav1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := kubevirtv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := corev1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := appsv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	if err := rbacv1.AddToScheme(s); err != nil {
+		panic(err)
+	}
 	return s
 }

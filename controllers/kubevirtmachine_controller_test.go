@@ -25,13 +25,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -109,7 +108,7 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			// add one more machine without corresponding kubevirt machine, to test that no request is created for it
 			testing.NewMachine(clusterName, "machine-without-corresponding-kubevirt-machine", nil),
 		}
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:         fakeClient,
 			MachineFactory: kubevirt.DefaultMachineFactory{},
@@ -136,12 +135,89 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 })
 
 var _ = Describe("utility functions", func() {
-	DescribeTable("should detect userdata is cloud-config", func(userData []byte, expected bool) {
-		Expect(isCloudConfigUserData(userData)).To(Equal(expected))
-	},
-		Entry("should detect cloud-config", []byte("#something\n\n#something else\n#cloud-config\nthe end"), true),
-		Entry("should not detect cloud-config", []byte("#something\n\n#something else\n#not-cloud-config\nthe end"), false),
-		Entry("should not detect cloud-config", []byte("#something\n\n#something else\n   #cloud-config\nthe end"), false),
+
+	DescribeTable("capk user",
+		func(userData []byte, sshAuthorizedKey string, expectedOrNil []byte) {
+			actual, modified, err := addCapkUserToCloudInitConfig(userData, []byte(sshAuthorizedKey))
+			Expect(err).ShouldNot(HaveOccurred())
+			if expectedOrNil == nil {
+				Expect(modified).To(BeFalse())
+				Expect(string(actual)).To(Equal(string(userData)))
+			} else {
+				Expect(modified).To(BeTrue())
+				Expect(string(actual)).To(Equal(string(expectedOrNil)))
+			}
+		},
+		Entry(
+			"should be added to cloud-init config",
+			[]byte(`## template: jinja
+#cloud-config
+
+write_files:
+-   path: /etc/kubernetes/pki/ca.crt
+    owner: root:root
+    permissions: '0640'
+
+-   path: /run/cluster-api/placeholder
+    owner: root:root
+    permissions: '0640'
+    content: "This placeholder file is used ..."
+users:
+  - name: johndoe
+    group: users
+runcmd:
+  - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+			"sha-rsa 5678",
+			[]byte(`## template: jinja
+#cloud-config
+
+write_files:
+    - path: /etc/kubernetes/pki/ca.crt
+      owner: root:root
+      permissions: '0640'
+    - path: /run/cluster-api/placeholder
+      owner: root:root
+      permissions: '0640'
+      content: "This placeholder file is used ..."
+users:
+    - name: johndoe
+      group: users
+    - name: capk
+      gecos: CAPK User
+      sudo: ALL=(ALL) NOPASSWD:ALL
+      groups: users, admin
+      ssh_authorized_keys:
+        - sha-rsa 5678
+runcmd:
+    - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+		),
+		Entry(
+			"should be overridden when already in cloud-init config",
+			[]byte(`## template: jinja
+#cloud-config
+users:
+  - name: capk
+    group: users
+runcmd:
+  - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+			"sha-rsa 5678",
+			[]byte(`## template: jinja
+#cloud-config
+users:
+    - name: capk
+      gecos: CAPK User
+      sudo: ALL=(ALL) NOPASSWD:ALL
+      groups: users, admin
+      ssh_authorized_keys:
+        - sha-rsa 5678
+runcmd:
+    - 'kubeadm init --config /run/kubeadm/kubeadm.yaml  && echo success > /run/cluster-api/bootstrap-success.complete'
+`),
+		),
+		Entry("should not be added to non cloud-init config", []byte("hello: world"), "sha-rsa 5678", nil),
 	)
 })
 
@@ -171,8 +247,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
 		kubevirtCluster = testing.NewKubevirtCluster(clusterName, machineName)
 
-		workloadClusterMock = workloadclustermock.NewMockWorkloadCluster(mockCtrl)
-		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
 		machineFactoryMock = machinemocks.NewMockMachineFactory(mockCtrl)
 		machineMock = machinemocks.NewMockMachineInterface(mockCtrl)
 
@@ -189,7 +263,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		sshKeySecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: sshKeySecretName,
+				Name:   sshKeySecretName,
+				Labels: map[string]string{"hello": "world"},
 			},
 			Data: map[string][]byte{
 				"pub": []byte("sha-rsa 1234"),
@@ -199,7 +274,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		bootstrapSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: bootstrapSecretName,
+				Name:   bootstrapSecretName,
+				Labels: map[string]string{"hello": "world"},
 			},
 			Data: map[string][]byte{
 				"value": []byte("shell-script"),
@@ -247,7 +323,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Logger:          testLogger,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
@@ -266,7 +342,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -289,6 +364,16 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should ensure deletion of KubevirtMachine garbage collects everything successfully", func() {
@@ -332,11 +417,10 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).NotTo(HaveOccurred())
 		bootstrapDataSecret := &corev1.Secret{}
 		err = infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		expectedErrorMessage := "secrets \"" + *machineBootstrapSecretReferenceName + "-userdata" + "\" not found"
-		Expect(err.Error()).To(Equal(expectedErrorMessage))
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 		//Check finalizer is removed from machine
-		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
 	It("should ensure deletion of KubevirtMachine when bootstrap secret was never created", func() {
@@ -359,7 +443,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
 
 		//Check finalizer is removed from machine
-		Expect(len(machineContext.Machine.ObjectMeta.Finalizers)).To(Equal(0))
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
 	It("should update userdata correctly at KubevirtMachine reconcile", func() {
@@ -449,7 +533,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			machine,
 			kubevirtMachine,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -472,6 +555,16 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should create KubeVirt VM in custom namespace", func() {
@@ -486,7 +579,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -509,6 +601,16 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
+
+		// Should have created the userdata secret
+		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
+		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: customNamespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
+		bootstrapDataSecret := &corev1.Secret{}
+		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
+		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
@@ -766,7 +868,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
 
 				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
-				Expect(err).ShouldNot(BeNil())
+				Expect(err).Should(HaveOccurred())
 
 				conditions := machineContext.KubevirtMachine.GetConditions()
 				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))
@@ -987,7 +1089,7 @@ var _ = Describe("updateNodeProviderID", func() {
 		objects := []client.Object{
 			kubevirtMachine,
 		}
-		fakeClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
@@ -1005,7 +1107,7 @@ var _ = Describe("updateNodeProviderID", func() {
 				},
 			},
 		}
-		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(workloadClusterObjects...).Build()
+		fakeWorkloadClusterClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(workloadClusterObjects...).Build()
 	})
 
 	AfterEach(func() {})
@@ -1055,20 +1157,3 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
 	})
 })
-
-func setupScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	return s
-}
