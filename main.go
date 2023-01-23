@@ -80,7 +80,7 @@ func initFlags(fs *pflag.FlagSet) {
 		"The number of machines to process simultaneously")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
-	fs.DurationVar(&syncPeriod, "sync-period", 10*time.Minute,
+	fs.DurationVar(&syncPeriod, "sync-period", 60*time.Second,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
 	fs.StringVar(&healthAddr, "health-addr", ":9440",
 		"The address the health endpoint binds to.")
