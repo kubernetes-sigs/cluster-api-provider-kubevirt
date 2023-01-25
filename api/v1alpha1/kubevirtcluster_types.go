@@ -103,8 +103,9 @@ type SSHKeys struct {
 
 // ControlPlaneServiceTemplate describes the template for the control plane service.
 type ControlPlaneServiceTemplate struct {
-	// Service metadata allows to set labels and annotations for the service.
+	// Service metadata allows to set labels, annotations and namespace for the service.
 	// This field is optional.
+	// When infraClusterSecretRef is used, ControlPlaneService take the kubeconfig namespace by default if metadata.namespace is not specified.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
 	ObjectMeta metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -113,6 +114,7 @@ type ControlPlaneServiceTemplate struct {
 	// +optional
 	Spec ServiceSpecTemplate `json:"spec,omitempty"`
 }
+
 
 // ServiceSpecTemplate describes the service spec template.
 type ServiceSpecTemplate struct {
