@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
@@ -466,14 +465,6 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 			&source.Kind{Type: &infrav1.KubevirtCluster{}},
 			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
 		).
-		Watches(
-			&source.Kind{Type: &kubevirtv1.VirtualMachineInstance{}},
-			handler.EnqueueRequestsFromMapFunc(r.VMIToKubevirtMachines),
-		).
-		Watches(
-			&source.Kind{Type: &kubevirtv1.VirtualMachine{}},
-			handler.EnqueueRequestsFromMapFunc(r.VMToKubevirtMachines),
-		).
 		Build(r)
 	if err != nil {
 		return err
@@ -483,50 +474,6 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
 		predicates.ClusterUnpausedAndInfrastructureReady(ctrl.LoggerFrom(goctx)),
 	)
-}
-
-func (r *KubevirtMachineReconciler) VMIToKubevirtMachines(o client.Object) []ctrl.Request {
-	var result []ctrl.Request
-	vmi, ok := o.(*kubevirtv1.VirtualMachineInstance)
-	if !ok {
-		panic(fmt.Sprintf("Expected a VirtualMachineInstance but got a %T", o))
-	}
-
-	machineNamespace, exists := vmi.Labels[infrav1.KubevirtMachineNamespaceLabel]
-	if !exists {
-		return result
-	}
-	machineName, exists := vmi.Labels[infrav1.KubevirtMachineNameLabel]
-	if !exists {
-		return result
-	}
-
-	name := client.ObjectKey{Namespace: machineNamespace, Name: machineName}
-	result = append(result, ctrl.Request{NamespacedName: name})
-
-	return result
-}
-
-func (r *KubevirtMachineReconciler) VMToKubevirtMachines(o client.Object) []ctrl.Request {
-	var result []ctrl.Request
-	vm, ok := o.(*kubevirtv1.VirtualMachine)
-	if !ok {
-		panic(fmt.Sprintf("Expected a VirtualMachine but got a %T", o))
-	}
-
-	machineNamespace, exists := vm.Labels[infrav1.KubevirtMachineNamespaceLabel]
-	if !exists {
-		return result
-	}
-	machineName, exists := vm.Labels[infrav1.KubevirtMachineNameLabel]
-	if !exists {
-		return result
-	}
-
-	name := client.ObjectKey{Namespace: machineNamespace, Name: machineName}
-	result = append(result, ctrl.Request{NamespacedName: name})
-
-	return result
 }
 
 // KubevirtClusterToKubevirtMachines is a handler.ToRequestsFunc to be used to enqueue
