@@ -19,7 +19,6 @@ package kubevirt
 import (
 	"fmt"
 
-	"github.com/imdario/mergo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -156,17 +155,10 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) (*kubevirt
 	cloudInitType, index := detectCloudInitVolumeType(template)
 	cloudInitVolume := cloudinitVolume(template, ctx, cloudInitType)
 	cloudInitDisk := cloudinitDisk(template)
-	switch cloudInitType {
-	case cloudInitNoCloud:
-		err := mergo.Merge(&template.Spec.Volumes[index], cloudInitVolume)
-		if err != nil {
-			return nil, err
-		}
-		return template, nil
-	case cloudInitConfigDrive:
-		template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
-	}
-	if !detectCloudInitDisk(template) {
+
+	if index >= 0 {
+		template.Spec.Volumes[index] = cloudInitVolume
+	} else {
 		template.Spec.Domain.Devices.Disks = append(template.Spec.Domain.Devices.Disks, cloudInitDisk)
 	}
 
