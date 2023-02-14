@@ -358,8 +358,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
 		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
 
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
@@ -369,8 +368,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
 		bootstrapDataSecret := &corev1.Secret{}
-		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
+		).To(Succeed())
 		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
 		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
 		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
@@ -474,8 +474,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
 		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
 
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
@@ -483,8 +482,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		bootstrapDataSecret := &corev1.Secret{}
-		err = infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
+		).To(Succeed())
 
 		Expect(bootstrapUserDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
 	})
@@ -518,7 +518,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
 		Expect(err).To(HaveOccurred())
 
-		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(HaveLen(0))
+		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
 	It("should create KubeVirt VM with externally managed cluster and no ssh key", func() {
@@ -549,8 +549,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
 		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
 
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
@@ -560,8 +559,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
 		bootstrapDataSecret := &corev1.Secret{}
-		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
+		).To(Succeed())
 		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
 		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
 		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
@@ -595,8 +595,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
 		vmKey := client.ObjectKey{Namespace: customNamespace, Name: kubevirtMachine.Name}
-		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
 
 		// Should expect kubevirt machine is still not ready
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
@@ -606,8 +605,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
 		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: customNamespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
 		bootstrapDataSecret := &corev1.Secret{}
-		err = fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)).To(Succeed())
 		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
 		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
 		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
@@ -654,8 +652,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		// should expect VM to be created with expected name
 		vm := &kubevirtv1.VirtualMachine{}
 		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeClient.Get(gocontext.Background(), vmKey, vm)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
 
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 		Expect(*machineContext.KubevirtMachine.Spec.ProviderID).To(Equal("kubevirt://" + kubevirtMachineName))
@@ -766,8 +763,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Expect(err).ShouldNot(HaveOccurred())
 
 			newKubevirtMachine := &infrav1.KubevirtMachine{}
-			err = kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
-			Expect(err).ShouldNot(HaveOccurred())
+			Expect(
+				kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine),
+			).To(Succeed())
 
 			conditions := newKubevirtMachine.GetConditions()
 			Expect(conditions[1].Type).To(Equal(infrav1.VMProvisionedCondition))
@@ -795,8 +793,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
 				newKubevirtMachine := &infrav1.KubevirtMachine{}
-				err = kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)).To(Succeed())
 
 				conditions := newKubevirtMachine.GetConditions()
 				Expect(conditions[1].Type).To(Equal(infrav1.VMProvisionedCondition))
@@ -1121,10 +1118,11 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(out).To(Equal(ctrl.Result{}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode),
+		).To(Succeed())
 		Expect(workloadClusterNode.Spec.ProviderID).To(Equal(expectedProviderId))
-		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(true))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(BeTrue())
 	})
 
 	It("GenerateWorkloadClusterClient failure", func() {
@@ -1136,10 +1134,11 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode),
+		).To(Succeed())
 		Expect(workloadClusterNode.Spec.ProviderID).NotTo(Equal(expectedProviderId))
-		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(BeFalse())
 	})
 
 	It("Node doesn't exist", func() {
@@ -1151,9 +1150,10 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
 		workloadClusterNode := &corev1.Node{}
 		workloadClusterNodeKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		err = fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(
+			fakeWorkloadClusterClient.Get(machineContext, workloadClusterNodeKey, workloadClusterNode),
+		).To(Succeed())
 		Expect(workloadClusterNode.Spec.ProviderID).NotTo(Equal(expectedProviderId))
-		Expect(kubevirtMachine.Status.NodeUpdated).To(Equal(false))
+		Expect(kubevirtMachine.Status.NodeUpdated).To(BeFalse())
 	})
 })

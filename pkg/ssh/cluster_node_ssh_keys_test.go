@@ -47,8 +47,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			}
 		})
 		It("generate keys should successfully generate new keys", func() {
-			err := clusterNodeSshKeys.GenerateNewKeys()
-			Expect(err).NotTo(HaveOccurred())
+			Expect(clusterNodeSshKeys.GenerateNewKeys()).To(Succeed())
 		})
 		It("persist keys fails to persist nil value to secret", func() {
 			resp, errors := clusterNodeSshKeys.PersistKeysToSecret()
@@ -64,8 +63,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			Expect(result).To(BeFalse())
 		})
 		It("fetch persisted keys from secret returns an error", func() {
-			err := clusterNodeSshKeys.FetchPersistedKeysFromSecret()
-			Expect(err).To(HaveOccurred())
+			Expect(clusterNodeSshKeys.FetchPersistedKeysFromSecret()).ToNot(Succeed())
 		})
 	})
 
@@ -82,8 +80,7 @@ var _ = Describe("ClusterNodeSshKeys", func() {
 			}
 		})
 		It("should generate, persist, fetch keys succeeds", func() {
-			err := clusterNodeSshKeys.GenerateNewKeys()
-			Expect(err).NotTo(HaveOccurred())
+			Expect(clusterNodeSshKeys.GenerateNewKeys()).To(Succeed())
 			sshKeysDataSecret, err := clusterNodeSshKeys.PersistKeysToSecret()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sshKeysDataSecret.Name).To(Equal("test-kubevirt-cluster-ssh-keys"))

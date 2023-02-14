@@ -333,7 +333,7 @@ goimports:
 linter:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	# todo remove the exclude parameter when issue #85 is resolved
-	golangci-lint run --exclude SA1019
+	golangci-lint run --timeout=5m -E ginkgolinter --exclude SA1019
 
 .PHONY: sanity
 sanity: linter goimports test

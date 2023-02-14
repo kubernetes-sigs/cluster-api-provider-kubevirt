@@ -78,8 +78,7 @@ var _ = Describe("Load Balancer", func() {
 		})
 
 		It("should succeed to create a new load balancer", func() {
-			err = lb.Create(clusterContext)
-			Expect(err).NotTo(HaveOccurred())
+			Expect(lb.Create(clusterContext)).To(Succeed())
 		})
 	})
 

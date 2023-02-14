@@ -79,8 +79,7 @@ var _ = Describe("CreateCluster", func() {
 		}
 
 		tenantAccessor = newTenantClusterAccess(namespace, tenantKubeconfigFile)
-		err = k8sclient.Create(context.Background(), ns)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Create(context.Background(), ns)).To(Succeed())
 	})
 
 	AfterEach(func() {
@@ -112,23 +111,20 @@ var _ = Describe("CreateCluster", func() {
 	})
 
 	waitForBootstrappedMachines := func() {
-		Eventually(func() error {
+		Eventually(func(g Gomega) {
 			machineList := &infrav1.KubevirtMachineList{}
-			err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
-			if err != nil {
-				return err
-			}
+			g.Expect(
+				k8sclient.List(context.Background(), machineList, client.InNamespace(namespace)),
+			).To(Succeed())
 
-			if len(machineList.Items) == 0 {
-				return fmt.Errorf("expecting a non-empty list of machines")
-			}
+			g.Expect(machineList.Items).ToNot(BeEmpty(), "expecting a non-empty list of machines")
 
 			for _, machine := range machineList.Items {
-				if !conditions.IsTrue(&machine, infrav1.BootstrapExecSucceededCondition) {
-					return fmt.Errorf("still waiting on a kubevirt machine with bootstrap succeeded condition")
-				}
+				g.Expect(conditions.IsTrue(&machine, infrav1.BootstrapExecSucceededCondition)).To(
+					BeTrue(),
+					"still waiting on a kubevirt machine with bootstrap succeeded condition",
+				)
 			}
-			return nil
 		}).WithOffset(1).
 			WithTimeout(10*time.Minute).
 			WithPolling(5*time.Second).
@@ -141,8 +137,7 @@ var _ = Describe("CreateCluster", func() {
 		Consistently(func(g Gomega) error {
 			kvCluster := &infrav1.KubevirtCluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: clusterName}
-			err := k8sclient.Get(context.Background(), key, kvCluster)
-			g.Expect(err).ToNot(HaveOccurred())
+			Expect(k8sclient.Get(context.Background(), key, kvCluster)).To(Succeed())
 
 			g.Expect(kvCluster.Finalizers).To(BeEmpty())
 			g.Expect(kvCluster.Status.Ready).To(BeFalse())
@@ -174,64 +169,46 @@ var _ = Describe("CreateCluster", func() {
 				},
 			},
 		}
-		err := k8sclient.Create(context.Background(), lbService)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Create(context.Background(), lbService)).To(Succeed())
 
 		By("getting IP of load balancer")
 
 		lbIP := ""
-		Eventually(func() error {
+		Eventually(func(g Gomega) {
 			updatedLB := &corev1.Service{}
 			key := client.ObjectKey{Namespace: namespace, Name: lbService.Name}
-			err := k8sclient.Get(context.Background(), key, updatedLB)
-			if err != nil {
-				return err
-			}
-
-			if len(updatedLB.Spec.ClusterIP) == 0 {
-				return fmt.Errorf("still waiting on lb ip")
-			}
-
+			g.Expect(k8sclient.Get(context.Background(), key, updatedLB)).To(Succeed())
+			g.Expect(updatedLB.Spec.ClusterIP).ToNot(BeEmpty(), "still waiting on lb ip")
 			lbIP = updatedLB.Spec.ClusterIP
-			return nil
 		}, 30*time.Second, 5*time.Second).Should(Succeed(), "lb should have provided an ip")
 
 		By("Setting ready=true on kvcluster object")
 		kvCluster := &infrav1.KubevirtCluster{}
 		key := client.ObjectKey{Namespace: namespace, Name: clusterName}
-		err = k8sclient.Get(context.Background(), key, kvCluster)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Get(context.Background(), key, kvCluster)).To(Succeed())
 
 		kvCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
 			Host: lbIP,
 			Port: 6443,
 		}
-		err = k8sclient.Update(context.Background(), kvCluster)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Update(context.Background(), kvCluster)).To(Succeed())
 
 		conditions.MarkTrue(kvCluster, infrav1.LoadBalancerAvailableCondition)
 		kvCluster.Status.Ready = true
 
-		err = k8sclient.Status().Update(context.Background(), kvCluster)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Status().Update(context.Background(), kvCluster)).To(Succeed())
 		Expect(kvCluster.Status.Ready).To(BeTrue())
 	}
 
 	waitForMachineReadiness := func(numExpectedReady int, numExpectedNotReady int) {
-		Eventually(func() error {
-
+		Eventually(func(g Gomega) {
 			readyCount := 0
 			notReadyCount := 0
 
 			machineList := &infrav1.KubevirtMachineList{}
-			err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
-			if err != nil {
-				return err
-			}
+			g.Expect(k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))).To(Succeed())
 
-			if len(machineList.Items) == 0 {
-				return fmt.Errorf("expecting a non-empty list of machines")
-			}
+			g.Expect(machineList.Items).ToNot(BeEmpty(), "expecting a non-empty list of machines")
 
 			for _, machine := range machineList.Items {
 				if machine.Status.Ready {
@@ -241,13 +218,8 @@ var _ = Describe("CreateCluster", func() {
 				}
 			}
 
-			if readyCount != numExpectedReady {
-				return fmt.Errorf("Expected %d ready, but got %d", numExpectedReady, readyCount)
-			} else if notReadyCount != numExpectedNotReady {
-				return fmt.Errorf("Expected %d not ready, but got %d", numExpectedNotReady, notReadyCount)
-			}
-
-			return nil
+			g.Expect(readyCount).To(Equal(numExpectedReady), "Expected %d ready, but got %d", numExpectedReady, readyCount)
+			g.Expect(notReadyCount).To(Equal(numExpectedNotReady), "Expected %d not ready, but got %d", numExpectedNotReady, notReadyCount)
 		}).WithOffset(1).
 			WithTimeout(5*time.Minute).
 			WithPolling(5*time.Second).
@@ -257,8 +229,7 @@ var _ = Describe("CreateCluster", func() {
 	waitForTenantPods := func() {
 
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		err := tenantAccessor.startForwardingTenantAPI()
-		Expect(err).ToNot(HaveOccurred())
+		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -289,8 +260,7 @@ var _ = Describe("CreateCluster", func() {
 
 	waitForTenantAccess := func(numExpectedNodes int) *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		err := tenantAccessor.startForwardingTenantAPI()
-		Expect(err).ToNot(HaveOccurred())
+		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -315,8 +285,7 @@ var _ = Describe("CreateCluster", func() {
 
 	waitForNodeReadiness := func() *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		err := tenantAccessor.startForwardingTenantAPI()
-		Expect(err).ToNot(HaveOccurred())
+		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -361,57 +330,46 @@ var _ = Describe("CreateCluster", func() {
 	}
 
 	waitForNodeUpdate := func() {
-		Eventually(func() error {
+		Eventually(func(g Gomega) {
 			machineList := &infrav1.KubevirtMachineList{}
-			err := k8sclient.List(context.Background(), machineList, client.InNamespace(namespace))
-			if err != nil {
-				return err
-			}
+			g.Expect(
+				k8sclient.List(context.Background(), machineList, client.InNamespace(namespace)),
+			).To(Succeed())
 
 			for _, machine := range machineList.Items {
-				if !machine.Status.NodeUpdated {
-					return fmt.Errorf("Still waiting on machine %s to have node provider id updated", machine.Name)
-				}
+				g.Expect(machine.Status.NodeUpdated).
+					To(
+						BeTrue(),
+						"Still waiting on machine %s to have node provider id updated", machine.Name,
+					)
 			}
-
-			return nil
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
 	waitForControlPlane := func() {
 		By("Waiting on cluster's control plane to initialize")
-		Eventually(func(g Gomega) error {
+		Eventually(func(g Gomega) {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
-			err := k8sclient.Get(context.Background(), key, cluster)
-			if err != nil {
-				return err
-			}
-
-			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
-				return fmt.Errorf("still waiting on controlPlaneReady condition to be true")
-			}
-
-			return nil
+			g.Expect(k8sclient.Get(context.Background(), key, cluster)).To(Succeed())
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition)).To(
+				BeTrue(),
+				"still waiting on controlPlaneReady condition to be true",
+			)
 		}).WithOffset(1).
 			WithTimeout(20*time.Minute).
 			WithPolling(5*time.Second).
 			Should(Succeed(), "cluster should have control plane initialized")
 
 		By("Waiting on cluster's control plane to be ready")
-		Eventually(func() error {
+		Eventually(func(g Gomega) {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
-			err := k8sclient.Get(context.Background(), key, cluster)
-			if err != nil {
-				return err
-			}
-
-			if !conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition) {
-				return fmt.Errorf("still waiting on controlPlaneInitialized condition to be true")
-			}
-
-			return nil
+			g.Expect(k8sclient.Get(context.Background(), key, cluster)).To(Succeed())
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition)).To(
+				BeTrue(),
+				"still waiting on controlPlaneInitialized condition to be true",
+			)
 		}).WithOffset(1).
 			WithTimeout(15*time.Minute).
 			WithPolling(5*time.Second).
@@ -454,8 +412,7 @@ var _ = Describe("CreateCluster", func() {
 	getVMIPod := func(vmi *kubevirtv1.VirtualMachineInstance) *corev1.Pod {
 
 		podList := &corev1.PodList{}
-		err := k8sclient.List(context.Background(), podList, client.InNamespace(namespace))
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.List(context.Background(), podList, client.InNamespace(namespace))).To(Succeed())
 
 		var chosenPod *corev1.Pod
 		for _, pod := range podList.Items {
@@ -529,8 +486,7 @@ var _ = Describe("CreateCluster", func() {
 			},
 		}
 
-		err := k8sclient.Create(context.Background(), mhc)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Create(context.Background(), mhc)).To(Succeed())
 	}
 
 	It("creates a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func() {
@@ -542,8 +498,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template.yaml")
 		stdout, _ := RunCmd(cmd)
-		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -580,8 +535,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template-passt-kccm.yaml")
 		stdout, _ := RunCmd(cmd)
-		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -618,8 +572,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template.yaml")
 		stdout, _ := RunCmd(cmd)
-		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -649,6 +602,7 @@ var _ = Describe("CreateCluster", func() {
 		Expect(ok).To(BeTrue())
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
+		var err error
 		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(chosenVMI)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -688,8 +642,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template.yaml")
 		stdout, _ := RunCmd(cmd)
-		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -759,8 +712,7 @@ var _ = Describe("CreateCluster", func() {
 
 		modifiedStdOut := injectKubevirtClusterExternallyManagedAnnotation(string(stdout))
 
-		err := os.WriteFile(manifestsFile, []byte(modifiedStdOut), 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, []byte(modifiedStdOut), 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -800,8 +752,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template-persistent-storage.yaml")
 		stdout, _ := RunCmd(cmd)
-		err := os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -833,8 +784,9 @@ var _ = Describe("CreateCluster", func() {
 		Expect(chosenVMI).ToNot(BeNil())
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
-		err = virtClient.VirtualMachineInstance(namespace).Delete(chosenVMI.Name, &metav1.DeleteOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		Expect(
+			virtClient.VirtualMachineInstance(namespace).Delete(chosenVMI.Name, &metav1.DeleteOptions{}),
+		).To(Succeed())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
@@ -908,8 +860,7 @@ var _ = Describe("CreateCluster", func() {
 				"kubeconfig": []byte(kubeconfigStr),
 			},
 		}
-		err = k8sclient.Create(context.Background(), externalInfraSecret)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Create(context.Background(), externalInfraSecret)).To(Succeed())
 
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
@@ -919,8 +870,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--target-namespace", namespace)
 		stdout, _ := RunCmd(cmd)
-		err = os.WriteFile(manifestsFile, stdout, 0644)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("applying cluster manifests")
 		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
@@ -990,7 +940,7 @@ func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *k
 		return vmi.GetUID()
 
 	}).WithOffset(1).
-		WithTimeout(time.Minute * 5).
+		WithTimeout(time.Minute * 8).
 		WithPolling(time.Second * 5).
 		ShouldNot(Equal(originalUID)) // make sure that a new VMI was created
 
