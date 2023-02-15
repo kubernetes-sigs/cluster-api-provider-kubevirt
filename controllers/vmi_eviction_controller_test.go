@@ -289,8 +289,9 @@ var _ = Describe("Test VMI Controller", func() {
 
 				// check that the VMI was not deleted
 				readVMI := &kubevirtv1.VirtualMachineInstance{}
-				err = fakeClient.Get(gocontext.TODO(), client.ObjectKey{Namespace: clusterNamespace, Name: nodeName}, readVMI)
-				Expect(err).ShouldNot(HaveOccurred())
+				Expect(
+					fakeClient.Get(gocontext.TODO(), client.ObjectKey{Namespace: clusterNamespace, Name: nodeName}, readVMI),
+				).To(Succeed())
 				Expect(readVMI).ToNot(BeNil())
 			})
 		})
