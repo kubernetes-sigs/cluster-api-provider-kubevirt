@@ -48,7 +48,7 @@ endif
 CONTROLLER_GEN := $(abspath $(TOOLS_BIN_DIR)/controller-gen)
 CONVERSION_GEN := $(abspath $(TOOLS_BIN_DIR)/conversion-gen)
 GOTESTSUM := $(abspath $(TOOLS_BIN_DIR)/gotestsum)
-KUSTOMIZE_IMAGE = k8s.gcr.io/kustomize/kustomize:v3.8.7
+KUSTOMIZE_IMAGE = registry.k8s.io/kustomize/kustomize:v3.8.7
 KUSTOMIZE ?= docker run $(KUSTOMIZE_IMAGE)
 
 # Define Docker related variables. Releases should modify and double check these vars.
