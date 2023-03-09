@@ -107,6 +107,11 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	// Use namespace specified in Service Template if exist
+	if kubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace != "" {
+		infraClusterNamespace = kubevirtCluster.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace
+	}
+
 	// Create a helper for managing a service hosting the load-balancer.
 	externalLoadBalancer, err := loadbalancer.NewLoadBalancer(clusterContext, infraClusterClient, infraClusterNamespace)
 	if err != nil {
