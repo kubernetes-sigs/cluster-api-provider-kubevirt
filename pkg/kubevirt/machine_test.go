@@ -141,8 +141,7 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		// read the vm before creation
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 
-		err = externalMachine.Create(machineContext.Context)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Create(machineContext.Context)).To(Succeed())
 
 		// read the vm before creation
 		validateVMExist(virtualMachine, fakeClient, machineContext)
@@ -155,8 +154,7 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		// read the vm before creation
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 
-		err = externalMachine.Create(machineContext.Context)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Create(machineContext.Context)).To(Succeed())
 
 		// read the new created vm
 		validateVMExist(virtualMachine, fakeClient, machineContext)
@@ -167,8 +165,7 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(err).NotTo(HaveOccurred())
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 
-		err = externalMachine.Delete()
-		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Delete()).To(Succeed())
 	})
 })
 
@@ -264,8 +261,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(err).NotTo(HaveOccurred())
 		validateVMExist(virtualMachine, fakeClient, machineContext)
 
-		err = externalMachine.Delete()
-		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Delete()).To(Succeed())
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 	})
 })
@@ -408,8 +404,7 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 		Expect(err).NotTo(HaveOccurred())
 		validateVMExist(virtualMachine, fakeClient, machineContext)
 
-		err = externalMachine.Delete()
-		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Delete()).To(Succeed())
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 	})
 })
@@ -473,8 +468,7 @@ func validateVMExist(expected *kubevirtv1.VirtualMachine, fakeClient client.Clie
 	vm := &kubevirtv1.VirtualMachine{}
 	key := client.ObjectKey{Name: expected.Name, Namespace: expected.Namespace}
 
-	err := fakeClient.Get(machineContext.Context, key, vm)
-	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	ExpectWithOffset(1, fakeClient.Get(machineContext.Context, key, vm)).To(Succeed())
 	Expect(vm.Name).To(Equal(expected.Name))
 	Expect(vm.Namespace).To(Equal(expected.Namespace))
 }

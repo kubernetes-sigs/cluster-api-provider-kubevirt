@@ -48,7 +48,7 @@ endif
 CONTROLLER_GEN := $(abspath $(TOOLS_BIN_DIR)/controller-gen)
 CONVERSION_GEN := $(abspath $(TOOLS_BIN_DIR)/conversion-gen)
 GOTESTSUM := $(abspath $(TOOLS_BIN_DIR)/gotestsum)
-KUSTOMIZE_IMAGE = k8s.gcr.io/kustomize/kustomize:v3.8.7
+KUSTOMIZE_IMAGE = registry.k8s.io/kustomize/kustomize:v3.8.7
 KUSTOMIZE ?= docker run $(KUSTOMIZE_IMAGE)
 
 # Define Docker related variables. Releases should modify and double check these vars.
@@ -333,7 +333,7 @@ goimports:
 linter:
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	# todo remove the exclude parameter when issue #85 is resolved
-	golangci-lint run --exclude SA1019
+	golangci-lint run --timeout=5m -E ginkgolinter --exclude SA1019
 
 .PHONY: sanity
 sanity: linter goimports test

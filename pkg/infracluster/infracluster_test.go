@@ -52,7 +52,7 @@ var _ = Describe("InfraCluster", func() {
 	})
 
 	It("should failed when the referenced infrastructure secret cannot be found", func() {
-		fakeClient := fake.NewFakeClientWithScheme(testing.SetupScheme())
+		fakeClient := fake.NewClientBuilder().WithScheme(testing.SetupScheme()).Build()
 
 		infraClusterSecretRef := &corev1.ObjectReference{
 			APIVersion: "v1",
@@ -131,7 +131,7 @@ var _ = Describe("InfraCluster", func() {
 			Name:       infraSecretName,
 		}
 
-		fakeInfraClient := fake.NewFakeClient()
+		fakeInfraClient := fake.NewClientBuilder().Build()
 		infraCluster := NewWithFactory(fakeClient,
 			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
 				return fakeInfraClient, nil
@@ -162,7 +162,7 @@ var _ = Describe("InfraCluster", func() {
 			Name:       infraSecretName,
 		}
 
-		fakeInfraClient := fake.NewFakeClient()
+		fakeInfraClient := fake.NewClientBuilder().Build()
 		infraCluster := NewWithFactory(fakeClient,
 			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
 				return fakeInfraClient, nil

@@ -31,8 +31,7 @@ var _ = Describe("test credentials common function", func() {
 			client := fake.NewSimpleClientset()
 			cmdCtx.Client = client
 
-			err := ensureNamespace(context.Background(), cmdCtx, clientOperationCreate)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(ensureNamespace(context.Background(), cmdCtx, clientOperationCreate)).To(Succeed())
 
 			ns, err := client.CoreV1().Namespaces().Get(context.Background(), namespaceName, metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
@@ -44,8 +43,7 @@ var _ = Describe("test credentials common function", func() {
 			client := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 			cmdCtx.Client = client
 
-			err := ensureNamespace(context.Background(), cmdCtx, clientOperationApply)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(ensureNamespace(context.Background(), cmdCtx, clientOperationApply)).To(Succeed())
 
 			ns, err := client.CoreV1().Namespaces().Get(context.Background(), namespaceName, metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
@@ -73,9 +71,7 @@ var _ = Describe("test credentials common function", func() {
 			client := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 			cmdCtx.Client = client
 
-			err := ensureServiceAccount(context.Background(), cmdCtx)
-
-			Expect(err).ToNot(HaveOccurred())
+			Expect(ensureServiceAccount(context.Background(), cmdCtx)).To(Succeed())
 		})
 
 		It("should do nothing if the serviceAccount is already exist", func() {
@@ -95,9 +91,7 @@ var _ = Describe("test credentials common function", func() {
 			)
 			cmdCtx.Client = client
 
-			err := ensureServiceAccount(context.Background(), cmdCtx)
-
-			Expect(err).ToNot(HaveOccurred())
+			Expect(ensureServiceAccount(context.Background(), cmdCtx)).To(Succeed())
 		})
 	})
 
@@ -115,8 +109,7 @@ var _ = Describe("test credentials common function", func() {
 			)
 			cmdCtx.Client = client
 
-			err := createOrUpdateRole(context.Background(), cmdCtx, clientOperationCreate)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(createOrUpdateRole(context.Background(), cmdCtx, clientOperationCreate)).To(Succeed())
 
 			roles, err := client.RbacV1().Roles(namespaceName).List(context.Background(), metav1.ListOptions{})
 			Expect(err).ToNot(HaveOccurred())
@@ -150,8 +143,7 @@ var _ = Describe("test credentials common function", func() {
 			)
 			cmdCtx.Client = client
 
-			err := createOrUpdateRole(context.Background(), cmdCtx, clientOperationCreate)
-			Expect(err).To(HaveOccurred())
+			Expect(createOrUpdateRole(context.Background(), cmdCtx, clientOperationCreate)).ToNot(Succeed())
 		})
 
 		It("should update the role if it is already exist, with different values", func() {
@@ -172,8 +164,7 @@ var _ = Describe("test credentials common function", func() {
 			)
 			cmdCtx.Client = client
 
-			err := createOrUpdateRole(context.Background(), cmdCtx, clientOperationApply)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(createOrUpdateRole(context.Background(), cmdCtx, clientOperationApply)).To(Succeed())
 
 			roles, err := client.RbacV1().Roles(namespaceName).List(context.Background(), metav1.ListOptions{})
 			Expect(err).ToNot(HaveOccurred())
@@ -206,8 +197,7 @@ var _ = Describe("test credentials common function", func() {
 			)
 			cmdCtx.Client = client
 
-			err := ensureRoleBinding(context.Background(), cmdCtx)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(ensureRoleBinding(context.Background(), cmdCtx)).To(Succeed())
 
 			roleBindings, err := client.RbacV1().RoleBindings(namespaceName).List(context.Background(), metav1.ListOptions{})
 			Expect(err).ToNot(HaveOccurred())
