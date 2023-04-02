@@ -47,10 +47,29 @@ type KubevirtMachineSpec struct {
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
 
+	// BootstrapCheckSpec tells the CAPK controller how it will remotely validate machine bootstrap.
+	// +optional
+	BootstrapCheckSpec VirtualMachineBootstrapCheckSpec `json:"virtualMachineBootstrapCheck,omitempty"`
+
 	// InfraClusterSecretRef is a reference to a secret with a kubeconfig for external cluster used for infra.
 	// When nil, this defaults to the value present in the KubevirtCluster object's spec associated with this machine.
 	// +optional
 	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
+}
+
+// VirtualMachineBootstrapCheckSpec defines how the controller will remotely check
+type VirtualMachineBootstrapCheckSpec struct {
+	// BootstrapCheckMode describes how the controller will reach a provisionning kubevirt VM.
+	// CAPK controller will try to retrieve the content of the CAPI bootstrap sentinel file using the provided method.
+	// Possible values are: "http" or "ssh". When nil or invalid, this defaults to SSH check mechanism.
+	// +optional
+	BootstrapCheckMode string `json:"mode,omitempty"`
+
+	// BootstrapCheckPort configures the http(s) port that will be polled by the controller to
+	// check bootstrap status. It is only effective for "http" check mode.
+	// When nil, this defaults to 6440. SSH mode will always use standard port 22.
+	// +optional
+	BootstrapCheckPort int `json:"port,omitempty"`
 }
 
 // KubevirtMachineStatus defines the observed state of KubevirtMachine.

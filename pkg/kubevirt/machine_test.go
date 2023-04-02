@@ -126,6 +126,28 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(externalMachine.SupportsCheckingIsBootstrapped()).To(BeFalse())
 	})
 
+	It("BootstrapMode should return and default to 'ssh'", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+		// test default value
+		Expect(externalMachine.BootstrapMode()).To(Equal("ssh"))
+
+		// test normal ssh
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.BootstrapCheckMode = "ssh"
+		Expect(externalMachine.BootstrapMode()).To(Equal("ssh"))
+
+		// test fallback to ssh on invalid value
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.BootstrapCheckMode = "invalid"
+		Expect(externalMachine.BootstrapMode()).To(Equal("ssh"))
+	})
+
+	It("BootstrapMode should return 'http'", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.BootstrapCheckMode = "http"
+		Expect(externalMachine.BootstrapMode()).To(Equal("http"))
+	})
+
 	It("GenerateProviderID should fail", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())

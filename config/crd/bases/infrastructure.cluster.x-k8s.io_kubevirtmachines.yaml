@@ -80,6 +80,24 @@ spec:
               providerID:
                 description: ProviderID TBD what to use for Kubevirt
                 type: string
+              virtualMachineBootstrapCheck:
+                description: BootstrapCheckSpec tells the CAPK controller how it will
+                  remotely validate machine bootstrap.
+                properties:
+                  mode:
+                    description: 'BootstrapCheckMode describes how the controller
+                      will reach a provisionning kubevirt VM. CAPK controller will
+                      try to retrieve the content of the CAPI bootstrap sentinel file
+                      using the provided method. Possible values are: "http" or "ssh".
+                      When nil or invalid, this defaults to SSH check mechanism.'
+                    type: string
+                  port:
+                    description: BootstrapCheckPort configures the http(s) port that
+                      will be polled by the controller to check bootstrap status.
+                      It is only effective for "http" check mode. When nil, this defaults
+                      to 6440. SSH mode will always use standard port 22.
+                    type: integer
+                type: object
               virtualMachineTemplate:
                 description: VirtualMachineTemplateSpec defines the desired state
                   of the kubevirt VM.

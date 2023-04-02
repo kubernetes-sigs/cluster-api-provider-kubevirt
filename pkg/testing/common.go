@@ -62,6 +62,7 @@ func NewKubevirtMachine(kubevirtMachineName, machineName string) *infrav1.Kubevi
 			},
 		},
 		Spec: infrav1.KubevirtMachineSpec{
+			BootstrapCheckSpec: infrav1.VirtualMachineBootstrapCheckSpec{},
 			VirtualMachineTemplate: infrav1.VirtualMachineTemplateSpec{
 
 				Spec: kubevirtv1.VirtualMachineSpec{

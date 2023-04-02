@@ -19,6 +19,8 @@ package kubevirt
 import (
 	gocontext "context"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -226,6 +228,17 @@ func (m *Machine) SupportsCheckingIsBootstrapped() bool {
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
 func (m *Machine) IsBootstrapped() bool {
+	if m.BootstrapMode() == "http" {
+		m.machineContext.Logger.Info("Checking VM bootstrap Sentinel file using http")
+		return m.IsBootstrappedWithHttp()
+	}
+
+	m.machineContext.Logger.Info("Checking VM bootstrap Sentinel file using ssh")
+	return m.IsBootstrappedWithSsh()
+}
+
+// IsBootstrappedWithSsh checks the VM bootstrap success using SSH protocol
+func (m *Machine) IsBootstrappedWithSsh() bool {
 	if !m.IsReady() || m.sshKeys == nil {
 		return false
 	}
@@ -237,6 +250,53 @@ func (m *Machine) IsBootstrapped() bool {
 		return false
 	}
 	return true
+}
+
+// IsBootstrappedWithHttp checks the VM bootstrap success using HTTP protocol
+func (m *Machine) IsBootstrappedWithHttp() bool {
+	if !m.IsReady() {
+		return false
+	}
+
+	// Get http port used for checking VM bootstrap file content with a default value
+	checkPort := m.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.BootstrapCheckPort
+	if checkPort == 0 {
+		checkPort = 6440
+	}
+
+	bootstrapCheckURL := fmt.Sprintf(
+		"http://%s:%d/bootstrap-success.complete",
+		m.Address(),
+		checkPort,
+	)
+
+	// Use current context or wrap it in a new one with dedicated http timeout ?
+	req, err := http.NewRequestWithContext(m.machineContext.Context, http.MethodGet, bootstrapCheckURL, nil)
+	if err != nil {
+		return false
+	}
+
+	client := http.DefaultClient
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil || string(body) != "success" { // Test contentLength before string test ?
+		return false
+	}
+	return true
+}
+
+// BootstrapMode returns the expected method to check bootstrap file in the VM
+func (m *Machine) BootstrapMode() string {
+	checkSpec := m.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec
+	if checkSpec.BootstrapCheckMode == "http" { // maybe use typed iota for checkModes ?
+		return "http"
+	}
+	// default & fallback to ssh on invalid mode
+	return "ssh"
 }
 
 // GenerateProviderID generates the KubeVirt provider ID to be used for the NodeRef
