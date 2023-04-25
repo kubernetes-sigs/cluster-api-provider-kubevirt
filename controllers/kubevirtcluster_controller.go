@@ -54,7 +54,7 @@ type KubevirtClusterReconciler struct {
 	Log          logr.Logger
 }
 
-func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string ) string {
+func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string) string {
 	// Use namespace specified in Service Template if exist
 	if kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace != "" {
 		return kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace
@@ -164,8 +164,14 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 		}
 	}
 
-	// Get LoadBalancer ExternalIP if cluster Service Type is LoadBalancer
-	if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
+	// Get the ControlPlane Host and Port manually set by the user if existing
+	if ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Host != "" {
+		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
+			Host: ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Host,
+			Port: ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Port,
+		}
+		// Get LoadBalancer ExternalIP if cluster Service Type is LoadBalancer
+	} else if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
 		lbip4, err := externalLoadBalancer.ExternalIP(ctx)
 		if err != nil {
 			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
