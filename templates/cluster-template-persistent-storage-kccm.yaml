@@ -37,6 +37,8 @@ metadata:
 spec:
   template:
     spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: ssh
       virtualMachineTemplate:
         metadata:
           namespace: "${NAMESPACE}"
@@ -110,6 +112,8 @@ metadata:
 spec:
   template:
     spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: ssh
       virtualMachineTemplate:
         metadata:
           namespace: "${NAMESPACE}"

@@ -91,6 +91,23 @@ spec:
                       providerID:
                         description: ProviderID TBD what to use for Kubevirt
                         type: string
+                      virtualMachineBootstrapCheck:
+                        description: BootstrapCheckSpec defines how the CAPK controller
+                          is checking CAPI Sentinel file inside the VM.
+                        properties:
+                          checkStrategy:
+                            default: ssh
+                            description: 'CheckStrategy describes how CAPK controller
+                              will validate a successful CAPI bootstrap. Following
+                              specified method, CAPK will try to retrieve the state
+                              of the CAPI Sentinel file from the VM. Possible values
+                              are: "none" or "ssh" (default is "ssh") and this value
+                              is validated by apiserver.'
+                            enum:
+                            - none
+                            - ssh
+                            type: string
+                        type: object
                       virtualMachineTemplate:
                         description: VirtualMachineTemplateSpec defines the desired
                           state of the kubevirt VM.

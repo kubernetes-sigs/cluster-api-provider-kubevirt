@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
@@ -64,6 +65,8 @@ var _ = Describe("Without KubeVirt VM running", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -114,8 +117,29 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(externalMachine.IsReady()).To(BeFalse())
 	})
 
-	It("IsBootstrapped should return false", func() {
+	It("default mode: IsBootstrapped should return false", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
+	})
+
+	It("ssh mode: IsBootstrapped return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
@@ -176,6 +200,8 @@ var _ = Describe("With KubeVirt VM running", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -234,10 +260,31 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(externalMachine.IsReady()).To(BeTrue())
 	})
 
-	It("IsBootstrapped should return true", func() {
+	It("default mode: IsBootstrapped should return true", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("ssh mode: IsBootstrapped return true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return true", func() {
@@ -319,6 +366,8 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -377,10 +426,31 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 		Expect(externalMachine.IsReady()).To(BeTrue())
 	})
 
-	It("IsBootstrapped should return true", func() {
+	It("default mode: IsBootstrapped should return true", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("ssh mode: IsBootstrapped return true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return true", func() {
