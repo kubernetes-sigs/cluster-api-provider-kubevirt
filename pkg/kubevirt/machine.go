@@ -226,6 +226,25 @@ func (m *Machine) SupportsCheckingIsBootstrapped() bool {
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
 func (m *Machine) IsBootstrapped() bool {
+	// CheckStrategy value is already sanitized by apiserver
+	switch m.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy {
+	case "none":
+		// skip bootstrap check and always returns positively
+		return true
+
+	case "":
+		fallthrough // ssh is default check strategy, fallthrough
+	case "ssh":
+		return m.IsBootstrappedWithSSH()
+
+	default:
+		// Since CRD CheckStrategy field is validated by an enum, this case should never be hit
+		return false
+	}
+}
+
+// IsBootstrappedWithSSH checks if the VM is bootstrapped with Kubernetes using SSH strategy.
+func (m *Machine) IsBootstrappedWithSSH() bool {
 	if !m.IsReady() || m.sshKeys == nil {
 		return false
 	}

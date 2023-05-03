@@ -68,6 +68,8 @@ func NewKubevirtMachine(kubevirtMachineName, machineName string) *infrav1.Kubevi
 					Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{},
 				},
 			},
+
+			BootstrapCheckSpec: infrav1.VirtualMachineBootstrapCheckSpec{},
 		},
 		Status: infrav1.KubevirtMachineStatus{},
 	}
