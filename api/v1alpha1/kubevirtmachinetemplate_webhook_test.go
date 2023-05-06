@@ -55,8 +55,7 @@ var _ = Describe("Template Validation", func() {
 		})
 
 		It("should not return error", func() {
-			err := tests.newTemplate.ValidateUpdate(tests.oldTemplate)
-			Ω(err).ShouldNot(HaveOccurred())
+			Ω(tests.newTemplate.ValidateUpdate(tests.oldTemplate)).Should(Succeed())
 		})
 	})
 	Context("Template comparison with errors", func() {
