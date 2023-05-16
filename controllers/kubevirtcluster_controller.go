@@ -54,6 +54,14 @@ type KubevirtClusterReconciler struct {
 	Log          logr.Logger
 }
 
+func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string ) string {
+	// Use namespace specified in Service Template if exist
+	if kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace != "" {
+		return kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace
+	}
+	return infraClusterNamespace
+}
+
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=services;,verbs=get;list;watch;create;update;patch;delete
@@ -107,8 +115,10 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
+	loadBalancerNamespace := GetLoadBalancerNamespace(kubevirtCluster, infraClusterNamespace)
+
 	// Create a helper for managing a service hosting the load-balancer.
-	externalLoadBalancer, err := loadbalancer.NewLoadBalancer(clusterContext, infraClusterClient, infraClusterNamespace)
+	externalLoadBalancer, err := loadbalancer.NewLoadBalancer(clusterContext, infraClusterClient, loadBalancerNamespace)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalLoadBalancer")
 	}
