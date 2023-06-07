@@ -1,16 +1,17 @@
 package kubevirt
 
-//go:generate mockgen -source=./machine_factory.go -destination=./mock/machine_factory_generated.go -package=mock
+//go:generate mockgen -source=./machine_factory.go -destination=./mock/machine_factory_generated.go -package=mock_kubevirt
 
 import (
 	gocontext "context"
+	"time"
 
+	"github.com/pkg/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-
-	"github.com/pkg/errors"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
 // MachineInterface abstracts the functions that the kubevirt.machine interface implements.
@@ -35,6 +36,8 @@ type MachineInterface interface {
 	GenerateProviderID() (string, error)
 	// IsTerminal reports back if a VM is in a permanent terminal state
 	IsTerminal() (bool, string, error)
+
+	DrainNodeIfNeeded(workloadcluster.WorkloadCluster) (time.Duration, error)
 }
 
 // MachineFactory allows creating new instances of kubevirt.machine

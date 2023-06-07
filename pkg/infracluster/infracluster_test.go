@@ -44,7 +44,7 @@ var _ = Describe("InfraCluster", func() {
 	It("should return the management client and namespace when the infrastructure secret reference is nil", func() {
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).Build()
 
-		infraCluster := New(fakeClient)
+		infraCluster := New(fakeClient, fakeClient)
 		infraClient, infraNamespace, err := infraCluster.GenerateInfraClusterClient(nil, ownerNamespace, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(infraClient).To(BeIdenticalTo(fakeClient))
@@ -59,7 +59,7 @@ var _ = Describe("InfraCluster", func() {
 			Kind:       "Secret",
 			Name:       infraSecretName,
 		}
-		infraCluster := New(fakeClient)
+		infraCluster := New(fakeClient, nil)
 
 		_, _, err := infraCluster.GenerateInfraClusterClient(infraClusterSecretRef, ownerNamespace, nil)
 		Expect(errors.IsNotFound(err)).To(BeTrue())
@@ -81,7 +81,7 @@ var _ = Describe("InfraCluster", func() {
 			Name:       infraSecretName,
 		}
 
-		infraCluster := New(fakeClient)
+		infraCluster := New(fakeClient, nil)
 		_, _, err := infraCluster.GenerateInfraClusterClient(infraClusterSecretRef, ownerNamespace, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(Equal("failed to retrieve infra kubeconfig from secret: 'kubeconfig' key is missing"))
@@ -105,7 +105,7 @@ var _ = Describe("InfraCluster", func() {
 			Name:       infraSecretName,
 		}
 
-		infraCluster := New(fakeClient)
+		infraCluster := New(fakeClient, nil)
 		_, _, err := infraCluster.GenerateInfraClusterClient(infraClusterSecretRef, ownerNamespace, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to create K8s-API client config"))
@@ -132,7 +132,7 @@ var _ = Describe("InfraCluster", func() {
 		}
 
 		fakeInfraClient := fake.NewClientBuilder().Build()
-		infraCluster := NewWithFactory(fakeClient,
+		infraCluster := NewWithFactory(fakeClient, nil,
 			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
 				return fakeInfraClient, nil
 			},
@@ -163,7 +163,7 @@ var _ = Describe("InfraCluster", func() {
 		}
 
 		fakeInfraClient := fake.NewClientBuilder().Build()
-		infraCluster := NewWithFactory(fakeClient,
+		infraCluster := NewWithFactory(fakeClient, nil,
 			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
 				return fakeInfraClient, nil
 			},

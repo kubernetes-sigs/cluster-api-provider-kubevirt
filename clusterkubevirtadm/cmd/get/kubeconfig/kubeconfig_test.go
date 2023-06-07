@@ -157,7 +157,7 @@ var _ = Describe("test kubeconfig function", func() {
 			Expect(found).ShouldNot(BeNil())
 			Expect(found.Secrets).ToNot(BeEmpty())
 
-			Eventually(doneUpdatingSa)
+			Eventually(doneUpdatingSa).Should(BeClosed())
 		})
 
 		It("should fail after 10 seconds if the secret was not created", func() {

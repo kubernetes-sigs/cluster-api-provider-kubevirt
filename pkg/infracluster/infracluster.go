@@ -20,27 +20,29 @@ type InfraCluster interface {
 type ClientFactoryFunc func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error)
 
 // New creates new InfraCluster instance
-func New(client k8sclient.Client) InfraCluster {
-	return NewWithFactory(client, k8sclient.New)
+func New(client k8sclient.Client, noCachedClient k8sclient.Client) InfraCluster {
+	return NewWithFactory(client, noCachedClient, k8sclient.New)
 }
 
 // NewWithFactory creates new InfraCluster instance that uses the provided client factory function.
-func NewWithFactory(client k8sclient.Client, factory ClientFactoryFunc) InfraCluster {
+func NewWithFactory(client k8sclient.Client, noCachedClient k8sclient.Client, factory ClientFactoryFunc) InfraCluster {
 	return &infraCluster{
-		Client:        client,
-		ClientFactory: factory,
+		Client:         client,
+		NoCachedClient: noCachedClient,
+		ClientFactory:  factory,
 	}
 }
 
 type infraCluster struct {
 	k8sclient.Client
-	ClientFactory ClientFactoryFunc
+	NoCachedClient k8sclient.Client
+	ClientFactory  ClientFactoryFunc
 }
 
 // GenerateInfraClusterClient creates a client for infra cluster.
 func (w *infraCluster) GenerateInfraClusterClient(infraClusterSecretRef *corev1.ObjectReference, ownerNamespace string, context gocontext.Context) (k8sclient.Client, string, error) {
 	if infraClusterSecretRef == nil {
-		return w.Client, ownerNamespace, nil
+		return w.NoCachedClient, ownerNamespace, nil
 	}
 
 	infraKubeconfigSecret := &corev1.Secret{}
