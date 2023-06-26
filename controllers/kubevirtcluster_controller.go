@@ -54,7 +54,7 @@ type KubevirtClusterReconciler struct {
 	Log          logr.Logger
 }
 
-func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string ) string {
+func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string) string {
 	// Use namespace specified in Service Template if exist
 	if kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace != "" {
 		return kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace
@@ -156,8 +156,8 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 }
 
 func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext, externalLoadBalancer *loadbalancer.LoadBalancer) (ctrl.Result, error) {
-	// Create the service serving as load balancer, if not existing
-	if !externalLoadBalancer.IsFound() {
+	// If the ControlPlaneServiceTemplate has a value, create the service serving as load balancer if not existing
+	if len(ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type) > 0 && !externalLoadBalancer.IsFound() {
 		if err := externalLoadBalancer.Create(ctx); err != nil {
 			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 			return ctrl.Result{}, errors.Wrap(err, "failed to create load balancer")
