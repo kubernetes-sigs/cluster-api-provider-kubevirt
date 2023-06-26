@@ -164,14 +164,15 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 		}
 	}
 
+	switch {
 	// Get the ControlPlane Host and Port manually set by the user if existing
-	if ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Host != "" {
+	case ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Host != "":
 		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
 			Host: ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Host,
 			Port: ctx.KubevirtCluster.Spec.ControlPlaneEndpoint.Port,
 		}
-		// Get LoadBalancer ExternalIP if cluster Service Type is LoadBalancer
-	} else if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
+	// Get LoadBalancer ExternalIP if cluster Service Type is LoadBalancer
+	case ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer":
 		lbip4, err := externalLoadBalancer.ExternalIP(ctx)
 		if err != nil {
 			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
@@ -181,9 +182,10 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 			Host: lbip4,
 			Port: 6443,
 		}
-
-		// Get Cluster IP if cluster Service Type is CusterIP
-	} else {
+	// Retrieving the ClusterIP for all the services
+	case ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "ClusterIP",
+		ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "NodePort",
+		ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "ExternalName":
 		lbip4, err := externalLoadBalancer.IP(ctx)
 		if err != nil {
 			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
@@ -193,6 +195,9 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 			Host: lbip4,
 			Port: 6443,
 		}
+	// The user didn't provide a floating VIP, or didn't pick up a template for the service
+	default:
+		return ctrl.Result{}, fmt.Errorf("missing controlPlaneEndpoint, or missing ControlPlaneServiceTemplate")
 	}
 
 	conditions.MarkTrue(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition)
