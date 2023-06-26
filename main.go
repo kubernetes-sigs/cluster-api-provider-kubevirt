@@ -23,13 +23,6 @@ import (
 	"os"
 	"time"
 
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-
-	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
-
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -41,10 +34,15 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	ctrl "sigs.k8s.io/controller-runtime"
-
+	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -152,9 +150,15 @@ func setupChecks(mgr ctrl.Manager) {
 }
 
 func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
+	noCachedClient, err := k8sclient.New(mgr.GetConfig(), k8sclient.Options{Scheme: mgr.GetClient().Scheme()})
+	if err != nil {
+		setupLog.Error(err, "unable to create controller; failed to generate no-cached client")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.KubevirtMachineReconciler{
 		Client:          mgr.GetClient(),
-		InfraCluster:    infracluster.New(mgr.GetClient()),
+		InfraCluster:    infracluster.New(mgr.GetClient(), noCachedClient),
 		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
 		MachineFactory:  kubevirt.DefaultMachineFactory{},
 	}).SetupWithManager(ctx, mgr, controller.Options{
@@ -166,15 +170,10 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 
 	if err := (&controllers.KubevirtClusterReconciler{
 		Client:       mgr.GetClient(),
-		InfraCluster: infracluster.New(mgr.GetClient()),
+		InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient),
 		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
-		os.Exit(1)
-	}
-
-	if err := (controllers.NewVmiEvictionReconciler(mgr.GetClient())).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VirtualMachineInstance")
 		os.Exit(1)
 	}
 }
