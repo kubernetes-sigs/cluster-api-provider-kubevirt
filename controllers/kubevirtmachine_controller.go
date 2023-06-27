@@ -64,8 +64,8 @@ type KubevirtMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;delete
 
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
@@ -287,6 +287,14 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
 		ctx.KubevirtMachine.Status.Ready = false
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
+	}
+
+	retryDuration, err := externalMachine.DrainNodeIfNeeded(r.WorkloadCluster)
+	if err != nil {
+		return ctrl.Result{RequeueAfter: retryDuration}, errors.Wrap(err, "failed to drain node")
+	}
+	if retryDuration > 0 {
+		return ctrl.Result{RequeueAfter: retryDuration}, nil
 	}
 
 	if externalMachine.SupportsCheckingIsBootstrapped() && !conditions.IsTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition) {

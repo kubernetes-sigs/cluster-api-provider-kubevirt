@@ -46,6 +46,29 @@ func NewKubevirtCluster(clusterName, kubevirtName string) *infrav1.KubevirtClust
 	}
 }
 
+func NewKubevirtClusterWithNamespacedLB(clusterName, kubevirtName string, lbNamespace string) *infrav1.KubevirtCluster {
+	return &infrav1.KubevirtCluster{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: kubevirtName,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: clusterv1.GroupVersion.String(),
+					Kind:       "Cluster",
+					Name:       clusterName,
+				},
+			},
+		},
+		Spec: infrav1.KubevirtClusterSpec {
+			ControlPlaneServiceTemplate: infrav1.ControlPlaneServiceTemplate{
+				ObjectMeta: metav1.ObjectMeta {
+					Namespace: lbNamespace,
+				},
+			},
+		},
+	}
+}
+
 func NewKubevirtMachine(kubevirtMachineName, machineName string) *infrav1.KubevirtMachine {
 	return &infrav1.KubevirtMachine{
 		TypeMeta: metav1.TypeMeta{},
@@ -68,6 +91,8 @@ func NewKubevirtMachine(kubevirtMachineName, machineName string) *infrav1.Kubevi
 					Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{},
 				},
 			},
+
+			BootstrapCheckSpec: infrav1.VirtualMachineBootstrapCheckSpec{},
 		},
 		Status: infrav1.KubevirtMachineStatus{},
 	}

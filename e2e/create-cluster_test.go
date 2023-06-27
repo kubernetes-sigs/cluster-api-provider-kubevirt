@@ -217,11 +217,10 @@ var _ = Describe("CreateCluster", func() {
 					notReadyCount++
 				}
 			}
-
 			g.Expect(readyCount).To(Equal(numExpectedReady), "Expected %d ready, but got %d", numExpectedReady, readyCount)
 			g.Expect(notReadyCount).To(Equal(numExpectedNotReady), "Expected %d not ready, but got %d", numExpectedNotReady, notReadyCount)
 		}).WithOffset(1).
-			WithTimeout(5*time.Minute).
+			WithTimeout(10*time.Minute).
 			WithPolling(5*time.Second).
 			Should(Succeed(), "waiting for expected readiness.")
 	}
@@ -783,6 +782,9 @@ var _ = Describe("CreateCluster", func() {
 		}
 		Expect(chosenVMI).ToNot(BeNil())
 
+		By("Set a testFinalizer to hold the VMI deletion so we could check if the machine became not-ready")
+		addFinalizerFromVMI(chosenVMI.Name, namespace)
+
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
 		Expect(
 			virtClient.VirtualMachineInstance(namespace).Delete(chosenVMI.Name, &metav1.DeleteOptions{}),
@@ -790,6 +792,10 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
+
+		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
+		Expect(err).ShouldNot(HaveOccurred())
+		removeFinalizerFromVMI(deletedVmi)
 
 		By("Expecting both KubevirtMachines stabilize to a ready=true again.")
 		waitForMachineReadiness(2, 0)
@@ -892,7 +898,7 @@ func waitForVMIDraining(vmiName, namespace string) {
 	var err error
 
 	By("wait for VMI is marked for deletion")
-	Eventually(func(g Gomega) bool {
+	Eventually(func(g Gomega) {
 		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
 		g.Expect(err).ShouldNot(HaveOccurred())
 
@@ -900,12 +906,10 @@ func waitForVMIDraining(vmiName, namespace string) {
 
 		g.Expect(vmi.Status.EvacuationNodeName).ShouldNot(BeEmpty())
 		g.Expect(vmi.DeletionTimestamp).ShouldNot(BeNil())
-
-		return true
 	}).WithOffset(1).
-		WithTimeout(time.Minute * 2).
-		WithPolling(time.Second).
-		Should(BeTrue())
+		WithTimeout(time.Minute * 5).
+		WithPolling(time.Second * 5).
+		Should(Succeed())
 }
 
 func evictNode(pod *corev1.Pod) {

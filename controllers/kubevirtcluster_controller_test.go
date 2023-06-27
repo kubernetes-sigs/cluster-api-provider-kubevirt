@@ -25,6 +25,7 @@ var (
 	clusterName               string
 	kubevirtClusterName       string
 	kubevirtCluster           *infrav1.KubevirtCluster
+	kubeconfigNamespace       string
 	cluster                   *clusterv1.Cluster
 	fakeClient                client.Client
 	kubevirtClusterReconciler controllers.KubevirtClusterReconciler
@@ -173,6 +174,28 @@ var _ = Describe("Reconcile", func() {
 			kvc := &infrav1.KubevirtCluster{}
 			err = fakeClient.Get(fakeContext, namespacedName, kvc)
 			Expect(err).Should(HaveOccurred())
+		})
+	})
+
+	Context("Compute Control Plane LB service namespace values precedence before it's created", func() {
+		BeforeEach(func() {
+			clusterName = "test-cluster"
+			kubevirtClusterName = "test-kubevirt-cluster"
+			kubeconfigNamespace = "kubeconfig-namespace"
+			cluster = testing.NewCluster(kubevirtClusterName, kubevirtCluster)
+		})
+
+		AfterEach(func() {})
+
+		It("should use provided LB namespace if its set", func() {
+			kubevirtCluster = testing.NewKubevirtClusterWithNamespacedLB(kubevirtClusterName, kubevirtClusterName, "lb-namespace")
+			ns := controllers.GetLoadBalancerNamespace(kubevirtCluster, kubeconfigNamespace)
+			Expect(ns).To(Equal("lb-namespace"))
+		})
+		It("should use kubeconfig namespace if LB namespace is not set", func() {
+			kubevirtCluster = testing.NewKubevirtClusterWithNamespacedLB(kubevirtClusterName, kubevirtClusterName, "")
+			ns := controllers.GetLoadBalancerNamespace(kubevirtCluster, kubeconfigNamespace)
+			Expect(ns).To(Equal(kubeconfigNamespace))
 		})
 	})
 })
