@@ -36,7 +36,8 @@ const ( //labels
 )
 
 const ( // annotations
-	VmiDeletionGraceTime = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
+	VmiDeletionGraceTime       = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
+	VmiDeletionGraceTimeEscape = "capk.cluster.x-k8s.io~1vmi-deletion-grace-time"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.
@@ -103,7 +104,8 @@ type SSHKeys struct {
 
 // ControlPlaneServiceTemplate describes the template for the control plane service.
 type ControlPlaneServiceTemplate struct {
-	// Service metadata allows to set labels and annotations for the service.
+	// Service metadata allows to set labels, annotations and namespace for the service.
+	// When infraClusterSecretRef is used, ControlPlaneService take the kubeconfig namespace by default if metadata.namespace is not specified.
 	// This field is optional.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable

@@ -19,19 +19,27 @@ package kubevirt
 import (
 	gocontext "context"
 	"fmt"
-
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kubedrain "k8s.io/kubectl/pkg/drain"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"time"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+)
+
+const (
+	vmiDeleteGraceTimeoutDurationSeconds = 600 // 10 minutes
 )
 
 // Machine implement a service for managing the KubeVirt VM hosting a kubernetes node.
@@ -85,7 +93,7 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 	return machine, nil
 }
 
-// Reports back if the VM is either being requested to terminate or is terminate
+// IsTerminal Reports back if the VM is either being requested to terminate or is terminate
 // in a way that it will never recover from.
 func (m *Machine) IsTerminal() (bool, string, error) {
 	if m.vmInstance == nil || m.vmiInstance == nil {
@@ -226,6 +234,25 @@ func (m *Machine) SupportsCheckingIsBootstrapped() bool {
 
 // IsBootstrapped checks if the VM is bootstrapped with Kubernetes.
 func (m *Machine) IsBootstrapped() bool {
+	// CheckStrategy value is already sanitized by apiserver
+	switch m.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy {
+	case "none":
+		// skip bootstrap check and always returns positively
+		return true
+
+	case "":
+		fallthrough // ssh is default check strategy, fallthrough
+	case "ssh":
+		return m.IsBootstrappedWithSSH()
+
+	default:
+		// Since CRD CheckStrategy field is validated by an enum, this case should never be hit
+		return false
+	}
+}
+
+// IsBootstrappedWithSSH checks if the VM is bootstrapped with Kubernetes using SSH strategy.
+func (m *Machine) IsBootstrappedWithSSH() bool {
 	if !m.IsReady() || m.sshKeys == nil {
 		return false
 	}
@@ -267,4 +294,191 @@ func (m *Machine) Delete() error {
 	}
 
 	return nil
+}
+
+func (m *Machine) DrainNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) (time.Duration, error) {
+	if m.vmiInstance == nil || !m.shouldGracefulDeleteVMI() {
+		if _, anntExists := m.machineContext.KubevirtMachine.Annotations[infrav1.VmiDeletionGraceTime]; anntExists {
+			if err := m.removeGracePeriodAnnotation(); err != nil {
+				return 100 * time.Millisecond, err
+			}
+		}
+		return 0, nil
+	}
+
+	exceeded, err := m.drainGracePeriodExceeded()
+	if err != nil {
+		return 0, err
+	}
+
+	if !exceeded {
+		retryDuration, err := m.drainNode(wrkldClstr)
+		if err != nil {
+			return 0, err
+		}
+
+		if retryDuration > 0 {
+			return retryDuration, nil
+		}
+	}
+
+	// now, when the node is drained (or vmiDeleteGraceTimeoutDurationSeconds has passed), we can delete the VMI
+	propagationPolicy := metav1.DeletePropagationForeground
+	err = m.client.Delete(m.machineContext, m.vmiInstance, &client.DeleteOptions{PropagationPolicy: &propagationPolicy})
+	if err != nil {
+		m.machineContext.Logger.Error(err, "failed to delete VirtualMachineInstance")
+		return 0, err
+	}
+
+	if err = m.removeGracePeriodAnnotation(); err != nil {
+		return 100 * time.Millisecond, err
+	}
+
+	// requeue to force reading the VMI again
+	return time.Second * 10, nil
+}
+
+const removeGracePeriodAnnotationPatch = `[{"op": "remove", "path": "/metadata/annotations/` + infrav1.VmiDeletionGraceTimeEscape + `"}]`
+
+func (m *Machine) removeGracePeriodAnnotation() error {
+	patch := client.RawPatch(types.JSONPatchType, []byte(removeGracePeriodAnnotationPatch))
+
+	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
+		return fmt.Errorf("failed to remove the %s annotation to the KubeVirtMachine %s; %w", infrav1.VmiDeletionGraceTime, m.machineContext.KubevirtMachine.Name, err)
+	}
+
+	return nil
+}
+
+func (m *Machine) shouldGracefulDeleteVMI() bool {
+	if m.vmiInstance.DeletionTimestamp != nil {
+		m.machineContext.Logger.V(4).Info("DrainNode: the virtualMachineInstance is already in deletion process. Nothing to do here")
+		return false
+	}
+
+	if m.vmiInstance.Spec.EvictionStrategy == nil || *m.vmiInstance.Spec.EvictionStrategy != kubevirtv1.EvictionStrategyExternal {
+		m.machineContext.Logger.V(4).Info("DrainNode: graceful deletion is not supported for virtualMachineInstance. Nothing to do here")
+		return false
+	}
+
+	// KubeVirt will set the EvacuationNodeName field in case of guest node eviction. If the field is not set, there is
+	// nothing to do.
+	if len(m.vmiInstance.Status.EvacuationNodeName) == 0 {
+		m.machineContext.Logger.V(4).Info("DrainNode: the virtualMachineInstance is not marked for deletion. Nothing to do here")
+		return false
+	}
+
+	return true
+}
+
+// wait vmiDeleteGraceTimeoutDurationSeconds to the node to be drained. If this time had passed, don't wait anymore.
+func (m *Machine) drainGracePeriodExceeded() (bool, error) {
+	if graceTime, found := m.machineContext.KubevirtMachine.Annotations[infrav1.VmiDeletionGraceTime]; found {
+		deletionGraceTime, err := time.Parse(time.RFC3339, graceTime)
+		if err != nil { // wrong format - rewrite
+			if err = m.setVmiDeletionGraceTime(); err != nil {
+				return false, err
+			}
+		} else {
+			return time.Now().UTC().After(deletionGraceTime), nil
+		}
+	} else {
+		if err := m.setVmiDeletionGraceTime(); err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
+func (m *Machine) setVmiDeletionGraceTime() error {
+	m.machineContext.Logger.Info(fmt.Sprintf("setting the %s annotation", infrav1.VmiDeletionGraceTime))
+	graceTime := time.Now().Add(vmiDeleteGraceTimeoutDurationSeconds * time.Second).UTC().Format(time.RFC3339)
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "%s"}}}`, infrav1.VmiDeletionGraceTime, graceTime)
+	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
+
+	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+		return fmt.Errorf("failed to add the %s annotation to the KubeVirtMachine %s; %w", infrav1.VmiDeletionGraceTime, m.machineContext.KubevirtMachine.Name, err)
+	}
+
+	return nil
+}
+
+// This functions drains a node from a tenant cluster.
+// The function returns 3 values:
+// * drain done - boolean
+// * retry time, or 0 if not needed
+// * error - to be returned if we want to retry
+func (m *Machine) drainNode(wrkldClstr workloadcluster.WorkloadCluster) (time.Duration, error) {
+	kubeClient, err := wrkldClstr.GenerateWorkloadClusterK8sClient(m.machineContext)
+	if err != nil {
+		m.machineContext.Logger.Error(err, "Error creating a remote client while deleting Machine, won't retry")
+		return 0, fmt.Errorf("failed to get client to remote cluster; %w", err)
+	}
+
+	nodeName := m.vmiInstance.Status.EvacuationNodeName
+	node, err := kubeClient.CoreV1().Nodes().Get(m.machineContext, nodeName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// If an admin deletes the node directly, we'll end up here.
+			m.machineContext.Logger.Error(err, "Could not find node from noderef, it may have already been deleted")
+			return 0, nil
+		}
+		return 0, fmt.Errorf("unable to get node %q: %w", nodeName, err)
+	}
+
+	drainer := &kubedrain.Helper{
+		Client:              kubeClient,
+		Ctx:                 m.machineContext,
+		Force:               true,
+		IgnoreAllDaemonSets: true,
+		DeleteEmptyDirData:  true,
+		GracePeriodSeconds:  -1,
+		// If a pod is not evicted in 20 seconds, retry the eviction next time the
+		// machine gets reconciled again (to allow other machines to be reconciled).
+		Timeout: 20 * time.Second,
+		OnPodDeletedOrEvicted: func(pod *corev1.Pod, usingEviction bool) {
+			verbStr := "Deleted"
+			if usingEviction {
+				verbStr = "Evicted"
+			}
+			m.machineContext.Logger.Info(fmt.Sprintf("%s pod from Node", verbStr),
+				"pod", fmt.Sprintf("%s/%s", pod.Name, pod.Namespace))
+		},
+		Out: writer{m.machineContext.Logger.Info},
+		ErrOut: writer{func(msg string, keysAndValues ...interface{}) {
+			m.machineContext.Logger.Error(nil, msg, keysAndValues...)
+		}},
+	}
+
+	if noderefutil.IsNodeUnreachable(node) {
+		// When the node is unreachable and some pods are not evicted for as long as this timeout, we ignore them.
+		drainer.SkipWaitForDeleteTimeoutSeconds = 60 * 5 // 5 minutes
+	}
+
+	if err = kubedrain.RunCordonOrUncordon(drainer, node, true); err != nil {
+		// Machine will be re-reconciled after a cordon failure.
+		m.machineContext.Logger.Error(err, "Cordon failed")
+		return 0, errors.Errorf("unable to cordon node %s: %v", nodeName, err)
+	}
+
+	if err = kubedrain.RunNodeDrain(drainer, node.Name); err != nil {
+		// Machine will be re-reconciled after a drain failure.
+		m.machineContext.Logger.Error(err, "Drain failed, retry in a second", "node name", nodeName)
+		return time.Second, nil
+	}
+
+	m.machineContext.Logger.Info("Drain successful", "node name", nodeName)
+	return 0, nil
+}
+
+// writer implements io.Writer interface as a pass-through for klog.
+type writer struct {
+	logFunc func(msg string, keysAndValues ...interface{})
+}
+
+// Write passes string(p) into writer's logFunc and always returns len(p).
+func (w writer) Write(p []byte) (n int, err error) {
+	w.logFunc(string(p))
+	return len(p), nil
 }

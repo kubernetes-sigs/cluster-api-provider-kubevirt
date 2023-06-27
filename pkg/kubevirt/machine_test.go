@@ -19,21 +19,28 @@ package kubevirt
 import (
 	gocontext "context"
 	"fmt"
+	"time"
 
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster/mock"
 )
 
 var (
@@ -64,6 +71,8 @@ var _ = Describe("Without KubeVirt VM running", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -114,8 +123,29 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(externalMachine.IsReady()).To(BeFalse())
 	})
 
-	It("IsBootstrapped should return false", func() {
+	It("default mode: IsBootstrapped should return false", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
+	})
+
+	It("ssh mode: IsBootstrapped return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
@@ -176,6 +206,8 @@ var _ = Describe("With KubeVirt VM running", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -192,6 +224,10 @@ var _ = Describe("With KubeVirt VM running", func() {
 				Status: corev1.ConditionTrue,
 			},
 		}
+
+		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
+	})
+	JustBeforeEach(func() {
 		objects := []client.Object{
 			cluster,
 			kubevirtCluster,
@@ -200,10 +236,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			virtualMachineInstance,
 			virtualMachine,
 		}
-
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
-
-		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
 	})
 
 	AfterEach(func() {})
@@ -234,10 +267,31 @@ var _ = Describe("With KubeVirt VM running", func() {
 		Expect(externalMachine.IsReady()).To(BeTrue())
 	})
 
-	It("IsBootstrapped should return true", func() {
+	It("default mode: IsBootstrapped should return true", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("ssh mode: IsBootstrapped return true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return true", func() {
@@ -263,6 +317,249 @@ var _ = Describe("With KubeVirt VM running", func() {
 
 		Expect(externalMachine.Delete()).To(Succeed())
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
+	})
+
+	Context("test DrainNodeIfNeeded", func() {
+		const nodeName = "control-plane1"
+
+		var (
+			wlCluster *mock.MockWorkloadCluster
+		)
+
+		BeforeEach(func() {
+			virtualMachineInstance = testing.NewVirtualMachineInstance(kubevirtMachine)
+			strategy := kubevirtv1.EvictionStrategyExternal
+			virtualMachineInstance.Spec.EvictionStrategy = &strategy
+			virtualMachineInstance.Status.EvacuationNodeName = nodeName
+
+			if kubevirtMachine.Annotations == nil {
+				kubevirtMachine.Annotations = make(map[string]string)
+			}
+
+			mockCtrl := gomock.NewController(GinkgoT())
+			wlCluster = mock.NewMockWorkloadCluster(mockCtrl)
+		})
+
+		When("VMI is not evicted", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+			})
+
+			It("Should do nothing", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi).ToNot(BeNil())
+			})
+		})
+
+		When("VMI is already deleted", func() {
+			BeforeEach(func() {
+				deletionTimeStamp := metav1.NewTime(time.Now().UTC().Add(-5 * time.Second))
+				virtualMachineInstance.DeletionTimestamp = &deletionTimeStamp
+			})
+
+			It("Should do nothing", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi).ToNot(BeNil())
+			})
+		})
+
+		When("VMI is already deleted, but the grace period annotation is still there", func() {
+			BeforeEach(func() {
+				deletionTimeStamp := metav1.NewTime(time.Now().UTC().Add(-5 * time.Second))
+				virtualMachineInstance.DeletionTimestamp = &deletionTimeStamp
+
+				graceTime := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+			})
+
+			It("Should remove the grace period annotation", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi).ToNot(BeNil())
+
+				machine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, machine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(machine).ToNot(BeNil())
+				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
+
+		When("VMI is missing, but the grace period annotation is still there", func() {
+			BeforeEach(func() {
+				graceTime := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+			})
+
+			It("Should remove the grace period annotation", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+				externalMachine.vmiInstance = nil
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi).ToNot(BeNil())
+
+				machine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, machine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(machine).ToNot(BeNil())
+				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
+
+		When("grace not expired (wrap for BeforeEach)", func() {
+			BeforeEach(func() {
+				graceTime := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+			})
+
+			It("Should drain the node", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nodeName,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewSimpleClientset(node)
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).To(Equal(time.Duration(10 * time.Second)))
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+				machine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, machine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(machine).ToNot(BeNil())
+				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
+
+		When("grace not expired, drain fails (wrap for BeforeEach)", func() {
+			BeforeEach(func() {
+				graceTime := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+			})
+
+			It("Should not drain the node", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nodeName,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewSimpleClientset(node)
+
+				fakeErr := errors.New("fake error: can't get node")
+				cl.PrependReactor("get", "nodes", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fakeErr
+				})
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).ToNot(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).To(HaveOccurred())
+				Expect(err).To(MatchError(fakeErr))
+				Expect(requeueDuration).To(Equal(time.Duration(0)))
+
+				By("VMI should not be deleted")
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi).ToNot(BeNil())
+
+				By("the grace period annotation still exists")
+				machine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, machine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(machine).ToNot(BeNil())
+				Expect(machine.Annotations).To(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
+
+		When("grace period expired (wrap for BeforeEach)", func() {
+			BeforeEach(func() {
+				graceTime := time.Now().UTC().Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+			})
+
+			It("Should delete the VMI after grace period", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(Equal(10 * time.Second))
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).To(HaveOccurred())
+				Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+				machine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, machine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(machine).ToNot(BeNil())
+				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
 	})
 })
 
@@ -319,6 +616,8 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
 
 	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
 		machineContext = &context.MachineContext{
 			Context:             gocontext.TODO(),
 			Cluster:             cluster,
@@ -377,10 +676,31 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 		Expect(externalMachine.IsReady()).To(BeTrue())
 	})
 
-	It("IsBootstrapped should return true", func() {
+	It("default mode: IsBootstrapped should return true", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("ssh mode: IsBootstrapped return true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "ssh"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("none mode: IsBootstrapped should be forced to be true", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "none"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeTrue())
+	})
+
+	It("invalid mode: IsBootstrapped should return false", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		externalMachine.machineContext.KubevirtMachine.Spec.BootstrapCheckSpec.CheckStrategy = "impossible-invalid-input"
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.IsBootstrapped()).To(BeFalse())
 	})
 
 	It("SupportsCheckingIsBootstrapped should return true", func() {
@@ -502,4 +822,12 @@ func defaultTestMachine(ctx *context.MachineContext, namespace string, client cl
 	}
 
 	return machine, err
+}
+
+func setupRemoteScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	if err := corev1.AddToScheme(s); err != nil {
+		panic(err)
+	}
+	return s
 }
