@@ -29,7 +29,7 @@ To use Flannel you will need to define your `Backend` manually in `net-conf.json
     }
 ```
 
-## Whenever I reboot a VM in Kubevirt, it looses is IP address, how do I fix it?
+## Whenever I reboot a VM in Kubevirt, it loses/changes its IP address, how do I fix it?
 
 Unfortunately anyone using cluster-api-provider-kubevirt to manage long-lived clusters that are not ephemeral will suffer from this. Basically there are 3 paths to workaround this issue for now:
 
