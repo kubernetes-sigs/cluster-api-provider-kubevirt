@@ -50,11 +50,15 @@ import (
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
 type KubevirtClusterReconciler struct {
 	client.Client
+	// APIReader is used to prune the Cloud Controller resources for the given cluster:
+	// this client doesn't locally cache the resources upon a GET/LIST request,
+	// decreasing memory consumption and avoiding granting further RBAC verbs.
+	APIReader    client.Reader
 	InfraCluster infracluster.InfraCluster
 	Log          logr.Logger
 }
 
-func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string ) string {
+func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string) string {
 	// Use namespace specified in Service Template if exist
 	if kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace != "" {
 		return kc.Spec.ControlPlaneServiceTemplate.ObjectMeta.Namespace
@@ -285,7 +289,7 @@ func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, 
 	var extraResourceMetaList metav1.PartialObjectMetadataList
 	extraResourceMetaList.SetGroupVersionKind(extraGVK)
 	extraResourceLabels := map[string]string{"cluster.x-k8s.io/cluster-name": ctx.Cluster.Name, "capk.cluster.x-k8s.io/template-kind": "extra-resource"}
-	if err := r.List(ctx, &extraResourceMetaList, client.InNamespace(ctx.Cluster.Namespace), client.MatchingLabels(extraResourceLabels)); err != nil {
+	if err := r.APIReader.List(ctx, &extraResourceMetaList, client.InNamespace(ctx.Cluster.Namespace), client.MatchingLabels(extraResourceLabels)); err != nil {
 		return errors.Wrap(err, "failed listing cluster extra object meta")
 	}
 
@@ -294,6 +298,6 @@ func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, 
 			return errors.Wrap(err, "failed deleting cluster extra object meta")
 		}
 	}
-	return nil
 
+	return nil
 }
