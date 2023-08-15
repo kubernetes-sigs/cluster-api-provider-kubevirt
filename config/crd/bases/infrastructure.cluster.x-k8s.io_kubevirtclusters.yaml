@@ -236,6 +236,7 @@ spec:
                   if we populate it.
                 type: object
               ready:
+                default: false
                 description: Ready denotes that the infrastructure is ready.
                 type: boolean
             required:
