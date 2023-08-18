@@ -12,27 +12,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-kubevirtclustertemplate
-  failurePolicy: Fail
-  matchPolicy: Equivalent
-  name: validation.kubevirtclustertemplate.infrastructure.cluster.x-k8s.io
-  rules:
-  - apiGroups:
-    - infrastructure.cluster.x-k8s.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - kubevirtclustertemplates
-  sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-kubevirtmachinetemplate
   failurePolicy: Fail
   matchPolicy: Equivalent
