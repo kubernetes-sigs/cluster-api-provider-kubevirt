@@ -46,6 +46,7 @@ var _ = Describe("Reconcile", func() {
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
 			Client:       fakeClient,
 			InfraCluster: infraClusterMock,
+			APIReader:    fakeClient,
 			Log:          testLogger,
 		}
 	}
