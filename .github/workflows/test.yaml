@@ -52,8 +52,9 @@ jobs:
         go-version-file: go.mod
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v3
-      with: # TODO: remove this when the deprecated function will be removed (issue #85)
-        args: --exclude SA1019 --timeout=5m -E ginkgolinter
+      with:
+        args: --timeout=5m -v
+        version: v1.54.2
 
   check-gen:
     runs-on: ubuntu-latest
