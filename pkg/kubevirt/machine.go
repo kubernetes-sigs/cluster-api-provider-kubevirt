@@ -93,7 +93,7 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 	return machine, nil
 }
 
-// IsTerminal Reports back if the VM is either being requested to terminate or is terminate
+// IsTerminal Reports back if the VM is either being requested to terminate or is terminated
 // in a way that it will never recover from.
 func (m *Machine) IsTerminal() (bool, string, error) {
 	if m.vmInstance == nil || m.vmiInstance == nil {

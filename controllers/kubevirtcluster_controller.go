@@ -144,7 +144,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		}
 	}()
 
-	// Add finalizer first if does not exist to avoid the race condition between init and delete
+	// Add finalizer first if it does not exist to avoid the race condition between init and delete
 	if !controllerutil.ContainsFinalizer(kubevirtCluster, infrav1.ClusterFinalizer) {
 		controllerutil.AddFinalizer(kubevirtCluster, infrav1.ClusterFinalizer)
 		return ctrl.Result{}, nil
