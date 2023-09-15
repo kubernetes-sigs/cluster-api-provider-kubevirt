@@ -77,7 +77,7 @@ func (w *workloadCluster) GenerateWorkloadClusterK8sClient(ctx *context.MachineC
 func (w *workloadCluster) getKubeconfigForWorkloadCluster(ctx *context.MachineContext) (string, error) {
 	// workload cluster kubeconfig can be found in a secret with suffix "-kubeconfig"
 	kubeconfigSecret := &corev1.Secret{}
-	kubeconfigSecretKey := client.ObjectKey{Namespace: ctx.KubevirtCluster.Namespace, Name: ctx.KubevirtCluster.Name + "-kubeconfig"}
+	kubeconfigSecretKey := client.ObjectKey{Namespace: ctx.KubevirtCluster.Namespace, Name: ctx.Cluster.Name + "-kubeconfig"}
 	if err := w.Client.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
 		return "", errors.Wrapf(err, "failed to fetch kubeconfig for workload cluster")
 	}

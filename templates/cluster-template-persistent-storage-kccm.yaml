@@ -262,7 +262,7 @@ data:
   cloud-config: |
     loadBalancer:
       creationPollInterval: 30
-    namespace: kvcluster
+    namespace: ${NAMESPACE}
     instancesV2:
       enabled: true
       zoneAndRegionEnabled: false
@@ -302,7 +302,7 @@ spec:
         - --cloud-provider=kubevirt
         - --cloud-config=/etc/cloud/cloud-config
         - --kubeconfig=/etc/kubernetes/kubeconfig/value
-        - --cluster-name=kvcluster
+        - --cluster-name=${CLUSTER_NAME}
         - --authentication-skip-lookup=true
         command:
         - /bin/kubevirt-cloud-controller-manager

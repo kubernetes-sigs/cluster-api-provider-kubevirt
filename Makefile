@@ -69,6 +69,16 @@ all: test manager
 help:  ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+# go-install-tool will 'go install' any package $2 and install it to $1.
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+define go-install-tool
+@[ -f $(1) ] || { \
+set -e ;\
+echo "Installing $(2)" ;\
+GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
+}
+endef
+
 ## --------------------------------------
 ## Testing
 ## --------------------------------------
@@ -205,7 +215,7 @@ modules: ## Runs go mod to ensure modules are up to date.
 .PHONY: docker-pull-prerequisites
 docker-pull-prerequisites:
 	docker pull docker.io/docker/dockerfile:1.4
-	docker pull docker.io/library/golang:1.18.2
+	docker pull docker.io/library/golang:1.20.2
 	docker pull gcr.io/distroless/static:latest
 
 .PHONY: docker-build
@@ -329,11 +339,13 @@ goimports:
 	go install golang.org/x/tools/cmd/goimports@latest
 	goimports -w -local="sigs.k8s.io/cluster-api-provider-kubevirt"  $(shell find . -type f -name '*.go' ! -path "*/vendor/*" ! -path "./_kubevirtci/*" ! -path "*zz_generated*" )
 
+GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.54.2)
+
 .PHONY: linter
-linter:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	# todo remove the exclude parameter when issue #85 is resolved
-	golangci-lint run --timeout=5m -E ginkgolinter --exclude SA1019
+linter: golangci-lint
+	$(GOLANGCI_LINT) run --timeout=5m -v
 
 .PHONY: sanity
 sanity: linter goimports test

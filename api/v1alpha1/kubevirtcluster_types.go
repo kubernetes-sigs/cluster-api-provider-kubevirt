@@ -69,6 +69,7 @@ type KubevirtClusterSpec struct {
 // KubevirtClusterStatus defines the observed state of KubevirtCluster.
 type KubevirtClusterStatus struct {
 	// Ready denotes that the infrastructure is ready.
+	// +kubebuilder:default:=false
 	Ready bool `json:"ready"`
 
 	// FailureDomains don't mean much in CAPD since it's all local, but we can see how the rest of cluster API

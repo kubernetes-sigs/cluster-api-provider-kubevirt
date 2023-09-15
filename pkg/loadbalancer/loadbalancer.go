@@ -44,7 +44,7 @@ type LoadBalancer struct {
 
 // NewLoadBalancer returns a new helper for managing a mock load-balancer (using service).
 func NewLoadBalancer(ctx *context.ClusterContext, client runtimeclient.Client, namespace string) (*LoadBalancer, error) {
-	name := ctx.KubevirtCluster.Name + "-lb"
+	name := ctx.Cluster.Name + "-lb"
 	// Look for the service that is mocking the load-balancer for the cluster.
 	// Filter based on the label and the roles regardless of whether or not it is running.
 	loadBalancer := &corev1.Service{}
