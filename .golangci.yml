@@ -1,0 +1,22 @@
+linters-settings:
+  ginkgolinter:
+    forbid-focus-container: true
+
+linters:
+  enable:
+    - deadcode
+    - errcheck
+    - ginkgolinter
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unused
+    - varcheck
+  disable: []
+
+issues:
+  exclude:
+    - SA1019 # todo remove the exclude parameter when issue #85 is resolved

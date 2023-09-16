@@ -285,7 +285,17 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	ipAddress := externalMachine.Address()
 	if ipAddress == "" {
 		ctx.Logger.Info(fmt.Sprintf("KubevirtMachine %s: Got empty ipAddress, requeue", ctx.KubevirtMachine.Name))
-		ctx.KubevirtMachine.Status.Ready = false
+		// Only set readiness to false if we have never detected an internal IP for this machine.
+		//
+		// The internal ipAddress is sometimes detected via the qemu guest agent,
+		// which will report an empty addr at some points when the guest is rebooting
+		// or updating.
+		//
+		// This check prevents us from marking the infrastructure as not ready
+		// when the internal guest might be rebooting or updating.
+		if !machineHasKnownInternalIP(ctx.KubevirtMachine) {
+			ctx.KubevirtMachine.Status.Ready = false
+		}
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
@@ -347,6 +357,15 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func machineHasKnownInternalIP(kubevirtMachine *infrav1.KubevirtMachine) bool {
+	for _, addr := range kubevirtMachine.Status.Addresses {
+		if addr.Type == clusterv1.MachineInternalIP && addr.Address != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineContext) (ctrl.Result, error) {

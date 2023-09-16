@@ -15,6 +15,7 @@ resources:
   - bases/infrastructure.cluster.x-k8s.io_kubevirtmachines.yaml
   - bases/infrastructure.cluster.x-k8s.io_kubevirtclusters.yaml
   - bases/infrastructure.cluster.x-k8s.io_kubevirtmachinetemplates.yaml
+  - bases/infrastructure.cluster.x-k8s.io_kubevirtclustertemplates.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge: []

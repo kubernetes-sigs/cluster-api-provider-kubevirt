@@ -38,7 +38,7 @@ var (
 	kubevirtClusterName = "test-kubevirt-cluster"
 	kubevirtCluster     = testing.NewKubevirtCluster(clusterName, kubevirtClusterName)
 	cluster             = testing.NewCluster(clusterName, kubevirtCluster)
-	loadBalancerService = newLoadBalancerService(kubevirtCluster)
+	loadBalancerService = newLoadBalancerService(clusterContext, kubevirtCluster)
 
 	clusterContext = &context.ClusterContext{
 		Logger:          ctrl.LoggerFrom(gocontext.TODO()).WithName("test"),
@@ -114,11 +114,11 @@ var _ = Describe("Load Balancer", func() {
 	})
 })
 
-func newLoadBalancerService(kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
+func newLoadBalancerService(ctx *context.ClusterContext, kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
 	return &corev1.Service{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: kubevirtCluster.Name + "-lb",
+			Name: clusterName + "-lb",
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: kubevirtCluster.APIVersion,
