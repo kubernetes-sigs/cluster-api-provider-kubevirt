@@ -2,5 +2,6 @@
 
 set -ex
 
-mkdir -p $BIN_DIR
-go test ./e2e/ -c -o "$BIN_DIR/e2e.test"
+mkdir -p "${BIN_DIR}"
+cd e2e/
+go test -c -o "${BIN_DIR}/e2e.test" .

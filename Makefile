@@ -35,8 +35,8 @@ export DOCKER_CLI_EXPERIMENTAL := enabled
 
 # Directories.
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-BIN_DIR := bin
-TOOLS_DIR := hack/tools
+BIN_DIR := $(ROOT_DIR)/bin
+TOOLS_DIR := $(ROOT_DIR)/hack/tools
 TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 
 # Set --output-base for conversion-gen if we are not within GOPATH
