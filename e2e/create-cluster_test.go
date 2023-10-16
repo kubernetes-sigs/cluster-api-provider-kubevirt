@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,13 +45,16 @@ var _ = Describe("CreateCluster", func() {
 	var tenantKubeconfigFile string
 	var namespace string
 	var tenantAccessor tenantClusterAccess
+	var ctx context.Context
 
 	calicoManifestsUrl := "https://docs.projectcalico.org/v3.21/manifests/calico.yaml"
 
 	BeforeEach(func() {
 		var err error
 
-		tmpDir, err = ioutil.TempDir(WorkingDir, "creation-tests")
+		ctx = context.Background()
+
+		tmpDir, err = os.MkdirTemp(WorkingDir, "creation-tests")
 		Expect(err).ToNot(HaveOccurred())
 
 		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
@@ -225,10 +227,10 @@ var _ = Describe("CreateCluster", func() {
 			Should(Succeed(), "waiting for expected readiness.")
 	}
 
-	waitForTenantPods := func() {
+	waitForTenantPods := func(ctx context.Context) {
 
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -257,9 +259,9 @@ var _ = Describe("CreateCluster", func() {
 
 	}
 
-	waitForTenantAccess := func(numExpectedNodes int) *kubernetes.Clientset {
+	waitForTenantAccess := func(ctx context.Context, numExpectedNodes int) *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -282,9 +284,9 @@ var _ = Describe("CreateCluster", func() {
 		return clientSet
 	}
 
-	waitForNodeReadiness := func() *kubernetes.Clientset {
+	waitForNodeReadiness := func(ctx context.Context) *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI()).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -393,8 +395,8 @@ var _ = Describe("CreateCluster", func() {
 		return newString
 	}
 
-	chooseWorkerVMI := func() *kubevirtv1.VirtualMachineInstance {
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&metav1.ListOptions{})
+	chooseWorkerVMI := func(ctx context.Context) *kubevirtv1.VirtualMachineInstance {
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, &metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -513,16 +515,16 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("posting calico CNI manifests to the guest cluster and waiting for network")
 		installCalicoCNI()
 
 		By("Waiting for node readiness")
-		waitForNodeReadiness()
+		waitForNodeReadiness(ctx)
 
 		By("waiting all tenant Pods to be Ready")
-		waitForTenantPods()
+		waitForTenantPods(ctx)
 	})
 
 	It("creates a simple cluster with ephemeral VMs with Passt", Label("ephemeralVMs"), func() {
@@ -550,16 +552,16 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("posting calico CNI manifests to the guest cluster and waiting for network")
 		installCalicoCNI()
 
 		By("Waiting for node readiness")
-		waitForNodeReadiness()
+		waitForNodeReadiness(ctx)
 
 		By("waiting all tenant Pods to be Ready")
-		waitForTenantPods()
+		waitForTenantPods(ctx)
 	})
 
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
@@ -587,14 +589,14 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("creating machine health check")
 		postDefaultMHC("kvcluster")
 
 		// trigger remediation by marking a running VMI as being in a failed state
 		By("Selecting a worker node to remediate")
-		chosenVMI := chooseWorkerVMI()
+		chosenVMI := chooseWorkerVMI(ctx)
 
 		By("Setting terminal state on VMI")
 		kvmName, ok := chosenVMI.Labels["capk.cluster.x-k8s.io/kubevirt-machine-name"]
@@ -602,7 +604,7 @@ var _ = Describe("CreateCluster", func() {
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
 		var err error
-		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(chosenVMI)
+		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(ctx, chosenVMI)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
@@ -618,16 +620,16 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("posting calico CNI manifests to the guest cluster and waiting for network")
 		installCalicoCNI()
 
 		By("Waiting for node readiness")
-		waitForNodeReadiness()
+		waitForNodeReadiness(ctx)
 
 		By("waiting all tenant Pods to be Ready")
-		waitForTenantPods()
+		waitForTenantPods(ctx)
 
 	})
 
@@ -657,23 +659,23 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("creating machine health check")
 		postDefaultMHC("kvcluster")
 
 		// trigger remediation by putting the VMI in a permanent stopped state
 		By("Selecting new worker node to remediate")
-		chosenVMI := chooseWorkerVMI()
+		chosenVMI := chooseWorkerVMI(ctx)
 
 		By("Setting VM to runstrategy once")
-		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
+		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(ctx, chosenVMI.Name, &metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		once := kubevirtv1.RunStrategyOnce
 		chosenVM.Spec.RunStrategy = &once
 
-		_, err = virtClient.VirtualMachine(namespace).Update(chosenVM)
+		_, err = virtClient.VirtualMachine(namespace).Update(ctx, chosenVM)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("killing the chosen VMI's pod")
@@ -695,7 +697,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 	})
 
@@ -727,7 +729,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("Waiting for all tenant nodes to get provider id")
 		waitForNodeUpdate()
@@ -767,10 +769,10 @@ var _ = Describe("CreateCluster", func() {
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(2)
+		waitForTenantAccess(ctx, 2)
 
 		By("Selecting a worker node to restart")
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&metav1.ListOptions{})
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, &metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -783,44 +785,44 @@ var _ = Describe("CreateCluster", func() {
 		Expect(chosenVMI).ToNot(BeNil())
 
 		By("Set a testFinalizer to hold the VMI deletion so we could check if the machine became not-ready")
-		addFinalizerFromVMI(chosenVMI.Name, namespace)
+		addFinalizerFromVMI(ctx, chosenVMI.Name, namespace)
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
 		Expect(
-			virtClient.VirtualMachineInstance(namespace).Delete(chosenVMI.Name, &metav1.DeleteOptions{}),
+			virtClient.VirtualMachineInstance(namespace).Delete(ctx, chosenVMI.Name, &metav1.DeleteOptions{}),
 		).To(Succeed())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
 
-		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(chosenVMI.Name, &metav1.GetOptions{})
+		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, chosenVMI.Name, &metav1.GetOptions{})
 		Expect(err).ShouldNot(HaveOccurred())
-		removeFinalizerFromVMI(deletedVmi)
+		removeFinalizerFromVMI(ctx, deletedVmi)
 
 		By("Expecting both KubevirtMachines stabilize to a ready=true again.")
 		waitForMachineReadiness(2, 0)
 
 		By("Waiting for getting access to the tenant cluster")
-		clientSet := waitForTenantAccess(2)
+		clientSet := waitForTenantAccess(ctx, 2)
 
 		By("posting calico CNI manifests to the guest cluster and waiting for network")
 		installCalicoCNI()
 
 		By("Waiting for node readiness")
-		waitForNodeReadiness()
+		waitForNodeReadiness(ctx)
 
 		By("waiting all tenant Pods to be Ready")
-		waitForTenantPods()
+		waitForTenantPods(ctx)
 
 		vmiName := chosenVMI.Name
 
 		By("read the VMI again after it was recreated")
-		recreatedVMI := getRecreatedVMI(vmiName, namespace, chosenVMI.GetUID())
+		recreatedVMI := getRecreatedVMI(ctx, vmiName, namespace, chosenVMI.GetUID())
 
 		Expect(*recreatedVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
 
 		By("Set a testFinalizer to hold the VMI deletion so we could query it after eviction")
-		recreatedVMI = addFinalizerFromVMI(recreatedVMI.Name, namespace)
+		recreatedVMI = addFinalizerFromVMI(ctx, recreatedVMI.Name, namespace)
 
 		By("Get VMI's pod")
 		pod := getVMIPod(recreatedVMI)
@@ -829,16 +831,16 @@ var _ = Describe("CreateCluster", func() {
 		evictNode(pod)
 
 		By("wait for a VMI to be marked for deletion")
-		waitForVMIDraining(vmiName, namespace)
+		waitForVMIDraining(ctx, vmiName, namespace)
 
 		By("remove the test finalizer")
-		removeFinalizerFromVMI(recreatedVMI)
+		removeFinalizerFromVMI(ctx, recreatedVMI)
 
 		By("wait for a new VMI to be created")
-		getRecreatedVMI(vmiName, namespace, recreatedVMI.GetUID())
+		getRecreatedVMI(ctx, vmiName, namespace, recreatedVMI.GetUID())
 
 		By("Read the worker node from the tenant cluster, and validate its IP")
-		validateNewNodeIP(clientSet, vmiName, namespace)
+		validateNewNodeIP(ctx, clientSet, vmiName, namespace)
 	})
 
 	// This test will create a tenant cluster from `templates/cluster-template-ext-infra.yaml` template.
@@ -893,13 +895,13 @@ var _ = Describe("CreateCluster", func() {
 	})
 })
 
-func waitForVMIDraining(vmiName, namespace string) {
+func waitForVMIDraining(ctx context.Context, vmiName, namespace string) {
 	var vmi *kubevirtv1.VirtualMachineInstance
 	var err error
 
 	By("wait for VMI is marked for deletion")
 	Eventually(func(g Gomega) {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
 		g.Expect(err).ShouldNot(HaveOccurred())
 
 		vmiDebugPrintout(vmi)
@@ -926,13 +928,13 @@ func evictNode(pod *corev1.Pod) {
 	ExpectWithOffset(1, k8serrors.IsTooManyRequests(err)).To(BeTrue(), "should return TooManyRequests error; got %v instead", err)
 }
 
-func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
+func getRecreatedVMI(ctx context.Context, vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
 	var (
 		vmi *kubevirtv1.VirtualMachineInstance
 		err error
 	)
 	Eventually(func(g Gomega) types.UID {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
 		g.Expect(err).ShouldNot(HaveOccurred())
 		g.Expect(vmi).ShouldNot(BeNil())
 
@@ -951,7 +953,7 @@ func getRecreatedVMI(vmiName string, namespace string, originalUID types.UID) *k
 	return vmi
 }
 
-func validateNewNodeIP(cl *kubernetes.Clientset, vmiName, namespace string) {
+func validateNewNodeIP(ctx context.Context, cl *kubernetes.Clientset, vmiName, namespace string) {
 	Eventually(func(g Gomega) bool {
 		// reading the node and the VMI again and again, because it takes time to the IPs to be synchronized
 		node, err := cl.CoreV1().Nodes().Get(context.Background(), vmiName, metav1.GetOptions{})
@@ -966,7 +968,7 @@ func validateNewNodeIP(cl *kubernetes.Clientset, vmiName, namespace string) {
 
 		g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
 
-		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
 
 		g.Expect(err).ShouldNot(HaveOccurred())
 		g.Expect(vmi).ShouldNot(BeNil())
@@ -991,19 +993,19 @@ func vmiDebugPrintout(vmi *kubevirtv1.VirtualMachineInstance) {
 		vmi.UID, vmi.DeletionTimestamp, vmi.Status.EvacuationNodeName)
 }
 
-func addFinalizerFromVMI(vmiName, namespace string) *kubevirtv1.VirtualMachineInstance {
+func addFinalizerFromVMI(ctx context.Context, vmiName, namespace string) *kubevirtv1.VirtualMachineInstance {
 	var (
 		vmi *kubevirtv1.VirtualMachineInstance
 		err error
 	)
 	Eventually(func() error {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
 
 		vmi.Finalizers = append(vmi.Finalizers, testFinalizer)
-		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(vmi)
+		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(ctx, vmi)
 		return err
 	}).WithOffset(1).
 		WithTimeout(time.Minute).
@@ -1013,8 +1015,8 @@ func addFinalizerFromVMI(vmiName, namespace string) *kubevirtv1.VirtualMachineIn
 	return vmi
 }
 
-func removeFinalizerFromVMI(vmi *kubevirtv1.VirtualMachineInstance) {
-	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(vmi.Name, &metav1.GetOptions{})
+func removeFinalizerFromVMI(ctx context.Context, vmi *kubevirtv1.VirtualMachineInstance) {
+	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(ctx, vmi.Name, &metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
 	index := -1
@@ -1029,7 +1031,7 @@ func removeFinalizerFromVMI(vmi *kubevirtv1.VirtualMachineInstance) {
 	patch := []byte(fmt.Sprintf(`[{"op": "remove", "path": "/metadata/finalizers/%d"}]`, index))
 
 	Eventually(func() error {
-		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(vmi.Name, types.JSONPatchType, patch, &metav1.PatchOptions{})
+		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(ctx, vmi.Name, types.JSONPatchType, patch, &metav1.PatchOptions{})
 		return err
 	}).WithOffset(1).
 		WithTimeout(time.Minute).

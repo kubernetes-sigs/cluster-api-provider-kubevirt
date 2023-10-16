@@ -24,7 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
@@ -110,7 +110,7 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 		if lbService.Labels == nil {
 			lbService.Labels = map[string]string{}
 		}
-		lbService.Labels[clusterv1.ClusterLabelName] = ctx.Cluster.Name
+		lbService.Labels[clusterv1.ClusterNameLabel] = ctx.Cluster.Name
 
 		return nil
 	}

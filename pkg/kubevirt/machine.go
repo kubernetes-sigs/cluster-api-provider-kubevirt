@@ -172,7 +172,7 @@ func (m *Machine) Create(ctx gocontext.Context) error {
 		if virtualMachine.Spec.Template.ObjectMeta.Labels == nil {
 			virtualMachine.Spec.Template.ObjectMeta.Labels = map[string]string{}
 		}
-		virtualMachine.Labels[clusterv1.ClusterLabelName] = m.machineContext.Cluster.Name
+		virtualMachine.Labels[clusterv1.ClusterNameLabel] = m.machineContext.Cluster.Name
 
 		virtualMachine.Labels[infrav1.KubevirtMachineNameLabel] = m.machineContext.KubevirtMachine.Name
 		virtualMachine.Labels[infrav1.KubevirtMachineNamespaceLabel] = m.machineContext.KubevirtMachine.Namespace

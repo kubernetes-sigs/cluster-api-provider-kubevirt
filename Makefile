@@ -35,8 +35,8 @@ export DOCKER_CLI_EXPERIMENTAL := enabled
 
 # Directories.
 ROOT_DIR := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-BIN_DIR := $(ROOT_DIR)/bin
-TOOLS_DIR := $(ROOT_DIR)/hack/tools
+BIN_DIR := bin
+TOOLS_DIR := hack/tools
 TOOLS_BIN_DIR := $(TOOLS_DIR)/bin
 
 # Set --output-base for conversion-gen if we are not within GOPATH
@@ -103,7 +103,7 @@ test-junit: $(GOTESTSUM) ## Run tests with verbose setting and generate a junit 
 
 .PHONY: build-e2e-test
 build-e2e-test: ## Builds the test binary
-	BIN_DIR=$(BIN_DIR) ./hack/build-e2e.sh
+	BIN_DIR=$(ROOT_DIR)/$(BIN_DIR) ./hack/build-e2e.sh
 
 .PHONY: e2e-test
 e2e-test: build-e2e-test ## run e2e tests
