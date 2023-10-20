@@ -1,4 +1,4 @@
-package v1alpha1_test
+package webhookhandler_test
 
 import (
 	"testing"
@@ -9,5 +9,5 @@ import (
 
 func TestApi(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "API Suite")
+	RunSpecs(t, "Webhook Suite")
 }

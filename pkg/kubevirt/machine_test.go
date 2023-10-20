@@ -367,6 +367,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			BeforeEach(func() {
 				deletionTimeStamp := metav1.NewTime(time.Now().UTC().Add(-5 * time.Second))
 				virtualMachineInstance.DeletionTimestamp = &deletionTimeStamp
+				virtualMachineInstance.Finalizers = []string{"fake/finalizer"}
 			})
 
 			It("Should do nothing", func() {
@@ -390,6 +391,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			BeforeEach(func() {
 				deletionTimeStamp := metav1.NewTime(time.Now().UTC().Add(-5 * time.Second))
 				virtualMachineInstance.DeletionTimestamp = &deletionTimeStamp
+				virtualMachineInstance.Finalizers = []string{"fake/finalizer"}
 
 				graceTime := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339)
 				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime

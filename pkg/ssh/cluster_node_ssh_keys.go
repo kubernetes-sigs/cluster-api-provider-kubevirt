@@ -77,7 +77,7 @@ func (c *ClusterNodeSshKeys) PersistKeysToSecret() (*corev1.Secret, error) {
 			newSecret.Labels = map[string]string{}
 		}
 
-		newSecret.Labels[clusterv1.ClusterLabelName] = c.ClusterContext.Cluster.Name
+		newSecret.Labels[clusterv1.ClusterNameLabel] = c.ClusterContext.Cluster.Name
 		newSecret.Type = clusterv1.ClusterSecretType
 		if newSecret.Data == nil {
 			newSecret.Data = map[string][]byte{}

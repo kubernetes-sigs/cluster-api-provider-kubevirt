@@ -42,7 +42,11 @@ var _ = Describe("Reconcile", func() {
 	})
 
 	setupClient := func(objects []client.Object) {
-		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().
+			WithScheme(testing.SetupScheme()).
+			WithObjects(objects...).
+			WithStatusSubresource(objects...).
+			Build()
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
 			Client:       fakeClient,
 			InfraCluster: infraClusterMock,
