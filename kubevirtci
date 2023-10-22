@@ -2,20 +2,20 @@
 
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.23}
-export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.24.9}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2205231118-f12b50e}
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.27}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.26.0}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2309141019-029e67a}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
-export METALLB_VERSION="v0.12.1"
+export METALLB_VERSION="v0.13.11"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION="v1.2.4"
-export CALICO_VERSION="v3.21"
-export KUBEVIRT_VERSION="v0.59.0-alpha.0"
+export CALICO_VERSION="v3.26.3"
+export KUBEVIRT_VERSION="v1.0.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
@@ -259,8 +259,7 @@ function kubevirtci::install_calico {
 }
 
 function kubevirtci::install_metallb {
-	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/namespace.yaml
-	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/manifests/metallb.yaml
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/config/manifests/metallb-native.yaml
 
 	echo "waiting for metallb to come online"
 	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m

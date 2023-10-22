@@ -19,6 +19,7 @@ package controllers
 import (
 	gocontext "context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -28,6 +29,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -38,13 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 )
 
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
@@ -135,7 +134,8 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	// Always attempt to Patch the KubevirtCluster object and status after each reconciliation.
 	defer func() {
 		if err := clusterContext.PatchKubevirtCluster(patchHelper); err != nil {
-			if !apierrors.IsNotFound(utilerrors.Reduce(err)) {
+			if err = utilerrors.FilterOut(err, apierrors.IsNotFound); err != nil {
+
 				clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
 				if rerr == nil {
 					rerr = err
@@ -264,20 +264,22 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 }
 
 // SetupWithManager will add watches for this controller.
-func (r *KubevirtClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	c, err := ctrl.NewControllerManagedBy(mgr).
+func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
 		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Log)).
-		Build(r)
-	if err != nil {
-		return err
-	}
-	return c.Watch(
-		&source.Kind{Type: &clusterv1.Cluster{}},
-		handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtCluster"))),
-		predicates.ClusterUnpaused(r.Log),
-	)
+		Watches(
+			&clusterv1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(
+				ctx,
+				infrav1.GroupVersion.WithKind("KubevirtCluster"),
+				mgr.GetClient(),
+				&infrav1.KubevirtCluster{},
+			)),
+			builder.WithPredicates(predicates.ClusterUnpaused(r.Log)),
+		).
+		Complete(r)
 }
 
 func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, extraGVK schema.GroupVersionKind) error {
