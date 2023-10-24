@@ -237,7 +237,8 @@ apiVersion: v1
 data:
   cloud-config: |
     loadBalancer:
-      creationPollInterval: 30
+      creationPollInterval: 5
+      creationPollTimeout: 60
     namespace: ${NAMESPACE}
     instancesV2:
       enabled: true
@@ -278,11 +279,11 @@ spec:
         - --cloud-provider=kubevirt
         - --cloud-config=/etc/cloud/cloud-config
         - --kubeconfig=/etc/kubernetes/kubeconfig/value
-        - --cluster-name=${CLUSTER_NAME}
         - --authentication-skip-lookup=true
+        - --cluster-name="${CLUSTER_NAME}"
         command:
         - /bin/kubevirt-cloud-controller-manager
-        image: quay.io/kubevirt/kubevirt-cloud-controller-manager:main
+        image: quay.io/kubevirt/kubevirt-cloud-controller-manager:v0.5.1
         imagePullPolicy: Always
         name: kubevirt-cloud-controller-manager
         resources:

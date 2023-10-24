@@ -1,4 +1,14 @@
 namespace: ${NAMESPACE}
+patches:
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --cluster-name="${CLUSTER_NAME}"
+    - op: replace
+      path: /spec/template/spec/containers/0/image
+      value: quay.io/kubevirt/kubevirt-cloud-controller-manager:v0.5.1
+  target:
+    kind: Deployment
 patchesJson6902:
 - patch: |
     - op: replace
@@ -12,8 +22,9 @@ patchesJson6902:
     version: v1
     kind: Deployment
     name: kubevirt-cloud-controller-manager
+
 bases:
-- https://github.com/kubevirt/cloud-provider-kubevirt/config/isolated?ref=v0.3.2
+- https://github.com/kubevirt/cloud-provider-kubevirt/config/isolated?ref=v0.5.1
 commonLabels:
   cluster.x-k8s.io/cluster-name: "${CLUSTER_NAME}"
   capk.cluster.x-k8s.io/template-kind: "extra-resource"

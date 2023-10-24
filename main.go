@@ -21,6 +21,10 @@ import (
 	"flag"
 	"math/rand"
 	"os"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/webhookhandler"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -102,20 +106,25 @@ func main() {
 
 	ctrl.SetLogger(klogr.New())
 
+	var defaultNamespaces map[string]cache.Config
 	if watchNamespace != "" {
 		setupLog.Info("Watching cluster-api objects only in namespace for reconciliation", "namespace", watchNamespace)
+		defaultNamespaces = map[string]cache.Config{
+			watchNamespace: {},
+		}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 myscheme,
-		MetricsBindAddress:     metricsBindAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "controller-leader-election-capk",
-		SyncPeriod:             &syncPeriod,
+		Scheme:           myscheme,
+		Metrics:          server.Options{BindAddress: metricsBindAddr},
+		LeaderElection:   enableLeaderElection,
+		LeaderElectionID: "controller-leader-election-capk",
+		Cache: cache.Options{
+			SyncPeriod:        &syncPeriod,
+			DefaultNamespaces: defaultNamespaces,
+		},
 		HealthProbeBindAddress: healthAddr,
-		Port:                   webhookPort,
-		CertDir:                webhookCertDir,
-		Namespace:              watchNamespace,
+		WebhookServer:          webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: webhookCertDir}),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -173,14 +182,14 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		APIReader:    mgr.GetAPIReader(),
 		InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient),
 		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
 		os.Exit(1)
 	}
 }
 
 func setupWebhooks(mgr ctrl.Manager) {
-	if err := (&infrav1.KubevirtMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := webhookhandler.SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "KubevirtMachineTemplate")
 		os.Exit(1)
 	}

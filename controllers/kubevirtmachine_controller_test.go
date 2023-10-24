@@ -85,6 +85,8 @@ var (
 
 var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 
+	var ctx gocontext.Context
+
 	BeforeEach(func() {
 		clusterName = "test-cluster"
 		kubevirtClusterName = "test-kubevirt-cluster"
@@ -114,12 +116,14 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			Client:         fakeClient,
 			MachineFactory: kubevirt.DefaultMachineFactory{},
 		}
+
+		ctx = gocontext.Background()
 	})
 
 	AfterEach(func() {})
 
 	It("should generate requests for all Kubevirt machines in the cluster", func() {
-		out := kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(kubevirtCluster)
+		out := kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(ctx, kubevirtCluster)
 		Expect(out).To(HaveLen(2))
 		machineNames := make([]string, len(out))
 		for i := range out {
@@ -130,7 +134,7 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 
 	It("should panic when kubevirt cluster is not specified.", func() {
 		if err := recover(); err != nil {
-			Expect(kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(cluster)).To(Panic())
+			Expect(kubevirtMachineReconciler.KubevirtClusterToKubevirtMachines(ctx, cluster)).To(Panic())
 		}
 	})
 })
@@ -324,7 +328,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Logger:          testLogger,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).WithStatusSubresource(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
@@ -762,12 +766,12 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			// kubevirtMachineReconciler.Client
 			kubevirtMachineKey := types.NamespacedName{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
 			_, err := kubevirtMachineReconciler.Reconcile(machineContext, ctrl.Request{NamespacedName: kubevirtMachineKey})
-
 			Expect(err).ShouldNot(HaveOccurred())
 
 			newKubevirtMachine := &infrav1.KubevirtMachine{}
+			err = kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
 			Expect(
-				kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine),
+				err,
 			).To(Succeed())
 
 			conditions := newKubevirtMachine.GetConditions()
@@ -799,6 +803,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)).To(Succeed())
 
 				conditions := newKubevirtMachine.GetConditions()
+				Expect(conditions).To(HaveLen(2))
 				Expect(conditions[1].Type).To(Equal(infrav1.VMProvisionedCondition))
 				Expect(conditions[1].Reason).To(Equal(clusterv1.DeletingReason))
 			})
@@ -806,7 +811,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Context("reconcileNormal", func() {
 			It("adds a failed VMProvisionedCondition with reason WaitingForControlPlaneAvailableReason when the control plane is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneLabelName)
+				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
 				conditions.MarkFalse(cluster, clusterv1.ControlPlaneInitializedCondition, "nonce", clusterv1.ConditionSeverityInfo, "")
 
 				objects := []client.Object{
@@ -831,7 +836,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			})
 			It("adds a failed VMProvisionedCondition with reason WaitingForBootstrapDataReason when bootstrap data is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneLabelName)
+				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
 				conditions.MarkTrue(cluster, clusterv1.ControlPlaneInitializedCondition)
 
 				objects := []client.Object{
