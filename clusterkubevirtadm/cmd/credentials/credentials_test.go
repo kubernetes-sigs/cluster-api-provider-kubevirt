@@ -2,7 +2,6 @@ package credentials
 
 import (
 	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -10,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+	kubevirtcore "kubevirt.io/api/core"
+	cdicore "kubevirt.io/containerized-data-importer-api/pkg/apis/core"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/clusterkubevirtadm/common"
 )
@@ -118,21 +119,18 @@ var _ = Describe("test credentials common function", func() {
 			Expect(roles.Items).To(HaveLen(1))
 
 			Expect(roles.Items[0].Name).Should(Equal(roleName))
-			Expect(roles.Items[0].Rules).Should(HaveLen(2))
-			Expect(roles.Items[0].Rules[0].APIGroups).Should(HaveLen(1))
-			Expect(roles.Items[0].Rules[0].APIGroups[0]).Should(Equal("kubevirt.io"))
-			Expect(roles.Items[0].Rules[0].Resources).Should(HaveLen(2))
-			Expect(roles.Items[0].Rules[0].Resources[0]).Should(Equal("virtualmachines"))
-			Expect(roles.Items[0].Rules[0].Resources[1]).Should(Equal("virtualmachineinstances"))
-			Expect(roles.Items[0].Rules[0].Verbs).Should(HaveLen(1))
-			Expect(roles.Items[0].Rules[0].Verbs[0]).Should(Equal(rbacv1.VerbAll))
-			Expect(roles.Items[0].Rules[1].APIGroups).Should(HaveLen(1))
-			Expect(roles.Items[0].Rules[1].APIGroups[0]).Should(Equal(""))
-			Expect(roles.Items[0].Rules[1].Resources).Should(HaveLen(2))
-			Expect(roles.Items[0].Rules[1].Resources[0]).Should(Equal("secrets"))
-			Expect(roles.Items[0].Rules[1].Resources[1]).Should(Equal("services"))
-			Expect(roles.Items[0].Rules[1].Verbs).Should(HaveLen(1))
-			Expect(roles.Items[0].Rules[1].Verbs[0]).Should(Equal(rbacv1.VerbAll))
+			Expect(roles.Items[0].Rules).Should(HaveLen(3))
+			Expect(roles.Items[0].Rules[0].APIGroups).Should(And(HaveLen(1), ContainElements(kubevirtcore.GroupName)))
+			Expect(roles.Items[0].Rules[0].Resources).Should(And(HaveLen(2), ContainElements("virtualmachines", "virtualmachineinstances")))
+			Expect(roles.Items[0].Rules[0].Verbs).Should(And(HaveLen(1), ContainElements(rbacv1.VerbAll)))
+
+			Expect(roles.Items[0].Rules[1].APIGroups).Should(And(HaveLen(1), ContainElements(cdicore.GroupName)))
+			Expect(roles.Items[0].Rules[1].Resources).Should(And(HaveLen(1), ContainElements("datavolumes")))
+			Expect(roles.Items[0].Rules[1].Verbs).Should(And(HaveLen(3), ContainElements("get", "list", "watch")))
+
+			Expect(roles.Items[0].Rules[2].APIGroups).Should(And(HaveLen(1), ContainElements("")))
+			Expect(roles.Items[0].Rules[2].Resources).Should(And(HaveLen(2), ContainElements("secrets", "services")))
+			Expect(roles.Items[0].Rules[2].Verbs).Should(And(HaveLen(1), ContainElements(rbacv1.VerbAll)))
 		})
 
 		It("create should return error if the Role is already exist", func() {

@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sclient "k8s.io/client-go/kubernetes"
+	kubevirtcore "kubevirt.io/api/core"
+	cdicore "kubevirt.io/containerized-data-importer-api/pkg/apis/core"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/clusterkubevirtadm/common"
 )
@@ -148,9 +150,14 @@ func generateRole(cmdCtx cmdContext) *rbacv1.Role {
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{"kubevirt.io"},
+				APIGroups: []string{kubevirtcore.GroupName},
 				Resources: []string{"virtualmachines", "virtualmachineinstances"},
 				Verbs:     []string{rbacv1.VerbAll},
+			},
+			{
+				APIGroups: []string{cdicore.GroupName},
+				Resources: []string{"datavolumes"},
+				Verbs:     []string{"get", "list", "watch"},
 			},
 			{
 				APIGroups: []string{""},

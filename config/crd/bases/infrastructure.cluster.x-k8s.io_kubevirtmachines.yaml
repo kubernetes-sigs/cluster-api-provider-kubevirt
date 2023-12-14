@@ -18,7 +18,15 @@ spec:
     singular: kubevirtmachine
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - description: Is machine ready
+      jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: KubevirtMachine is the Schema for the kubevirtmachines API.
@@ -4614,8 +4622,11 @@ spec:
                   Node of this KubevirtMachine
                 type: boolean
               ready:
+                default: false
                 description: Ready denotes that the machine is ready
                 type: boolean
+            required:
+            - ready
             type: object
         type: object
     served: true
