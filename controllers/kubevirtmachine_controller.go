@@ -20,8 +20,9 @@ import (
 	gocontext "context"
 	"fmt"
 	"regexp"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -264,6 +265,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if !isTerminal && !externalMachine.Exists() {
 		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.VMCreateFailedReason, clusterv1.ConditionSeverityError, fmt.Sprintf("Failed vm creation: %v", err))
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
 		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
