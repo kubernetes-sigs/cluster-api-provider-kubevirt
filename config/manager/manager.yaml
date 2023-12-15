@@ -38,17 +38,8 @@ spec:
           httpGet:
             path: /healthz
             port: healthz
-        volumeMounts:
-          - mountPath: /var/run/docker.sock
-            name: dockersock
-        securityContext:
-          privileged: true
       terminationGracePeriodSeconds: 10
       serviceAccountName: manager
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
-      volumes:
-        - name: dockersock
-          hostPath:
-            path: /var/run/docker.sock
