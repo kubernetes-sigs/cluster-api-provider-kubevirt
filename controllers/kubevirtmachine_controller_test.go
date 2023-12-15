@@ -38,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	machinemocks "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt/mock"
@@ -318,7 +319,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 	})
 
-	setupClient := func(machineFactory kubevirt.MachineFactory, objects []client.Object) {
+	setupClientWithInterceptors := func(machineFactory kubevirt.MachineFactory, objects []client.Object, interceptorFuncs interceptor.Funcs) {
 		machineContext = &context.MachineContext{
 			Context:         gocontext.Background(),
 			Cluster:         cluster,
@@ -328,15 +329,21 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Logger:          testLogger,
 		}
 
-		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).WithStatusSubresource(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).WithStatusSubresource(objects...).WithInterceptorFuncs(interceptorFuncs).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
 			InfraCluster:    infraClusterMock,
 			MachineFactory:  machineFactory,
 		}
+	}
+
+	setupClient := func(machineFactory kubevirt.MachineFactory, objects []client.Object) {
+
+		setupClientWithInterceptors(machineFactory, objects, interceptor.Funcs{})
 
 	}
+
 	AfterEach(func() {})
 
 	It("should create KubeVirt VM", func() {
@@ -879,6 +886,43 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))
 				Expect(conditions[0].Reason).To(Equal(infrav1.WaitingForBootstrapDataReason))
 			})
+
+			It("adds a failed VMProvisionedCondition with reason VMCreateFailed when failng to create VM", func() {
+				objects := []client.Object{
+					cluster,
+					kubevirtCluster,
+					machine,
+					kubevirtMachine,
+					sshKeySecret,
+					bootstrapSecret,
+				}
+
+				injectErr := interceptor.Funcs{
+					Create: func(ctx gocontext.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+
+						_, ok := obj.(*kubevirtv1.VirtualMachine)
+						if ok {
+							return errors.New("vm create error")
+						}
+						return nil
+					},
+				}
+
+				setupClientWithInterceptors(kubevirt.DefaultMachineFactory{}, objects, injectErr)
+
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+				_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+				Expect(err).Should(HaveOccurred())
+
+				// should expect condition
+				conditions := machineContext.KubevirtMachine.GetConditions()
+				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))
+				Expect(conditions[0].Status).To(Equal(corev1.ConditionFalse))
+				Expect(conditions[0].Reason).To(Equal(infrav1.VMCreateFailedReason))
+			})
+
 			It("adds a succeeded VMProvisionedCondition", func() {
 				vmiReadyCondition := kubevirtv1.VirtualMachineInstanceCondition{
 					Type:   kubevirtv1.VirtualMachineInstanceReady,
