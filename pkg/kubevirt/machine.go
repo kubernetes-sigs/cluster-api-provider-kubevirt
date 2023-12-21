@@ -19,6 +19,8 @@ package kubevirt
 import (
 	gocontext "context"
 	"fmt"
+	"time"
+
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,16 +28,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kubedrain "k8s.io/kubectl/pkg/drain"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
+	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"time"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
 const (
@@ -49,6 +51,7 @@ type Machine struct {
 	machineContext *context.MachineContext
 	vmiInstance    *kubevirtv1.VirtualMachineInstance
 	vmInstance     *kubevirtv1.VirtualMachine
+	dataVolumes    []*cdiv1.DataVolume
 
 	sshKeys            *ssh.ClusterNodeSshKeys
 	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
@@ -63,6 +66,7 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 		vmiInstance:        nil,
 		vmInstance:         nil,
 		sshKeys:            sshKeys,
+		dataVolumes:        nil,
 		getCommandExecutor: ssh.NewVMCommandExecutor,
 	}
 
@@ -88,6 +92,20 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 		}
 	} else {
 		machine.vmInstance = vm
+	}
+
+	if machine.vmInstance != nil {
+		for _, dvTemp := range machine.vmInstance.Spec.DataVolumeTemplates {
+			dv := &cdiv1.DataVolume{}
+			err = client.Get(ctx.Context, types.NamespacedName{Name: dvTemp.ObjectMeta.Name, Namespace: namespace}, dv)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return nil, err
+				}
+			} else {
+				machine.dataVolumes = append(machine.dataVolumes, dv)
+			}
+		}
 	}
 
 	return machine, nil
@@ -217,6 +235,78 @@ func (m *Machine) Address() string {
 // IsReady checks if the VM is ready
 func (m *Machine) IsReady() bool {
 	return m.hasReadyCondition()
+}
+
+const (
+	defaultCondReason  = "VMNotReady"
+	defaultCondMessage = "VM is not ready"
+)
+
+func (m *Machine) GetVMNotReadyReason() (reason string, message string) {
+	reason = defaultCondReason
+
+	if m.vmInstance == nil {
+		message = defaultCondMessage
+		return
+	}
+
+	message = fmt.Sprintf("%s: %s", defaultCondMessage, m.vmInstance.Status.PrintableStatus)
+
+	cond := m.getVMCondition(kubevirtv1.VirtualMachineConditionType(corev1.PodScheduled))
+	if cond != nil {
+		if cond.Status == corev1.ConditionTrue {
+			return
+		} else if cond.Status == corev1.ConditionFalse {
+			if cond.Reason == "Unschedulable" {
+				return "Unschedulable", cond.Message
+			}
+		}
+	}
+
+	for _, dv := range m.dataVolumes {
+		dvReason, dvMessage, foundDVReason := m.getDVNotProvisionedReason(dv)
+		if foundDVReason {
+			return dvReason, dvMessage
+		}
+	}
+
+	return
+}
+
+func (m *Machine) getDVNotProvisionedReason(dv *cdiv1.DataVolume) (string, string, bool) {
+	msg := fmt.Sprintf("DataVolume %s is not ready; Phase: %s", dv.Name, dv.Status.Phase)
+	switch dv.Status.Phase {
+	case cdiv1.Succeeded: // DV's OK, return default reason & message
+		return "", "", false
+	case cdiv1.Pending:
+		return "DVPending", msg, true
+	case cdiv1.Failed:
+		return "DVFailed", msg, true
+	default:
+		for _, dvCond := range dv.Status.Conditions {
+			if dvCond.Type == cdiv1.DataVolumeRunning {
+				if dvCond.Status == corev1.ConditionFalse {
+					msg = fmt.Sprintf("DataVolume %s import is not running: %s", dv.Name, dvCond.Message)
+				}
+				break
+			}
+		}
+		return "DVNotReady", msg, true
+	}
+}
+
+func (m *Machine) getVMCondition(t kubevirtv1.VirtualMachineConditionType) *kubevirtv1.VirtualMachineCondition {
+	if m.vmInstance == nil {
+		return nil
+	}
+
+	for _, cond := range m.vmInstance.Status.Conditions {
+		if cond.Type == t {
+			return cond.DeepCopy()
+		}
+	}
+
+	return nil
 }
 
 // SupportsCheckingIsBootstrapped checks if we have a method of checking

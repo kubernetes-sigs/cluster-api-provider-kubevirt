@@ -21,10 +21,6 @@ import (
 	"flag"
 	"math/rand"
 	"os"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/webhookhandler"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -35,23 +31,27 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/feature"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/webhookhandler"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	// +kubebuilder:scaffold:imports
 )
 
 var (
-	myscheme = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 
 	//flags.
@@ -67,12 +67,24 @@ var (
 
 func init() {
 	klog.InitFlags(nil)
+}
 
-	_ = scheme.AddToScheme(myscheme)
-	_ = infrav1.AddToScheme(myscheme)
-	_ = clusterv1.AddToScheme(myscheme)
-	_ = kubevirtv1.AddToScheme(myscheme)
-	// +kubebuilder:scaffold:scheme
+func registerScheme() (*runtime.Scheme, error) {
+	myscheme := runtime.NewScheme()
+
+	for _, f := range []func(*runtime.Scheme) error{
+		scheme.AddToScheme,
+		infrav1.AddToScheme,
+		clusterv1.AddToScheme,
+		kubevirtv1.AddToScheme,
+		cdiv1.AddToScheme,
+		// +kubebuilder:scaffold:scheme
+	} {
+		if err := f(myscheme); err != nil {
+			return nil, err
+		}
+	}
+	return myscheme, nil
 }
 
 func initFlags(fs *pflag.FlagSet) {
@@ -105,6 +117,12 @@ func main() {
 	pflag.Parse()
 
 	ctrl.SetLogger(klogr.New())
+
+	myscheme, err := registerScheme()
+	if err != nil {
+		setupLog.Error(err, "can't register scheme")
+		os.Exit(1)
+	}
 
 	var defaultNamespaces map[string]cache.Config
 	if watchNamespace != "" {
