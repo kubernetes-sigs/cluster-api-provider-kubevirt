@@ -46,6 +46,14 @@ rules:
   - delete
   - list
 - apiGroups:
+  - cdi.kubevirt.io
+  resources:
+  - datavolumes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - cluster.x-k8s.io
   resources:
   - clusters

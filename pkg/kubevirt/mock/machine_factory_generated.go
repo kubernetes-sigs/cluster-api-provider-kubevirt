@@ -10,6 +10,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
+
 	context0 "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	kubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	ssh "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
@@ -146,6 +147,10 @@ func (m *MockMachineInterface) IsReady() bool {
 	ret := m.ctrl.Call(m, "IsReady")
 	ret0, _ := ret[0].(bool)
 	return ret0
+}
+
+func (m *MockMachineInterface) GetVMNotReadyReason() (string, string) {
+	return "", ""
 }
 
 // IsReady indicates an expected call of IsReady.

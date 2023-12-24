@@ -32,6 +32,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -775,6 +776,187 @@ var _ = Describe("util functions", func() {
 		Expect(newVM.Spec.DataVolumeTemplates[0].ObjectMeta.Name).To(Equal(kubevirtMachineName + "-dv1"))
 		Expect(newVM.Spec.Template.Spec.Volumes[0].VolumeSource.DataVolume.Name).To(Equal(kubevirtMachineName + "-dv1"))
 	})
+})
+
+var _ = Describe("with dataVolumes", func() {
+	var machineContext *context.MachineContext
+	namespace := kubevirtMachine.Namespace
+	virtualMachineInstance := testing.NewVirtualMachineInstance(kubevirtMachine)
+	virtualMachine := testing.NewVirtualMachine(virtualMachineInstance)
+	dataVolume := &cdiv1.DataVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dv-name",
+			Namespace: namespace,
+		},
+	}
+
+	BeforeEach(func() {
+		kubevirtMachine.Spec.BootstrapCheckSpec = v1alpha1.VirtualMachineBootstrapCheckSpec{}
+
+		machineContext = &context.MachineContext{
+			Context:             gocontext.TODO(),
+			Cluster:             cluster,
+			KubevirtCluster:     kubevirtCluster,
+			Machine:             machine,
+			KubevirtMachine:     kubevirtMachine,
+			BootstrapDataSecret: bootstrapDataSecret,
+			Logger:              logger,
+		}
+
+		virtualMachine.Spec.DataVolumeTemplates = []kubevirtv1.DataVolumeTemplateSpec{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "dv-name"},
+			},
+		}
+
+		if virtualMachine.Spec.Template == nil {
+			virtualMachine.Spec.Template = &kubevirtv1.VirtualMachineInstanceTemplateSpec{}
+		}
+		virtualMachine.Spec.Template.Spec.Volumes = []kubevirtv1.Volume{
+			{
+				Name: "dv-disk",
+				VolumeSource: kubevirtv1.VolumeSource{
+					DataVolume: &kubevirtv1.DataVolumeSource{
+						Name: "dv-name",
+					},
+				},
+			},
+		}
+
+		fakeVMCommandExecutor = FakeVMCommandExecutor{true}
+	})
+	JustBeforeEach(func() {
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			virtualMachineInstance,
+			virtualMachine,
+			dataVolume,
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+	})
+
+	It("NewMachine should have all client, machineContext and vmiInstance NOT nil", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.client).ToNot(BeNil())
+		Expect(externalMachine.machineContext).To(Equal(machineContext))
+		Expect(externalMachine.vmiInstance).ToNot(BeNil())
+		Expect(externalMachine.dataVolumes).To(HaveLen(1))
+		Expect(externalMachine.dataVolumes[0].Name).To(Equal(dataVolume.Name))
+	})
+})
+
+var _ = Describe("check GetVMNotReadyReason", func() {
+	DescribeTable("not-ready reason", func(vm *kubevirtv1.VirtualMachine, dv *cdiv1.DataVolume, expectedReason, expectedMsg string) {
+		m := Machine{
+			vmInstance: vm,
+		}
+
+		if dv != nil {
+			m.dataVolumes = []*cdiv1.DataVolume{dv}
+		}
+
+		reason, msg := m.GetVMNotReadyReason()
+		Expect(reason).To(Equal(expectedReason))
+		Expect(msg).To(ContainSubstring(expectedMsg))
+	},
+		Entry("no vm instance", nil, nil, defaultCondReason, defaultCondMessage),
+		Entry("no vm conditions", &kubevirtv1.VirtualMachine{}, nil, defaultCondReason, defaultCondMessage),
+		Entry("vm PodScheduled condition is true", &kubevirtv1.VirtualMachine{
+			Status: kubevirtv1.VirtualMachineStatus{
+				Conditions: []kubevirtv1.VirtualMachineCondition{
+					{
+						Type:   kubevirtv1.VirtualMachineConditionType(corev1.PodScheduled),
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		}, nil, defaultCondReason, defaultCondMessage),
+		Entry("vm PodScheduled condition is false, with unknown reason", &kubevirtv1.VirtualMachine{
+			Status: kubevirtv1.VirtualMachineStatus{
+				Conditions: []kubevirtv1.VirtualMachineCondition{
+					{
+						Type:   kubevirtv1.VirtualMachineConditionType(corev1.PodScheduled),
+						Status: corev1.ConditionFalse,
+						Reason: "somethingElse",
+					},
+				},
+			},
+		}, nil, defaultCondReason, defaultCondMessage),
+		Entry("vm PodScheduled condition is false, with 'Unschedulable' reason", &kubevirtv1.VirtualMachine{
+			Status: kubevirtv1.VirtualMachineStatus{
+				Conditions: []kubevirtv1.VirtualMachineCondition{
+					{
+						Type:    kubevirtv1.VirtualMachineConditionType(corev1.PodScheduled),
+						Status:  corev1.ConditionFalse,
+						Reason:  "Unschedulable",
+						Message: "test message",
+					},
+				},
+			},
+		}, nil, "Unschedulable", "test message"),
+		Entry("dv with Running condition; phase = Succeeded", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.Succeeded,
+			},
+		}, defaultCondReason, defaultCondMessage),
+		Entry("dv with Running condition; phase = Pending", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.Pending,
+			},
+		}, "DVPending", "is not ready; Phase: Pending"),
+		Entry("dv with Running condition; phase = Failed", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.Failed,
+			},
+		}, "DVFailed", "is not ready; Phase: Failed"),
+		Entry("dv with Running condition; phase is something else; Running condition true", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.ImportInProgress,
+				Conditions: []cdiv1.DataVolumeCondition{
+					{
+						Type:   cdiv1.DataVolumeRunning,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		}, "DVNotReady", "is not ready; Phase: ImportInProgress"),
+		Entry("dv with Running condition; phase is something else; Running condition false; reason=Completed", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.ImportInProgress,
+				Conditions: []cdiv1.DataVolumeCondition{
+					{
+						Type:   cdiv1.DataVolumeRunning,
+						Status: corev1.ConditionFalse,
+						Reason: "Completed",
+					},
+				},
+			},
+		}, "DVNotReady", "import is not running"),
+		Entry("dv with Running condition; phase is something else; Running condition false; reason!=Completed", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.ImportInProgress,
+				Conditions: []cdiv1.DataVolumeCondition{
+					{
+						Type:    cdiv1.DataVolumeRunning,
+						Status:  corev1.ConditionFalse,
+						Reason:  "SomethingElse",
+						Message: "test message",
+					},
+				},
+			},
+		}, "DVNotReady", "test message"),
+		Entry("dv with Running condition; phase is something else; no Running condition", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase:      cdiv1.ImportInProgress,
+				Conditions: []cdiv1.DataVolumeCondition{},
+			},
+		}, "DVNotReady", "is not ready; Phase: ImportInProgress"),
+	)
 })
 
 func validateVMNotExist(expected *kubevirtv1.VirtualMachine, fakeClient client.Client, machineContext *context.MachineContext) {
