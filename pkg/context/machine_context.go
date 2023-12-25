@@ -66,7 +66,6 @@ func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 			infrav1.VMProvisionedCondition,
 			infrav1.BootstrapExecSucceededCondition,
 		),
-		conditions.WithStepCounterIf(c.KubevirtMachine.ObjectMeta.DeletionTimestamp.IsZero()),
 	)
 
 	// Patch the object, ignoring conflicts on the conditions owned by this controller.
