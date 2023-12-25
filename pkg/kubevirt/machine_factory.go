@@ -38,6 +38,9 @@ type MachineInterface interface {
 	IsTerminal() (bool, string, error)
 
 	DrainNodeIfNeeded(workloadcluster.WorkloadCluster) (time.Duration, error)
+
+	// GetVMUnscheduledReason returns the reason and message for the condition, if the VM is not ready
+	GetVMNotReadyReason() (string, string)
 }
 
 // MachineFactory allows creating new instances of kubevirt.machine

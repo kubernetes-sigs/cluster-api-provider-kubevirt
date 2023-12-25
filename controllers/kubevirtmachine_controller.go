@@ -20,7 +20,6 @@ import (
 	gocontext "context"
 	"fmt"
 	"regexp"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"time"
 
 	"github.com/pkg/errors"
@@ -30,13 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
@@ -45,10 +37,19 @@ import (
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
+	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
@@ -65,6 +66,7 @@ type KubevirtMachineReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;delete
+// +kubebuilder:rbac:groups=cdi.kubevirt.io,resources=datavolumes;,verbs=get;list;watch
 
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
@@ -264,6 +266,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if !isTerminal && !externalMachine.Exists() {
 		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.VMCreateFailedReason, clusterv1.ConditionSeverityError, fmt.Sprintf("Failed vm creation: %v", err))
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
 		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
@@ -275,6 +278,9 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		// Mark VMProvisionedCondition to indicate that the VM has successfully started
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
 	} else {
+		reason, message := externalMachine.GetVMNotReadyReason()
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, reason, clusterv1.ConditionSeverityInfo, message)
+
 		// Waiting for VM to boot
 		ctx.KubevirtMachine.Status.Ready = false
 		ctx.Logger.Info("KubeVirt VM is not fully provisioned and running...")
@@ -474,7 +480,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 
 // SetupWithManager will add watches for this controller.
 func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mgr ctrl.Manager, options controller.Options) error {
-	clusterToKubevirtMachines, err := util.ClusterToObjectsMapper(mgr.GetClient(), &infrav1.KubevirtMachineList{}, mgr.GetScheme())
+	clusterToKubevirtMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.KubevirtMachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
 	}

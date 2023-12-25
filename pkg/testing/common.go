@@ -7,6 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -188,23 +189,19 @@ func NewBootstrapDataSecret(userData []byte) *corev1.Secret {
 // SetupScheme setups the scheme for a fake client.
 func SetupScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
-	if err := clusterv1.AddToScheme(s); err != nil {
-		panic(err)
+	for _, f := range []func(*runtime.Scheme) error{
+		clusterv1.AddToScheme,
+		infrav1.AddToScheme,
+		kubevirtv1.AddToScheme,
+		cdiv1.AddToScheme,
+		corev1.AddToScheme,
+		appsv1.AddToScheme,
+		rbacv1.AddToScheme,
+	} {
+		if err := f(s); err != nil {
+			panic(err)
+		}
 	}
-	if err := infrav1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := kubevirtv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := corev1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := appsv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
-	if err := rbacv1.AddToScheme(s); err != nil {
-		panic(err)
-	}
+
 	return s
 }
