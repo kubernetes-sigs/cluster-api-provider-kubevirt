@@ -173,6 +173,7 @@ func newRequest(operation admissionv1.Operation, oldObj, newObj *v1alpha1.Kubevi
 		},
 	}
 
+	var defaultReqDryRun bool = false
 	switch operation {
 	case admissionv1.Create:
 		req.Object = runtime.RawExtension{
@@ -180,6 +181,7 @@ func newRequest(operation admissionv1.Operation, oldObj, newObj *v1alpha1.Kubevi
 			Object: oldObj,
 		}
 	case admissionv1.Update:
+		req.DryRun = &defaultReqDryRun
 		req.Object = runtime.RawExtension{
 			Raw:    []byte(runtime.EncodeOrDie(encoder, newObj)),
 			Object: oldObj,
