@@ -18,8 +18,9 @@ package webhookhandler
 import (
 	"context"
 	"errors"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"net/http"
+
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -173,7 +175,6 @@ func newRequest(operation admissionv1.Operation, oldObj, newObj *v1alpha1.Kubevi
 		},
 	}
 
-	var defaultReqDryRun bool = false
 	switch operation {
 	case admissionv1.Create:
 		req.Object = runtime.RawExtension{
@@ -181,7 +182,7 @@ func newRequest(operation admissionv1.Operation, oldObj, newObj *v1alpha1.Kubevi
 			Object: oldObj,
 		}
 	case admissionv1.Update:
-		req.DryRun = &defaultReqDryRun
+		req.DryRun = ptr.To(false)
 		req.Object = runtime.RawExtension{
 			Raw:    []byte(runtime.EncodeOrDie(encoder, newObj)),
 			Object: oldObj,
