@@ -18,8 +18,9 @@ require (
 	k8s.io/component-base v0.28.3
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/kubectl v0.28.3
-	k8s.io/utils v0.0.0-20230505201702-9f6742963106
+	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
 	kubevirt.io/api v1.0.0
+	kubevirt.io/containerized-data-importer-api v1.57.0
 	sigs.k8s.io/cluster-api v1.5.2
 	sigs.k8s.io/controller-runtime v0.16.2
 	sigs.k8s.io/kind v0.20.0
@@ -102,7 +103,6 @@ require (
 	k8s.io/apiextensions-apiserver v0.28.0 // indirect
 	k8s.io/cli-runtime v0.28.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9 // indirect
-	kubevirt.io/containerized-data-importer-api v1.57.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.0.0-20220329064328-f3cc58c6ed90 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/kustomize/api v0.13.5-0.20230601165947-6ce0bf390ce3 // indirect
