@@ -283,15 +283,20 @@ func (m *Machine) getDVNotProvisionedReason(dv *cdiv1.DataVolume) (string, strin
 	case cdiv1.Failed:
 		return "DVFailed", msg, true
 	default:
+		reason := "DVNotReady"
 		for _, dvCond := range dv.Status.Conditions {
 			if dvCond.Type == cdiv1.DataVolumeRunning {
 				if dvCond.Status == corev1.ConditionFalse {
+					if dvCond.Reason == "ImagePullFailed" {
+						reason = "DVImagePullFailed"
+					}
+
 					msg = fmt.Sprintf("DataVolume %s import is not running: %s", dv.Name, dvCond.Message)
 				}
 				break
 			}
 		}
-		return "DVNotReady", msg, true
+		return reason, msg, true
 	}
 }
 

@@ -956,6 +956,19 @@ var _ = Describe("check GetVMNotReadyReason", func() {
 				Conditions: []cdiv1.DataVolumeCondition{},
 			},
 		}, "DVNotReady", "is not ready; Phase: ImportInProgress"),
+		Entry("dv with Running condition and reason = 'ImagePullFailed'", &kubevirtv1.VirtualMachine{}, &cdiv1.DataVolume{
+			Status: cdiv1.DataVolumeStatus{
+				Phase: cdiv1.ImportInProgress,
+				Conditions: []cdiv1.DataVolumeCondition{
+					{
+						Type:    cdiv1.DataVolumeRunning,
+						Status:  corev1.ConditionFalse,
+						Reason:  "ImagePullFailed",
+						Message: "test message",
+					},
+				},
+			},
+		}, "DVImagePullFailed", "test message"),
 	)
 })
 
