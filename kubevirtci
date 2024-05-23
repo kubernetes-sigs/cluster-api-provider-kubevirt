@@ -2,9 +2,9 @@
 
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.27}
-export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.26.0}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2309141019-029e67a}
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.30}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.31.1}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2405151527-09bcd71}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
@@ -16,7 +16,7 @@ export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION="v1.2.4"
 export CALICO_VERSION="v3.26.3"
 export KUBEVIRT_VERSION="v1.0.0"
-export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2004-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2204-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
 KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"
@@ -252,7 +252,7 @@ function kubevirtci::install_capk_release {
 
 
 function kubevirtci::install_calico {
-	kubevirtci::kubectl_tenant apply -f https://docs.projectcalico.org/${CALICO_VERSION}/manifests/calico.yaml
+	kubevirtci::kubectl_tenant apply -f https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml
 	echo "Waiting for calico pods rollout"
 	kubevirtci::kubectl_tenant rollout status ds/calico-node -n kube-system --timeout=2m
 
