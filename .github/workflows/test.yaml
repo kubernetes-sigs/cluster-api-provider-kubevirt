@@ -26,7 +26,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
     - name: Install Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
     - name: Test with coverage
@@ -39,7 +39,7 @@ jobs:
       env:
         COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |-
-        GO111MODULE=off go get github.com/mattn/goveralls
+        go install github.com/mattn/goveralls@latest
         $(go env GOPATH)/bin/goveralls -coverprofile=coverprofiles/cover.coverprofile -service=github
 
   go-linter:
@@ -47,21 +47,21 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v6
       with:
         args: --timeout=5m -v
-        version: v1.55.2
+        version: v1.59.0
 
   check-gen:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: Install Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
     - name: Check that 'make generate' has being call
