@@ -4,17 +4,14 @@ linters-settings:
 
 linters:
   enable:
-    - deadcode
     - errcheck
     - ginkgolinter
     - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - structcheck
     - typecheck
     - unused
-    - varcheck
   disable: []
 
 issues:

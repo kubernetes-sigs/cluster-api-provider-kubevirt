@@ -51,7 +51,7 @@ func SetupWebhookWithManager(mgr ctrl.Manager) error {
 }
 
 type kubevirtMachineTemplateHandler struct {
-	decoder *admission.Decoder
+	decoder admission.Decoder
 }
 
 func (wh *kubevirtMachineTemplateHandler) Handle(_ context.Context, req admission.Request) admission.Response {
@@ -68,7 +68,7 @@ func (wh *kubevirtMachineTemplateHandler) Handle(_ context.Context, req admissio
 	case admissionv1.Update:
 		oldKVTmplt := &v1alpha1.KubevirtMachineTemplate{}
 		// Server Side Apply implementation in ClusterClass and managed topologies requires to dry-run changes on templates.
-		// cf: https://cluster-api.sigs.k8s.io/developer/providers/migrations/v1.1-to-v1.2?search=#required-api-changes-for-providers	
+		// cf: https://cluster-api.sigs.k8s.io/developer/providers/migrations/v1.1-to-v1.2?search=#required-api-changes-for-providers
 		if *req.DryRun {
 			return admission.Allowed("")
 		}
