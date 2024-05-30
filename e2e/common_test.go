@@ -132,7 +132,7 @@ func (t *tenantClusterAccess) startForwardingTenantAPI(ctx context.Context) erro
 }
 
 func (t *tenantClusterAccess) findControlPlaneVMIName(ctx context.Context) (string, error) {
-	vmiList, err := virtClient.VirtualMachineInstance(t.namespace).List(ctx, &metav1.ListOptions{})
+	vmiList, err := virtClient.VirtualMachineInstance(t.namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}

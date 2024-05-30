@@ -68,9 +68,10 @@ var _ = Describe("CreateCluster", func() {
 		virtClient, err = kubecli.GetKubevirtClientFromClientConfig(clientConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		_ = clusterv1.AddToScheme(k8sclient.Scheme())
-		_ = infrav1.AddToScheme(k8sclient.Scheme())
-		_ = kubevirtv1.AddToScheme(k8sclient.Scheme())
+		s := k8sclient.Scheme()
+		_ = clusterv1.AddToScheme(s)
+		_ = infrav1.AddToScheme(s)
+		_ = kubevirtv1.AddToScheme(s)
 
 		namespace = "e2e-test-create-cluster-" + rand.String(6)
 
@@ -396,7 +397,7 @@ var _ = Describe("CreateCluster", func() {
 	}
 
 	chooseWorkerVMI := func(ctx context.Context) *kubevirtv1.VirtualMachineInstance {
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, &metav1.ListOptions{})
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -567,7 +568,7 @@ var _ = Describe("CreateCluster", func() {
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
 		var err error
-		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(ctx, chosenVMI)
+		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(ctx, chosenVMI, metav1.UpdateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
@@ -632,13 +633,13 @@ var _ = Describe("CreateCluster", func() {
 		chosenVMI := chooseWorkerVMI(ctx)
 
 		By("Setting VM to runstrategy once")
-		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(ctx, chosenVMI.Name, &metav1.GetOptions{})
+		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(ctx, chosenVMI.Name, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		once := kubevirtv1.RunStrategyOnce
 		chosenVM.Spec.RunStrategy = &once
 
-		_, err = virtClient.VirtualMachine(namespace).Update(ctx, chosenVM)
+		_, err = virtClient.VirtualMachine(namespace).Update(ctx, chosenVM, metav1.UpdateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		By("killing the chosen VMI's pod")
@@ -735,7 +736,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantAccess(ctx, 2)
 
 		By("Selecting a worker node to restart")
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, &metav1.ListOptions{})
+		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, metav1.ListOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
@@ -752,13 +753,13 @@ var _ = Describe("CreateCluster", func() {
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
 		Expect(
-			virtClient.VirtualMachineInstance(namespace).Delete(ctx, chosenVMI.Name, &metav1.DeleteOptions{}),
+			virtClient.VirtualMachineInstance(namespace).Delete(ctx, chosenVMI.Name, metav1.DeleteOptions{}),
 		).To(Succeed())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
 
-		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, chosenVMI.Name, &metav1.GetOptions{})
+		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, chosenVMI.Name, metav1.GetOptions{})
 		Expect(err).ShouldNot(HaveOccurred())
 		removeFinalizerFromVMI(ctx, deletedVmi)
 
@@ -864,7 +865,7 @@ func waitForVMIDraining(ctx context.Context, vmiName, namespace string) {
 
 	By("wait for VMI is marked for deletion")
 	Eventually(func(g Gomega) {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
 		g.Expect(err).ShouldNot(HaveOccurred())
 
 		vmiDebugPrintout(vmi)
@@ -897,7 +898,7 @@ func getRecreatedVMI(ctx context.Context, vmiName string, namespace string, orig
 		err error
 	)
 	Eventually(func(g Gomega) types.UID {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
 		g.Expect(err).ShouldNot(HaveOccurred())
 		g.Expect(vmi).ShouldNot(BeNil())
 
@@ -931,7 +932,7 @@ func validateNewNodeIP(ctx context.Context, cl *kubernetes.Clientset, vmiName, n
 
 		g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
 
-		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
+		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
 
 		g.Expect(err).ShouldNot(HaveOccurred())
 		g.Expect(vmi).ShouldNot(BeNil())
@@ -962,13 +963,13 @@ func addFinalizerFromVMI(ctx context.Context, vmiName, namespace string) *kubevi
 		err error
 	)
 	Eventually(func() error {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, &metav1.GetOptions{})
+		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
 
 		vmi.Finalizers = append(vmi.Finalizers, testFinalizer)
-		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(ctx, vmi)
+		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(ctx, vmi, metav1.UpdateOptions{})
 		return err
 	}).WithOffset(1).
 		WithTimeout(time.Minute).
@@ -979,7 +980,7 @@ func addFinalizerFromVMI(ctx context.Context, vmiName, namespace string) *kubevi
 }
 
 func removeFinalizerFromVMI(ctx context.Context, vmi *kubevirtv1.VirtualMachineInstance) {
-	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(ctx, vmi.Name, &metav1.GetOptions{})
+	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(ctx, vmi.Name, metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
 
 	index := -1
@@ -994,7 +995,7 @@ func removeFinalizerFromVMI(ctx context.Context, vmi *kubevirtv1.VirtualMachineI
 	patch := []byte(fmt.Sprintf(`[{"op": "remove", "path": "/metadata/finalizers/%d"}]`, index))
 
 	Eventually(func() error {
-		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(ctx, vmi.Name, types.JSONPatchType, patch, &metav1.PatchOptions{})
+		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(ctx, vmi.Name, types.JSONPatchType, patch, metav1.PatchOptions{})
 		return err
 	}).WithOffset(1).
 		WithTimeout(time.Minute).

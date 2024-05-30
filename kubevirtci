@@ -15,7 +15,7 @@ export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION="v1.2.4"
 export CALICO_VERSION="v3.26.3"
-export KUBEVIRT_VERSION="v1.0.0"
+export KUBEVIRT_VERSION="v1.2.1"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2204-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
