@@ -10,7 +10,7 @@ export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
-export METALLB_VERSION="v0.13.11"
+export METALLB_VERSION="v0.14.5"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION="v1.2.4"
@@ -264,28 +264,28 @@ function kubevirtci::install_metallb {
 	echo "waiting for metallb to come online"
 	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
 
-	mkdir -p ${_default_tmp_path}
-	local metal_config=${_default_tmp_path}/metallb-config.yaml
-
-	cat << EOF > $metal_config
----
-apiVersion: v1
-kind: ConfigMap
+	${_kubectl} apply -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
+  name: metallb
   namespace: metallb-system
-  name: config
-data:
-  config: |
-    address-pools:
-    - name: default
-      protocol: layer2
-      addresses:
-      - 192.168.66.201-192.168.66.250
+spec:
+  addresses:
+  - 192.168.111.30-192.168.111.50
 EOF
 
-	${_kubectl} apply -f ${metal_config}
+	${_kubectl} create -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+   - metallb
+EOF
 
-	rm $metal_config
 	echo "metallb installed!"
 }
 
