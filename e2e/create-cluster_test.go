@@ -47,7 +47,7 @@ var _ = Describe("CreateCluster", func() {
 	var tenantAccessor tenantClusterAccess
 	var ctx context.Context
 
-	calicoManifestsUrl := "https://docs.projectcalico.org/v3.21/manifests/calico.yaml"
+	calicoManifestsUrl := "https://raw.githubusercontent.com/projectcalico/calico/v3.26.3/manifests/calico.yaml"
 
 	BeforeEach(func() {
 		var err error
@@ -99,9 +99,9 @@ var _ = Describe("CreateCluster", func() {
 
 		}()
 
-		_ = os.RemoveAll(tmpDir)
+		Expect(os.RemoveAll(tmpDir)).To(Succeed())
 
-		_ = tenantAccessor.stopForwardingTenantAPI()
+		Expect(tenantAccessor.stopForwardingTenantAPI()).To(Succeed())
 
 		By("removing cluster")
 		cluster := &clusterv1.Cluster{
@@ -327,8 +327,9 @@ var _ = Describe("CreateCluster", func() {
 	}
 
 	installCalicoCNI := func() {
-		cmd := exec.Command(KubectlPath, "--kubeconfig", tenantKubeconfigFile, "--insecure-skip-tls-verify", "--server", fmt.Sprintf("https://localhost:%d", tenantAccessor.getLocalPort()), "apply", "-f", calicoManifestsUrl)
-		RunCmd(cmd)
+		cmd := exec.Command(KubectlPath, "--kubeconfig", tenantKubeconfigFile, "--insecure-skip-tls-verify", "--validate=false", "--server", fmt.Sprintf("https://localhost:%d", tenantAccessor.tenantApiPort), "apply", "-f", calicoManifestsUrl)
+		_, stderr := RunCmd(cmd)
+		Expect(stderr).To(BeEmpty(), "failed to apply calico CNI: %s", string(stderr))
 	}
 
 	waitForNodeUpdate := func() {
@@ -499,7 +500,9 @@ var _ = Describe("CreateCluster", func() {
 			"--control-plane-machine-count=1",
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template.yaml")
-		stdout, _ := RunCmd(cmd)
+		stdout, stderr := RunCmd(cmd)
+		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stdout))
+
 		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("posting cluster manifests example template")
@@ -841,7 +844,9 @@ var _ = Describe("CreateCluster", func() {
 			"--control-plane-machine-count=1",
 			"--worker-machine-count=1",
 			"--target-namespace", namespace)
-		stdout, _ := RunCmd(cmd)
+		stdout, stderr := RunCmd(cmd)
+		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stdout))
+
 		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
 		By("applying cluster manifests")
