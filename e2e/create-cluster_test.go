@@ -12,7 +12,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	policy "k8s.io/api/policy/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,8 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"kubevirt.io/client-go/kubecli"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,14 +32,13 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
-var virtClient kubecli.KubevirtClient
-
 const testFinalizer = "holdForTestFinalizer"
 
 var _ = Describe("CreateCluster", func() {
 
 	var tmpDir string
 	var k8sclient client.Client
+	var k8sClientSet *kubernetes.Clientset
 	var manifestsFile string
 	var tenantKubeconfigFile string
 	var namespace string
@@ -64,14 +62,14 @@ var _ = Describe("CreateCluster", func() {
 		Expect(err).ToNot(HaveOccurred())
 		k8sclient, err = client.New(cfg, client.Options{})
 		Expect(err).ToNot(HaveOccurred())
-		clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
-		virtClient, err = kubecli.GetKubevirtClientFromClientConfig(clientConfig)
-		Expect(err).ToNot(HaveOccurred())
+
+		k8sClientSet, err = kubernetes.NewForConfig(cfg)
+		ExpectWithOffset(1, err).ToNot(HaveOccurred())
 
 		s := k8sclient.Scheme()
-		_ = clusterv1.AddToScheme(s)
-		_ = infrav1.AddToScheme(s)
-		_ = kubevirtv1.AddToScheme(s)
+		Expect(clusterv1.AddToScheme(s)).To(Succeed())
+		Expect(infrav1.AddToScheme(s)).To(Succeed())
+		Expect(kubevirtv1.AddToScheme(s)).To(Succeed())
 
 		namespace = "e2e-test-create-cluster-" + rand.String(6)
 
@@ -140,7 +138,7 @@ var _ = Describe("CreateCluster", func() {
 		Consistently(func(g Gomega) error {
 			kvCluster := &infrav1.KubevirtCluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: clusterName}
-			Expect(k8sclient.Get(context.Background(), key, kvCluster)).To(Succeed())
+			Expect(k8sclient.Get(ctx, key, kvCluster)).To(Succeed())
 
 			g.Expect(kvCluster.Finalizers).To(BeEmpty())
 			g.Expect(kvCluster.Status.Ready).To(BeFalse())
@@ -231,7 +229,7 @@ var _ = Describe("CreateCluster", func() {
 	waitForTenantPods := func(ctx context.Context) {
 
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx, k8sclient)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -262,32 +260,28 @@ var _ = Describe("CreateCluster", func() {
 
 	waitForTenantAccess := func(ctx context.Context, numExpectedNodes int) *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx, k8sclient)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(func() error {
+		Eventually(func(g Gomega) []corev1.Node {
 
 			nodeList, err := clientSet.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-			Expect(err).ToNot(HaveOccurred())
-			if len(nodeList.Items) != numExpectedNodes {
-				return fmt.Errorf("expecting tenant cluster to have %d nodes", len(nodeList.Items))
-			}
-
-			return nil
+			g.Expect(err).ToNot(HaveOccurred())
+			return nodeList.Items
 		}).WithOffset(1).
-			WithTimeout(5*time.Minute).
-			WithPolling(5*time.Second).
-			Should(Succeed(), "waiting for expected readiness.")
+			WithTimeout(10*time.Minute).
+			WithPolling(10*time.Second).
+			Should(HaveLen(numExpectedNodes), "waiting for expected readiness.")
 
 		return clientSet
 	}
 
 	waitForNodeReadiness := func(ctx context.Context) *kubernetes.Clientset {
 		By(fmt.Sprintf("Perform Port Forward using controlplane vmi in namespace %s", namespace))
-		Expect(tenantAccessor.startForwardingTenantAPI(ctx)).To(Succeed())
+		Expect(tenantAccessor.startForwardingTenantAPI(ctx, k8sclient)).To(Succeed())
 
 		By("Create client to access the tenant cluster")
 		clientSet, err := tenantAccessor.generateClient()
@@ -319,8 +313,8 @@ var _ = Describe("CreateCluster", func() {
 
 			return nil
 		}).WithOffset(1).
-			WithTimeout(8*time.Minute).
-			WithPolling(5*time.Second).
+			WithTimeout(10*time.Minute).
+			WithPolling(10*time.Second).
 			Should(Succeed(), "ensure healthy nodes.")
 
 		return clientSet
@@ -398,8 +392,8 @@ var _ = Describe("CreateCluster", func() {
 	}
 
 	chooseWorkerVMI := func(ctx context.Context) *kubevirtv1.VirtualMachineInstance {
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, metav1.ListOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		vmiList := &kubevirtv1.VirtualMachineInstanceList{}
+		Expect(k8sclient.List(ctx, vmiList, client.InNamespace(namespace))).To(Succeed())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
 		for _, vmi := range vmiList.Items {
@@ -570,9 +564,7 @@ var _ = Describe("CreateCluster", func() {
 		Expect(ok).To(BeTrue())
 
 		chosenVMI.Labels[infrav1.KubevirtMachineVMTerminalLabel] = "marked-terminal-by-func-test"
-		var err error
-		chosenVMI, err = virtClient.VirtualMachineInstance(namespace).Update(ctx, chosenVMI, metav1.UpdateOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sclient.Update(ctx, chosenVMI)).To(Succeed())
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
 		chosenKVM := &infrav1.KubevirtMachine{
@@ -636,14 +628,12 @@ var _ = Describe("CreateCluster", func() {
 		chosenVMI := chooseWorkerVMI(ctx)
 
 		By("Setting VM to runstrategy once")
-		chosenVM, err := virtClient.VirtualMachine(chosenVMI.Namespace).Get(ctx, chosenVMI.Name, metav1.GetOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		key := client.ObjectKeyFromObject(chosenVMI)
+		chosenVM := &kubevirtv1.VirtualMachine{}
+		Expect(k8sclient.Get(ctx, key, chosenVM)).To(Succeed())
 
-		once := kubevirtv1.RunStrategyOnce
-		chosenVM.Spec.RunStrategy = &once
-
-		_, err = virtClient.VirtualMachine(namespace).Update(ctx, chosenVM, metav1.UpdateOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		chosenVM.Spec.RunStrategy = ptr.To(kubevirtv1.RunStrategyOnce)
+		Expect(k8sclient.Update(ctx, chosenVM)).To(Succeed())
 
 		By("killing the chosen VMI's pod")
 		chosenPod := getVMIPod(chosenVMI)
@@ -711,7 +701,7 @@ var _ = Describe("CreateCluster", func() {
 
 	})
 
-	It("creates a simple cluster with persistent VMs", Label("persistentVMs"), func() {
+	It("creates a simple cluster with persistent VMs, then evict the node", Label("persistentVMs", "eviction"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
 			"--target-namespace", namespace,
@@ -739,8 +729,8 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantAccess(ctx, 2)
 
 		By("Selecting a worker node to restart")
-		vmiList, err := virtClient.VirtualMachineInstance(namespace).List(ctx, metav1.ListOptions{})
-		Expect(err).ToNot(HaveOccurred())
+		vmiList := &kubevirtv1.VirtualMachineInstanceList{}
+		Expect(k8sclient.List(ctx, vmiList, client.InNamespace(namespace))).To(Succeed())
 
 		var chosenVMI *kubevirtv1.VirtualMachineInstance
 		for _, vmi := range vmiList.Items {
@@ -752,19 +742,17 @@ var _ = Describe("CreateCluster", func() {
 		Expect(chosenVMI).ToNot(BeNil())
 
 		By("Set a testFinalizer to hold the VMI deletion so we could check if the machine became not-ready")
-		addFinalizerFromVMI(ctx, chosenVMI.Name, namespace)
+		addFinalizerFromVMI(ctx, k8sclient, chosenVMI.Name, namespace)
 
 		By(fmt.Sprintf("By restarting worker node hosted in vmi %s", chosenVMI.Name))
-		Expect(
-			virtClient.VirtualMachineInstance(namespace).Delete(ctx, chosenVMI.Name, metav1.DeleteOptions{}),
-		).To(Succeed())
+		Expect(k8sclient.Delete(ctx, chosenVMI)).To(Succeed())
 
 		By("Expecting a KubevirtMachine to revert back to ready=false while VM restarts")
 		waitForMachineReadiness(1, 1)
 
-		deletedVmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, chosenVMI.Name, metav1.GetOptions{})
-		Expect(err).ShouldNot(HaveOccurred())
-		removeFinalizerFromVMI(ctx, deletedVmi)
+		deletedVmi := &kubevirtv1.VirtualMachineInstance{}
+		Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(chosenVMI), deletedVmi)).To(Succeed())
+		removeFinalizerFromVMI(ctx, k8sclient, deletedVmi)
 
 		By("Expecting both KubevirtMachines stabilize to a ready=true again.")
 		waitForMachineReadiness(2, 0)
@@ -784,30 +772,30 @@ var _ = Describe("CreateCluster", func() {
 		vmiName := chosenVMI.Name
 
 		By("read the VMI again after it was recreated")
-		recreatedVMI := getRecreatedVMI(ctx, vmiName, namespace, chosenVMI.GetUID())
+		recreatedVMI := getRecreatedVMI(ctx, k8sclient, vmiName, namespace, chosenVMI.GetUID())
 
 		Expect(*recreatedVMI.Spec.EvictionStrategy).Should(Equal(kubevirtv1.EvictionStrategyExternal))
 
 		By("Set a testFinalizer to hold the VMI deletion so we could query it after eviction")
-		recreatedVMI = addFinalizerFromVMI(ctx, recreatedVMI.Name, namespace)
+		recreatedVMI = addFinalizerFromVMI(ctx, k8sclient, recreatedVMI.Name, namespace)
 
 		By("Get VMI's pod")
 		pod := getVMIPod(recreatedVMI)
 
 		By("Try to evict the VMI pod; should fail, but trigger the VMI draining")
-		evictNode(pod)
+		evictNode(k8sClientSet, pod)
 
 		By("wait for a VMI to be marked for deletion")
-		waitForVMIDraining(ctx, vmiName, namespace)
+		waitForVMIDraining(ctx, k8sclient, vmiName, namespace)
 
 		By("remove the test finalizer")
-		removeFinalizerFromVMI(ctx, recreatedVMI)
+		removeFinalizerFromVMI(ctx, k8sclient, recreatedVMI)
 
 		By("wait for a new VMI to be created")
-		getRecreatedVMI(ctx, vmiName, namespace, recreatedVMI.GetUID())
+		getRecreatedVMI(ctx, k8sclient, vmiName, namespace, recreatedVMI.GetUID())
 
 		By("Read the worker node from the tenant cluster, and validate its IP")
-		validateNewNodeIP(ctx, clientSet, vmiName, namespace)
+		validateNewNodeIP(ctx, k8sclient, clientSet, vmiName, namespace)
 	})
 
 	// This test will create a tenant cluster from `templates/cluster-template-ext-infra.yaml` template.
@@ -864,14 +852,14 @@ var _ = Describe("CreateCluster", func() {
 	})
 })
 
-func waitForVMIDraining(ctx context.Context, vmiName, namespace string) {
-	var vmi *kubevirtv1.VirtualMachineInstance
-	var err error
+func waitForVMIDraining(ctx context.Context, k8sclient client.Client, vmiName, namespace string) {
+	vmi := &kubevirtv1.VirtualMachineInstance{}
 
 	By("wait for VMI is marked for deletion")
 	Eventually(func(g Gomega) {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
-		g.Expect(err).ShouldNot(HaveOccurred())
+		key := client.ObjectKey{Namespace: namespace, Name: vmiName}
+		g.Expect(k8sclient.Get(ctx, key, vmi)).To(Succeed())
+		g.Expect(vmi).ShouldNot(BeNil())
 
 		vmiDebugPrintout(vmi)
 
@@ -883,9 +871,8 @@ func waitForVMIDraining(ctx context.Context, vmiName, namespace string) {
 		Should(Succeed())
 }
 
-func evictNode(pod *corev1.Pod) {
-
-	err := virtClient.CoreV1().Pods(pod.Namespace).EvictV1beta1(context.Background(), &policy.Eviction{
+func evictNode(cli *kubernetes.Clientset, pod *corev1.Pod) {
+	err := cli.CoreV1().Pods(pod.Namespace).EvictV1beta1(context.Background(), &policy.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pod.Name,
 		},
@@ -897,14 +884,12 @@ func evictNode(pod *corev1.Pod) {
 	ExpectWithOffset(1, k8serrors.IsTooManyRequests(err)).To(BeTrue(), "should return TooManyRequests error; got %v instead", err)
 }
 
-func getRecreatedVMI(ctx context.Context, vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
-	var (
-		vmi *kubevirtv1.VirtualMachineInstance
-		err error
-	)
+func getRecreatedVMI(ctx context.Context, k8sclient client.Client, vmiName string, namespace string, originalUID types.UID) *kubevirtv1.VirtualMachineInstance {
+	vmi := &kubevirtv1.VirtualMachineInstance{}
+
 	Eventually(func(g Gomega) types.UID {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
-		g.Expect(err).ShouldNot(HaveOccurred())
+		key := client.ObjectKey{Namespace: namespace, Name: vmiName}
+		Expect(k8sclient.Get(ctx, key, vmi)).To(Succeed())
 		g.Expect(vmi).ShouldNot(BeNil())
 
 		vmiDebugPrintout(vmi)
@@ -922,7 +907,7 @@ func getRecreatedVMI(ctx context.Context, vmiName string, namespace string, orig
 	return vmi
 }
 
-func validateNewNodeIP(ctx context.Context, cl *kubernetes.Clientset, vmiName, namespace string) {
+func validateNewNodeIP(ctx context.Context, k8sclient client.Client, cl *kubernetes.Clientset, vmiName, namespace string) {
 	Eventually(func(g Gomega) bool {
 		// reading the node and the VMI again and again, because it takes time to the IPs to be synchronized
 		node, err := cl.CoreV1().Nodes().Get(context.Background(), vmiName, metav1.GetOptions{})
@@ -937,9 +922,9 @@ func validateNewNodeIP(ctx context.Context, cl *kubernetes.Clientset, vmiName, n
 
 		g.Expect(nodeIp).ShouldNot(BeEmpty(), "node's IP is not set")
 
-		vmi, err := virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
-
-		g.Expect(err).ShouldNot(HaveOccurred())
+		key := client.ObjectKey{Namespace: namespace, Name: vmiName}
+		vmi := &kubevirtv1.VirtualMachineInstance{}
+		g.Expect(k8sclient.Get(ctx, key, vmi)).To(Succeed())
 		g.Expect(vmi).ShouldNot(BeNil())
 
 		for _, ifs := range vmi.Status.Interfaces {
@@ -962,31 +947,29 @@ func vmiDebugPrintout(vmi *kubevirtv1.VirtualMachineInstance) {
 		vmi.UID, vmi.DeletionTimestamp, vmi.Status.EvacuationNodeName)
 }
 
-func addFinalizerFromVMI(ctx context.Context, vmiName, namespace string) *kubevirtv1.VirtualMachineInstance {
-	var (
-		vmi *kubevirtv1.VirtualMachineInstance
-		err error
-	)
-	Eventually(func() error {
-		vmi, err = virtClient.VirtualMachineInstance(namespace).Get(ctx, vmiName, metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
+func addFinalizerFromVMI(ctx context.Context, k8sclient client.Client, vmiName, namespace string) *kubevirtv1.VirtualMachineInstance {
+	vmi := &kubevirtv1.VirtualMachineInstance{}
+	key := client.ObjectKey{Namespace: namespace, Name: vmiName}
 
-		vmi.Finalizers = append(vmi.Finalizers, testFinalizer)
-		_, err = virtClient.VirtualMachineInstance(vmi.Namespace).Update(ctx, vmi, metav1.UpdateOptions{})
-		return err
+	Expect(k8sclient.Get(ctx, key, vmi)).To(Succeed())
+	Expect(vmi).ToNot(BeNil())
+
+	patchBytes := []byte(fmt.Sprintf(`[{"op": "add", "path": "/metadata/finalizers/-", "value": "%s"}]`, testFinalizer))
+	patch := client.RawPatch(types.JSONPatchType, patchBytes)
+
+	Eventually(func(g Gomega) error {
+		return k8sclient.Patch(ctx, vmi, patch)
 	}).WithOffset(1).
 		WithTimeout(time.Minute).
 		WithPolling(2 * time.Second).
 		Should(Succeed())
 
+	Expect(k8sclient.Get(ctx, key, vmi)).To(Succeed())
 	return vmi
 }
 
-func removeFinalizerFromVMI(ctx context.Context, vmi *kubevirtv1.VirtualMachineInstance) {
-	vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(ctx, vmi.Name, metav1.GetOptions{})
-	Expect(err).NotTo(HaveOccurred())
+func removeFinalizerFromVMI(ctx context.Context, k8sclient client.Client, vmi *kubevirtv1.VirtualMachineInstance) {
+	Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(vmi), vmi)).To(Succeed())
 
 	index := -1
 	for i, finalizer := range vmi.Finalizers {
@@ -997,11 +980,11 @@ func removeFinalizerFromVMI(ctx context.Context, vmi *kubevirtv1.VirtualMachineI
 	}
 	ExpectWithOffset(1, index).To(BeNumerically(">=", 0))
 
-	patch := []byte(fmt.Sprintf(`[{"op": "remove", "path": "/metadata/finalizers/%d"}]`, index))
+	patchBytes := []byte(fmt.Sprintf(`[{"op": "remove", "path": "/metadata/finalizers/%d"}]`, index))
+	patch := client.RawPatch(types.JSONPatchType, patchBytes)
 
-	Eventually(func() error {
-		_, err := virtClient.VirtualMachineInstance(vmi.Namespace).Patch(ctx, vmi.Name, types.JSONPatchType, patch, metav1.PatchOptions{})
-		return err
+	Eventually(func(g Gomega) error {
+		return k8sclient.Patch(ctx, vmi, patch)
 	}).WithOffset(1).
 		WithTimeout(time.Minute).
 		WithPolling(2 * time.Second).

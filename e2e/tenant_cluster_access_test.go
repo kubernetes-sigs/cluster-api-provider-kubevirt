@@ -12,11 +12,11 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	kubevirtv1 "kubevirt.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type tenantClusterAccess struct {
@@ -63,7 +63,7 @@ func (t *tenantClusterAccess) getLocalPort() int {
 	return t.listener.Addr().(*net.TCPAddr).Port
 }
 
-func (t *tenantClusterAccess) startForwardingTenantAPI(ctx context.Context) error {
+func (t *tenantClusterAccess) startForwardingTenantAPI(ctx context.Context, cli client.Client) error {
 	if t.isForwarding {
 		return nil
 	}
@@ -81,22 +81,22 @@ func (t *tenantClusterAccess) startForwardingTenantAPI(ctx context.Context) erro
 		return err
 	}
 
-	vmiName, err := t.findControlPlaneVMIName(ctx)
+	vmiName, err := t.findControlPlaneVMIName(ctx, cli)
 	if err != nil {
 		return err
 	}
 
-	if err = t.startPortForwarding(vmiName); err != nil {
+	if err = t.startPortForwarding(ctx, vmiName); err != nil {
 		return err
 	}
 
 	t.isForwarding = true
-	go t.waitForConnection(vmiName, t.namespace)
+	go t.waitForConnection()
 
 	return nil
 }
 
-func (t *tenantClusterAccess) startPortForwarding(vmiName string) error {
+func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName string) error {
 	apiPort, err := getFreePort()
 	if err != nil {
 		return err
@@ -104,7 +104,7 @@ func (t *tenantClusterAccess) startPortForwarding(vmiName string) error {
 	t.tenantApiPort = apiPort
 
 	fmt.Printf("Found free port: %d\n", t.tenantApiPort)
-	cmd := exec.CommandContext(context.Background(), VirtctlPath, "port-forward", "-n", t.namespace, fmt.Sprintf("vm/%s", vmiName), fmt.Sprintf("%d:6443", t.tenantApiPort))
+	cmd := exec.CommandContext(ctx, VirtctlPath, "port-forward", "-n", t.namespace, fmt.Sprintf("vm/%s", vmiName), fmt.Sprintf("%d:6443", t.tenantApiPort))
 	t.cancelFunc = cmd.Cancel
 	if t.cancelFunc == nil {
 		glog.Errorln("unable to get cancel function for port-forward command")
@@ -135,8 +135,9 @@ func (t *tenantClusterAccess) stopPortForwarding() {
 	}
 }
 
-func (t *tenantClusterAccess) findControlPlaneVMIName(ctx context.Context) (string, error) {
-	vmiList, err := virtClient.VirtualMachineInstance(t.namespace).List(ctx, metav1.ListOptions{})
+func (t *tenantClusterAccess) findControlPlaneVMIName(ctx context.Context, cli client.Client) (string, error) {
+	vmiList := &kubevirtv1.VirtualMachineInstanceList{}
+	err := cli.List(ctx, vmiList)
 	if err != nil {
 		return "", err
 	}
@@ -163,7 +164,7 @@ func (t *tenantClusterAccess) stopForwardingTenantAPI() error {
 	return t.listener.Close()
 }
 
-func (t *tenantClusterAccess) waitForConnection(name, namespace string) {
+func (t *tenantClusterAccess) waitForConnection() {
 	conn, err := t.listener.Accept()
 	if err != nil {
 		glog.Errorln("error accepting connection:", err)
