@@ -10,6 +10,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Test suite required arguments
@@ -65,6 +66,7 @@ func TestE2E(t *testing.T) {
 var _ = BeforeSuite(func() {
 	// parse test suite arguments
 	flag.Parse()
+	logf.SetLogger(GinkgoLogr)
 })
 
 var _ = JustAfterEach(func() {

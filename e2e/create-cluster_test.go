@@ -32,7 +32,13 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
-const testFinalizer = "infrastructure.cluster.x-k8s.io/holdForTestFinalizer"
+const (
+	testFinalizer      = "infrastructure.cluster.x-k8s.io/holdForTestFinalizer"
+	calicoManifestsUrl = "https://raw.githubusercontent.com/projectcalico/calico/v3.26.3/manifests/calico.yaml"
+
+	externalSecretName      = "external-infra-kubeconfig"
+	externalSecretNamespace = "capk-system"
+)
 
 var _ = Describe("CreateCluster", func() {
 
@@ -44,8 +50,6 @@ var _ = Describe("CreateCluster", func() {
 	var namespace string
 	var tenantAccessor tenantClusterAccess
 	var ctx context.Context
-
-	calicoManifestsUrl := "https://raw.githubusercontent.com/projectcalico/calico/v3.26.3/manifests/calico.yaml"
 
 	BeforeEach(func() {
 		var err error
@@ -93,7 +97,7 @@ var _ = Describe("CreateCluster", func() {
 				},
 			}
 
-			DeleteAndWait(k8sclient, ns, 120)
+			DeleteAndWait(ctx, k8sclient, ns, 120)
 
 		}()
 
@@ -108,7 +112,16 @@ var _ = Describe("CreateCluster", func() {
 				Name:      "kvcluster",
 			},
 		}
-		DeleteAndWait(k8sclient, cluster, 120)
+		DeleteAndWait(ctx, k8sclient, cluster, 120)
+
+		externalInfraSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      externalSecretName,
+				Namespace: externalSecretNamespace,
+			},
+		}
+
+		DeleteAndWait(ctx, k8sclient, externalInfraSecret, 20)
 	})
 
 	waitForBootstrappedMachines := func(ctx context.Context) {
@@ -130,7 +143,6 @@ var _ = Describe("CreateCluster", func() {
 			WithTimeout(10*time.Minute).
 			WithPolling(5*time.Second).
 			Should(Succeed(), "kubevirt machines should have bootstrap succeeded condition")
-
 	}
 
 	markExternalKubeVirtClusterReady := func(ctx context.Context, clusterName string, namespace string) {
@@ -521,7 +533,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantPods(ctx)
 	})
 
-	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs"), func() {
+	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs", "terminal"), func() {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
 			"--target-namespace", namespace,
@@ -633,7 +645,7 @@ var _ = Describe("CreateCluster", func() {
 
 		By("killing the chosen VMI's pod")
 		chosenPod := getVMIPod(ctx, chosenVMI)
-		DeleteAndWait(k8sclient, chosenPod, 180)
+		DeleteAndWait(ctx, k8sclient, chosenPod, 180)
 
 		By("Wait for KubeVirtMachine is deleted due to remediation")
 		kvmName, ok := chosenVMI.Labels["capk.cluster.x-k8s.io/kubevirt-machine-name"]
@@ -693,8 +705,7 @@ var _ = Describe("CreateCluster", func() {
 				Name: namespace,
 			},
 		}
-		DeleteAndWait(k8sclient, ns, 120)
-
+		DeleteAndWait(ctx, k8sclient, ns, 120)
 	})
 
 	It("creates a simple cluster with persistent VMs, then evict the node", Label("persistentVMs", "eviction"), func() {
@@ -800,7 +811,7 @@ var _ = Describe("CreateCluster", func() {
 	// 3. apply generated tenant cluster yaml manifests
 	// 4. verify that tenant cluster machines booted and bootstrapped
 	// 5. verify that tenant cluster control plane came up successfully
-	It("should create a simple tenant cluster on external infrastructure", func() {
+	It("should create a simple tenant cluster on external infrastructure", Label("externallyManaged"), func() {
 		By("generating a secret with external infrastructure kubeconfig and namespace")
 		kubeconfig, err := os.ReadFile(os.Getenv("KUBECONFIG"))
 		Expect(err).ToNot(HaveOccurred())
@@ -810,8 +821,8 @@ var _ = Describe("CreateCluster", func() {
 		kubeconfigStr = m.ReplaceAllString(kubeconfigStr, "${1} https://kubernetes.default")
 		externalInfraSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "external-infra-kubeconfig",
-				Namespace: "capk-system",
+				Name:      externalSecretName,
+				Namespace: externalSecretNamespace,
 			},
 			Data: map[string][]byte{
 				"namespace":  []byte(namespace),
@@ -828,7 +839,7 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--target-namespace", namespace)
 		stdout, stderr := RunCmd(cmd)
-		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stdout))
+		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stderr))
 
 		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
@@ -889,7 +900,6 @@ func getRecreatedVMI(ctx context.Context, k8sclient client.Client, vmiName strin
 		g.Expect(vmi.DeletionTimestamp).Should(BeNil())
 
 		return vmi.GetUID()
-
 	}).WithOffset(1).
 		WithTimeout(time.Minute * 8).
 		WithPolling(time.Second * 5).

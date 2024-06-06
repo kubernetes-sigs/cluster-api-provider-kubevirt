@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/klog/v2"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -107,7 +107,7 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 	cmd := exec.CommandContext(ctx, VirtctlPath, "port-forward", "-n", t.namespace, fmt.Sprintf("vm/%s", vmiName), fmt.Sprintf("%d:6443", t.tenantApiPort))
 	t.cancelFunc = cmd.Cancel
 	if t.cancelFunc == nil {
-		glog.Errorln("unable to get cancel function for port-forward command")
+		klog.Errorln("unable to get cancel function for port-forward command")
 		return nil
 	}
 
@@ -120,7 +120,7 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 					return
 				}
 			}
-			glog.Errorf("error port-forwarding vmi %s/%s: %v, [%s]\n", t.namespace, vmiName, err, string(out))
+			klog.Errorf("error port-forwarding vmi %s/%s: %v, [%s]\n", t.namespace, vmiName, err, string(out))
 		}
 	}()
 
@@ -130,7 +130,7 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 func (t *tenantClusterAccess) stopPortForwarding() {
 	if t.cancelFunc != nil {
 		if err := t.cancelFunc(); err != nil {
-			glog.Errorf("failed to stop port foerwarding; %v", err)
+			klog.Errorf("failed to stop port foerwarding; %v", err)
 		}
 	}
 }
@@ -167,13 +167,13 @@ func (t *tenantClusterAccess) stopForwardingTenantAPI() error {
 func (t *tenantClusterAccess) waitForConnection() {
 	conn, err := t.listener.Accept()
 	if err != nil {
-		glog.Errorln("error accepting connection:", err)
+		klog.Errorln("error accepting connection:", err)
 		return
 	}
 
 	proxy, err := net.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(t.tenantApiPort)))
 	if err != nil {
-		glog.Errorf("unable to connect to local port-forward: %v", err)
+		klog.Errorf("unable to connect to local port-forward: %v", err)
 		return
 	}
 	go t.handleConnection(conn, proxy)
@@ -199,7 +199,7 @@ func (t *tenantClusterAccess) handleConnection(local, remote net.Conn) {
 
 func (t *tenantClusterAccess) handleConnectionError(err error) {
 	if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-		glog.Errorf("error handling portForward connection: %v", err)
+		klog.Errorf("error handling portForward connection: %v", err)
 	}
 }
 

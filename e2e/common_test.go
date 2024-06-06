@@ -13,10 +13,10 @@ import (
 )
 
 // DeleteAndWait function deletes a kubernetes object, with a timeout
-func DeleteAndWait(k8sclient client.Client, obj client.Object, timeoutSeconds uint) {
+func DeleteAndWait(ctx context.Context, k8sclient client.Client, obj client.Object, timeoutSeconds uint) {
 	key := client.ObjectKeyFromObject(obj)
 	Eventually(func() error {
-		err := k8sclient.Get(context.Background(), key, obj)
+		err := k8sclient.Get(ctx, key, obj)
 		if err != nil && k8serrors.IsNotFound(err) {
 			return nil
 		} else if err != nil {
@@ -24,7 +24,7 @@ func DeleteAndWait(k8sclient client.Client, obj client.Object, timeoutSeconds ui
 		}
 
 		if obj.GetDeletionTimestamp().IsZero() {
-			err = k8sclient.Delete(context.Background(), obj)
+			err = k8sclient.Delete(ctx, obj)
 			if err != nil {
 				return err
 			}
