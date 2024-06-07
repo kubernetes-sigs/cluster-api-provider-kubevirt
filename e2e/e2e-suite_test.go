@@ -1,23 +1,26 @@
 package e2e_test
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"flag"
-	"testing"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Test suite required arguments
-var KubectlPath string
-var ClusterctlPath string
-var DumpPath string
-var WorkingDir string
+var (
+	KubectlPath    string
+	ClusterctlPath string
+	VirtctlPath    string
+	DumpPath       string
+	WorkingDir     string
+)
 
 // Initialize test required arguments
 func init() {
@@ -25,6 +28,7 @@ func init() {
 	flag.StringVar(&ClusterctlPath, "clusterctl-path", "", "Path to the clusterctl binary")
 	flag.StringVar(&DumpPath, "dump-path", "", "Path to the kubevirt artifacts dump cmd binary")
 	flag.StringVar(&WorkingDir, "working-dir", "", "Path used for e2e test files")
+	flag.StringVar(&VirtctlPath, "virtctl-path", "", "Path to the virtctl binary")
 }
 
 func TestE2E(t *testing.T) {
@@ -38,6 +42,11 @@ func TestE2E(t *testing.T) {
 		t.Fatal("clusterctl-path required")
 	} else if _, err := os.Stat(ClusterctlPath); os.IsNotExist(err) {
 		t.Fatalf("invalid clusterctl-path path: %s doesn't exist", ClusterctlPath)
+	}
+	if VirtctlPath == "" {
+		t.Fatal("virtctl-path required")
+	} else if _, err := os.Stat(VirtctlPath); os.IsNotExist(err) {
+		t.Fatalf("invalid virtctl-path path: %s doesn't exist", VirtctlPath)
 	}
 	if WorkingDir == "" {
 		t.Fatal("working-dir required")
@@ -57,6 +66,7 @@ func TestE2E(t *testing.T) {
 var _ = BeforeSuite(func() {
 	// parse test suite arguments
 	flag.Parse()
+	logf.SetLogger(GinkgoLogr)
 })
 
 var _ = JustAfterEach(func() {
