@@ -1,0 +1,26 @@
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.22 as builder
+
+# Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
+ARG goproxy=https://proxy.golang.org
+ENV GOPROXY=$goproxy
+ENV GOFLAGS="-mod=readonly"
+
+WORKDIR /workspace
+
+# Copy the sources
+COPY ./ ./
+RUN go mod download
+
+# Build
+ARG package=.
+ARG ARCH
+ARG LDFLAGS
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} go build -ldflags "${LDFLAGS} -extldflags '-static'"  -o manager ${package}
+
+# Copy the controller-manager into a thin image
+FROM registry.redhat.io/rhel9-4-els/rhel:9.4
+WORKDIR /
+COPY --from=builder /workspace/manager .
+# Use uid of nonroot user (65532) because kubernetes expects numeric user when applying pod security policies
+USER 65532
+ENTRYPOINT ["/manager"]
