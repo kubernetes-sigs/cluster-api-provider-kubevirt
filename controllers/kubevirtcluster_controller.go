@@ -19,8 +19,9 @@ package controllers
 import (
 	gocontext "context"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -29,11 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -44,6 +40,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 )
 
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
@@ -134,7 +136,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	// Always attempt to Patch the KubevirtCluster object and status after each reconciliation.
 	defer func() {
 		if err := clusterContext.PatchKubevirtCluster(patchHelper); err != nil {
-			if err = utilerrors.FilterOut(err, apierrors.IsNotFound); err != nil {
+			if err = r.filterOutNotFoundError(err); err != nil {
 
 				clusterContext.Logger.Error(err, "failed to patch KubevirtCluster")
 				if rerr == nil {
@@ -301,5 +303,25 @@ func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, 
 		}
 	}
 
+	return nil
+}
+
+func (r *KubevirtClusterReconciler) filterOutNotFoundError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var aggErr utilerrors.Aggregate
+	if errors.As(err, &aggErr) {
+		var errList []error
+		for _, err := range aggErr.Errors() {
+			if !apierrors.IsNotFound(err) {
+				errList = append(errList, err)
+			}
+		}
+		return utilerrors.NewAggregate(errList)
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
 	return nil
 }
