@@ -361,6 +361,20 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.KubevirtMachine.Status.Ready = false
 	}
 
+	liveMigratable, reason, message, err := externalMachine.IsLiveMigratable()
+	if err != nil {
+		ctx.Logger.Error(err, fmt.Sprintf("failed to get the %s condition of %s machine",
+			infrav1.VMLiveMigratableCondition, ctx.KubevirtMachine.Name))
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	if liveMigratable {
+		// Mark VMLiveMigratableCondition to indicate whether the VM can be live migrated or not
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition)
+	} else {
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition, reason, clusterv1.ConditionSeverityInfo,
+			fmt.Sprintf("%s is not a live migratable machine: %s", ctx.KubevirtMachine.Name, message))
+	}
+
 	return ctrl.Result{}, nil
 }
 
