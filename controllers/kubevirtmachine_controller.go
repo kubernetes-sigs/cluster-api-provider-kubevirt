@@ -93,7 +93,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	log = log.WithValues("machine", machine.Name)
 
-	// Handle deleted machines
+	// Handle deleted machines.
 	if !kubevirtMachine.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Create the machine context for this request.
 		// Deletion shouldn't require the presence of a
