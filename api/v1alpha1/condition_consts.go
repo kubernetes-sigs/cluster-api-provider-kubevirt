@@ -37,6 +37,9 @@ const (
 	// VMCreateFailed (Severity=Error) documents a KubevirtMachine that is unable to create the
 	// corresponding VM object.
 	VMCreateFailedReason = "VMCreateFailed"
+
+	// VMLiveMigratableCondition documents whether the VM is live-migratable or not
+	VMLiveMigratableCondition clusterv1.ConditionType = "VMLiveMigratable"
 )
 
 const (

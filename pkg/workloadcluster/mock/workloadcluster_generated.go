@@ -9,8 +9,9 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	kubernetes "k8s.io/client-go/kubernetes"
-	context "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
+
+	context "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
 // MockWorkloadCluster is a mock of WorkloadCluster interface.

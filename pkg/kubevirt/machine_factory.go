@@ -25,6 +25,8 @@ type MachineInterface interface {
 	Exists() bool
 	// IsReady checks if the VM is ready
 	IsReady() bool
+	// IsLiveMigratable reports back the live-migratability state of the VM: Status, Reason and Message
+	IsLiveMigratable() (bool, string, string, error)
 	// Address returns the IP address of the VM.
 	Address() string
 	// SupportsCheckingIsBootstrapped checks if we have a method of checking

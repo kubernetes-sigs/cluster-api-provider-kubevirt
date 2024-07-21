@@ -237,6 +237,26 @@ func (m *Machine) IsReady() bool {
 	return m.hasReadyCondition()
 }
 
+// IsLiveMigratable reports back the live-migratability state of the VM: Status, Reason and Message
+func (m *Machine) IsLiveMigratable() (bool, string, string, error) {
+	if m.vmiInstance == nil {
+		return false, "", "", fmt.Errorf("VMI is nil")
+	}
+
+	for _, cond := range m.vmiInstance.Status.Conditions {
+		if cond.Type == kubevirtv1.VirtualMachineInstanceIsMigratable {
+			if cond.Status == corev1.ConditionTrue {
+				return true, "", "", nil
+			} else {
+				return false, cond.Reason, cond.Message, nil
+			}
+		}
+	}
+
+	return false, "", "", fmt.Errorf("%s VMI does not have a %s condition",
+		m.vmiInstance.Status.Phase, kubevirtv1.VirtualMachineInstanceIsMigratable)
+}
+
 const (
 	defaultCondReason  = "VMNotReady"
 	defaultCondMessage = "VM is not ready"
