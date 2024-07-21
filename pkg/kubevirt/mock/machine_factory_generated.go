@@ -10,7 +10,6 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-
 	context0 "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	kubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	ssh "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
@@ -127,6 +126,11 @@ func (mr *MockMachineInterfaceMockRecorder) GenerateProviderID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateProviderID", reflect.TypeOf((*MockMachineInterface)(nil).GenerateProviderID))
 }
 
+// GetVMNotReadyReason mocks base method.
+func (m *MockMachineInterface) GetVMNotReadyReason() (string, string) {
+	return "", ""
+}
+
 // IsBootstrapped mocks base method.
 func (m *MockMachineInterface) IsBootstrapped() bool {
 	m.ctrl.T.Helper()
@@ -141,16 +145,29 @@ func (mr *MockMachineInterfaceMockRecorder) IsBootstrapped() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBootstrapped", reflect.TypeOf((*MockMachineInterface)(nil).IsBootstrapped))
 }
 
+// IsLiveMigratable mocks base method.
+func (m *MockMachineInterface) IsLiveMigratable() (bool, string, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsLiveMigratable")
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(string)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
+}
+
+// IsLiveMigratable indicates an expected call of IsLiveMigratable.
+func (mr *MockMachineInterfaceMockRecorder) IsLiveMigratable() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsLiveMigratable", reflect.TypeOf((*MockMachineInterface)(nil).IsLiveMigratable))
+}
+
 // IsReady mocks base method.
 func (m *MockMachineInterface) IsReady() bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsReady")
 	ret0, _ := ret[0].(bool)
 	return ret0
-}
-
-func (m *MockMachineInterface) GetVMNotReadyReason() (string, string) {
-	return "", ""
 }
 
 // IsReady indicates an expected call of IsReady.
