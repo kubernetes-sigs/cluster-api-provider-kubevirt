@@ -4,6 +4,7 @@ on:
       - "main"
 jobs:
   build-and-push-image:
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
