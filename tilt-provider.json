@@ -1,0 +1,17 @@
+[
+    {
+        "name": "kubevirt",
+        "config": {
+            "image": "controller",
+            "live_reload_deps": [
+                "main.go",
+                "go.mod",
+                "go.sum",
+                "api",
+                "pkg",
+                "controllers"
+            ],
+            "label": "CAPKV"
+        }
+    }
+]
