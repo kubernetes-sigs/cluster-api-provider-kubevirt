@@ -269,8 +269,8 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
-		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Log)).
+		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), r.Log)).
+		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme(), r.Log)).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(
@@ -279,7 +279,7 @@ func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr 
 				mgr.GetClient(),
 				&infrav1.KubevirtCluster{},
 			)),
-			builder.WithPredicates(predicates.ClusterUnpaused(r.Log)),
+			builder.WithPredicates(predicates.ClusterUnpaused(r.Scheme(), r.Log)),
 		).
 		Complete(r)
 }

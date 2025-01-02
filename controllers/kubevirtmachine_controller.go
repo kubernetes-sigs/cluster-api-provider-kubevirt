@@ -502,7 +502,7 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtMachine{}).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPaused(ctrl.LoggerFrom(goctx))).
+		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), ctrl.LoggerFrom(goctx))).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtMachine"))),
@@ -514,7 +514,7 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
-			builder.WithPredicates(predicates.ClusterUnpausedAndInfrastructureReady(ctrl.LoggerFrom(goctx))),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureReady(r.Scheme(), ctrl.LoggerFrom(goctx))),
 		).
 		Complete(r)
 }
