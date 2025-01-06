@@ -8,6 +8,7 @@
 # export WORKER_MACHINE_COUNT=3
 # export INSTANCE_TYPE=u1.large
 # export INSTANCE_PREFERENCE=ubuntu
+# export SSH_AUTHORIZED_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..." # specify an SSH key which should be authorized on all nodes
 
 # envsubst < templates/cluster-template-lb-flatcar.yaml | kubectl apply -f -
 
@@ -130,6 +131,12 @@ spec:
                   [Unit]
                   Requires=containerd.service
                   After=containerd.service
+    # The CAPK automatic SSH key authorization doesn't work for Ignition as it assumes cloud-init
+    # is used. We need to explicitly add a key to be able to SSH into cluster nodes.
+    users:
+    - name: core
+      sshAuthorizedKeys:
+      - "${SSH_AUTHORIZED_KEY}"
     clusterConfiguration:
       networking:
         dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
@@ -241,6 +248,12 @@ spec:
                     [Unit]
                     Requires=containerd.service
                     After=containerd.service
+      # The CAPK automatic SSH key authorization doesn't work for Ignition as it assumes cloud-init
+      # is used. We need to explicitly add a key to be able to SSH into cluster nodes.
+      users:
+      - name: core
+        sshAuthorizedKeys:
+        - "${SSH_AUTHORIZED_KEY}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
