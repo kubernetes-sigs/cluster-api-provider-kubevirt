@@ -265,7 +265,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if !isTerminal && !externalMachine.Exists() {
 		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
-			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.VMCreateFailedReason, clusterv1.ConditionSeverityError, fmt.Sprintf("Failed vm creation: %v", err))
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.VMCreateFailedReason, clusterv1.ConditionSeverityError, "Failed vm creation: %v", err)
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
 		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
@@ -278,7 +278,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
 	} else {
 		reason, message := externalMachine.GetVMNotReadyReason()
-		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, reason, clusterv1.ConditionSeverityInfo, message)
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, reason, clusterv1.ConditionSeverityInfo, "%s", message)
 
 		// Waiting for VM to boot
 		ctx.KubevirtMachine.Status.Ready = false
@@ -371,7 +371,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition)
 	} else {
 		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition, reason, clusterv1.ConditionSeverityInfo,
-			fmt.Sprintf("%s is not a live migratable machine: %s", ctx.KubevirtMachine.Name, message))
+			"%s is not a live migratable machine: %s", ctx.KubevirtMachine.Name, message)
 	}
 
 	return ctrl.Result{}, nil
