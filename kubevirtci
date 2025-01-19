@@ -2,20 +2,20 @@
 
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.30}
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.32}
 export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.31.1}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2405151527-09bcd71}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2501140834-56eb34e6}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
 export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
 export KUBEVIRT_DEPLOY_CDI="true"
-export METALLB_VERSION="v0.14.5"
+export METALLB_VERSION="v0.14.9"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
-export CLUSTERCTL_VERSION="v1.2.4"
-export CALICO_VERSION="v3.26.3"
-export KUBEVIRT_VERSION="v1.2.1"
+export CLUSTERCTL_VERSION="v1.9.3"
+export CALICO_VERSION="v3.29.1"
+export KUBEVIRT_VERSION="v1.4.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2204-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
@@ -129,7 +129,7 @@ function kubevirtci::up() {
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
 ---
 cert-manager:
-  url: "https://github.com/cert-manager/cert-manager/releases/latest/cert-manager.yaml"
+  url: "https://github.com/cert-manager/cert-manager/releases/v1.16.2/cert-manager.yaml"
 EOF
 	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
 	echo 'Applying recommended node configuration for Passt binding'
