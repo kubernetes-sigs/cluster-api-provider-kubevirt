@@ -30,7 +30,7 @@ func DeleteAndWait(ctx context.Context, k8sclient client.Client, obj client.Obje
 			}
 		}
 		return fmt.Errorf("waiting on object %s to be deleted", key)
-	}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(BeNil())
+	}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(Succeed())
 }
 
 // RunCmd function executes a command, and returns STDOUT and STDERR bytes
