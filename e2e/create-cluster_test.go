@@ -449,7 +449,7 @@ var _ = Describe("CreateCluster", func() {
 			}
 
 			return fmt.Errorf("waiting on object %s to be deleted", key)
-		}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(BeNil())
+		}, time.Duration(timeoutSeconds)*time.Second, 1*time.Second).Should(Succeed())
 
 	}
 

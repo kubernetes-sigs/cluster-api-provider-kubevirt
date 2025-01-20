@@ -165,7 +165,7 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	// Create the service serving as load balancer, if not existing
 	if !externalLoadBalancer.IsFound() {
 		if err := externalLoadBalancer.Create(ctx); err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
 			return ctrl.Result{}, errors.Wrap(err, "failed to create load balancer")
 		}
 	}
@@ -180,7 +180,7 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	} else if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
 		lbip4, err := externalLoadBalancer.ExternalIP(ctx)
 		if err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
 			return ctrl.Result{}, errors.Wrap(err, "failed to get ExternalIP for the load balancer")
 		}
 		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
@@ -192,7 +192,7 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	} else {
 		lbip4, err := externalLoadBalancer.IP(ctx)
 		if err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
 			return ctrl.Result{}, errors.Wrap(err, "failed to get ClusterIP for the load balancer")
 		}
 		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
@@ -269,8 +269,8 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
-		WithEventFilter(predicates.ResourceNotPaused(r.Log)).
-		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Log)).
+		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), r.Log)).
+		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme(), r.Log)).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(
@@ -279,7 +279,7 @@ func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr 
 				mgr.GetClient(),
 				&infrav1.KubevirtCluster{},
 			)),
-			builder.WithPredicates(predicates.ClusterUnpaused(r.Log)),
+			builder.WithPredicates(predicates.ClusterUnpaused(r.Scheme(), r.Log)),
 		).
 		Complete(r)
 }
