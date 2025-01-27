@@ -7,7 +7,7 @@ kccm_template=/tmp/kccm.yaml
 kubectl kustomize config/kccm > $kccm_template
 
 
-sed -i ''\
+sed -i \
     -E "s|(namespace: )kvcluster|\1\${NAMESPACE}|g;s|(^.*cluster-name=)kvcluster|\1\${CLUSTER_NAME}|g" \
     ${kccm_template}
 
