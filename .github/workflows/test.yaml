@@ -43,6 +43,7 @@ jobs:
         $(go env GOPATH)/bin/goveralls -coverprofile=coverprofiles/cover.coverprofile -service=github
 
   go-linter:
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -54,9 +55,10 @@ jobs:
       uses: golangci/golangci-lint-action@v6
       with:
         args: --timeout=5m -v
-        version: v1.59.0
+        version: v1.63.4
 
   check-gen:
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3

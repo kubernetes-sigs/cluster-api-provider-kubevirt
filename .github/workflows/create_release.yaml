@@ -7,6 +7,7 @@ name: Upload Release Asset
 
 jobs:
   build-and-push-image:
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -24,6 +25,7 @@ jobs:
           make docker-build-all
           make docker-push-all
   build:
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     name: Upload Release Asset
     needs: build-and-push-image
     runs-on: ubuntu-latest
