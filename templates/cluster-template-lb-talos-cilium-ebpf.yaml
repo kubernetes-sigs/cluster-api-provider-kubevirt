@@ -99,6 +99,7 @@ spec:
     kind: KubevirtMachineTemplate
     apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
     name: "${CLUSTER_NAME}-control-plane-${TALOS_CODE}"
+    namespace: "${NAMESPACE}"
   controlPlaneConfig:
     controlplane:
       generateType: controlplane
