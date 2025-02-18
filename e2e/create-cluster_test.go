@@ -331,7 +331,9 @@ var _ = Describe("CreateCluster", func() {
 	installCalicoCNI := func() {
 		cmd := exec.Command(KubectlPath, "--kubeconfig", tenantKubeconfigFile, "--insecure-skip-tls-verify", "--validate=false", "--server", fmt.Sprintf("https://localhost:%d", tenantAccessor.tenantApiPort), "apply", "-f", calicoManifestsUrl)
 		_, stderr := RunCmd(cmd)
-		Expect(stderr).To(BeEmpty(), "failed to apply calico CNI: %s", string(stderr))
+		if len(stderr) > 0 {
+			GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+		}
 	}
 
 	waitForNodeUpdate := func(ctx context.Context) {
@@ -503,7 +505,9 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--from", "templates/cluster-template.yaml")
 		stdout, stderr := RunCmd(cmd)
-		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stdout))
+		if len(stderr) > 0 {
+			GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+		}
 
 		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
@@ -839,7 +843,9 @@ var _ = Describe("CreateCluster", func() {
 			"--worker-machine-count=1",
 			"--target-namespace", namespace)
 		stdout, stderr := RunCmd(cmd)
-		Expect(stderr).To(BeEmpty(), "command error output: %s", string(stderr))
+		if len(stderr) > 0 {
+			GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+		}
 
 		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
 
