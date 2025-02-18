@@ -1,0 +1,312 @@
+# export CLUSTER_NAME=my-cluster # replace your cluster name here
+# export NAMESPACE=default # replace your namespace here
+# export ROOT_VOLUME_SIZE=200G
+# export KUBERNETES_VERSION=v1.30.5
+# export NODE_VM_IMAGE_TEMPLATE="capi-flatcar-3975-2-2-v1.30.5.img" # Flatcar image should be pre-build. Check the project https://github.com/kubernetes-sigs/image-builder for more details
+# export STORAGE_CLASS_NAME=ceph-block
+# export CONTROL_PLANE_MACHINE_COUNT=3
+# export WORKER_MACHINE_COUNT=3
+# export INSTANCE_TYPE=u1.large
+# export INSTANCE_PREFERENCE=ubuntu
+
+# envsubst < templates/cluster-template-lb-flatcar.yaml | kubectl apply -f -
+
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.243.0.0/16
+    services:
+      cidrBlocks:
+        - 10.95.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtCluster
+    name: '${CLUSTER_NAME}'
+    namespace: "${NAMESPACE}"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: '${CLUSTER_NAME}-control-plane'
+    namespace: "${NAMESPACE}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: LoadBalancer
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane-${KUBERNETES_VERSION}"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: ssh
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+        spec:
+          instancetype:
+            kind: VirtualMachineClusterInstancetype
+            name: "${INSTANCE_TYPE}"
+          preference:
+            kind: VirtualMachineClusterPreference
+            name: "${INSTANCE_PREFERENCE}"
+          dataVolumeTemplates:
+          - metadata:
+              name: "boot-volume"
+            spec:
+              pvc:
+                volumeMode: Block
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
+              source:
+                pvc:
+                  name: ${NODE_VM_IMAGE_TEMPLATE}
+                  # namespace: golden-images
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: dv-volume
+              evictionStrategy: External
+              volumes:
+                # - name: serviceaccount
+                #   serviceAccount:
+                #     serviceAccountName: cdi-cloner
+                - dataVolume:
+                    name: "boot-volume"
+                  name: dv-volume
+---
+kind: KubeadmControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+metadata:
+  name: "${CLUSTER_NAME}-control-plane"
+  namespace: "${NAMESPACE}"
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  machineTemplate:
+    infrastructureRef:
+      kind: KubevirtMachineTemplate
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      name: "${CLUSTER_NAME}-control-plane-${KUBERNETES_VERSION}"
+      namespace: "${NAMESPACE}"
+  kubeadmConfigSpec:
+    format: ignition
+    files: []
+    ignition:
+      containerLinuxConfig:
+        additionalConfig: |
+          systemd:
+            units:
+            - name: kubeadm.service
+              enabled: true
+              dropins:
+              - name: 10-flatcar.conf
+                contents: |
+                  [Unit]
+                  Requires=containerd.service
+                  After=containerd.service
+    clusterConfiguration:
+      networking:
+        dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
+        podSubnet: 10.243.0.0/16
+        serviceSubnet: 10.95.0.0/16
+    initConfiguration:
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+    joinConfiguration:
+      nodeRegistration:
+        criSocket: /var/run/containerd/containerd.sock
+  version: "${KUBERNETES_VERSION}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0-${KUBERNETES_VERSION}"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: ssh
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+          labels:
+            app: ${CLUSTER_NAME}-md-0-${KUBERNETES_VERSION}
+        spec:
+          instancetype:
+            kind: VirtualMachineClusterInstancetype
+            name: "${INSTANCE_TYPE}"
+          preference:
+            kind: VirtualMachineClusterPreference
+            name: "${INSTANCE_PREFERENCE}"
+          dataVolumeTemplates:
+          - metadata:
+              name: "boot-volume"
+            spec:
+              pvc:
+                volumeMode: Block
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
+              source:
+                pvc:
+                  name: ${NODE_VM_IMAGE_TEMPLATE}
+                  # namespace: golden-images
+          runStrategy: Always
+          template:
+            metadata:
+              labels:
+                app: ${CLUSTER_NAME}-md-0-${KUBERNETES_VERSION}
+            spec:
+              affinity:
+                podAntiAffinity: ## set the anti-affinity rule to spread the pods across nodes
+                  preferredDuringSchedulingIgnoredDuringExecution: ## pods will be scheduled on the same node if number if nodes are not matching the number of replicas
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                        - key: app
+                          operator: In
+                          values:
+                          - ${CLUSTER_NAME}-md-0-${KUBERNETES_VERSION}
+                      topologyKey: kubernetes.io/hostname   
+              domain:
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: dv-volume
+              evictionStrategy: External
+              volumes:
+                # - name: serviceaccount
+                #   serviceAccount:
+                #     serviceAccountName: cdi-cloner
+                - dataVolume:
+                    name: "boot-volume"
+                  name: dv-volume
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs: {}
+      files: []
+      format: ignition
+      ignition:
+        containerLinuxConfig:
+          additionalConfig: |
+            systemd:
+              units:
+              - name: kubeadm.service
+                enabled: true
+                dropins:
+                - name: 10-flatcar.conf
+                  contents: |
+                    [Unit]
+                    Requires=containerd.service
+                    After=containerd.service
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT}
+  selector:
+    matchLabels:
+  template:
+    metadata:
+      labels:
+        node-role.kubernetes.io/worker: ''
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          name: "${CLUSTER_NAME}-md-0"
+          namespace: "${NAMESPACE}"
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0-${KUBERNETES_VERSION}"
+        namespace: "${NAMESPACE}"
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KubevirtMachineTemplate
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineHealthCheck
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: ${CLUSTER_NAME}
+  maxUnhealthy: 40%
+  nodeStartupTimeout: 10m
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/control-plane-name: ${CLUSTER_NAME}-control-plane
+  unhealthyConditions:
+  - type: Ready
+    status: Unknown
+    timeout: 300s
+  - type: Ready
+    status: "False"
+    timeout: 300s
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineHealthCheck
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: ${CLUSTER_NAME}
+  maxUnhealthy: 100%
+  nodeStartupTimeout: 10m
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/deployment-name: ${CLUSTER_NAME}-md-0
+  unhealthyConditions:
+  - type: Ready
+    status: Unknown
+    timeout: 300s
+  - type: Ready
+    status: "False"
+    timeout: 300s
