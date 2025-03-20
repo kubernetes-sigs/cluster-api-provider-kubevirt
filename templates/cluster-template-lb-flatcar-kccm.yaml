@@ -1,13 +1,12 @@
 # export CLUSTER_NAME=my-cluster # replace your cluster name here
 # export NAMESPACE=default # replace your namespace here
-# export ROOT_VOLUME_SIZE=200G
 # export KUBERNETES_VERSION=v1.30.5
 # export NODE_VM_IMAGE_TEMPLATE="capi-flatcar-3975-2-2-v1.30.5.img" # Flatcar image should be pre-build. Check the project https://github.com/kubernetes-sigs/image-builder for more details
-# export STORAGE_CLASS_NAME=ceph-block
 # export CONTROL_PLANE_MACHINE_COUNT=3
 # export WORKER_MACHINE_COUNT=3
 # export INSTANCE_TYPE=u1.large
 # export INSTANCE_PREFERENCE=ubuntu
+# export SSH_AUTHORIZED_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..." # specify an SSH key which should be authorized on all nodes
 
 # envsubst < templates/cluster-template-lb-flatcar.yaml | kubectl apply -f -
 
@@ -66,22 +65,6 @@ spec:
           preference:
             kind: VirtualMachineClusterPreference
             name: "${INSTANCE_PREFERENCE}"
-          dataVolumeTemplates:
-          - metadata:
-              name: "boot-volume"
-            spec:
-              pvc:
-                volumeMode: Block
-                accessModes:
-                - ReadWriteOnce
-                resources:
-                  requests:
-                    storage: "${ROOT_VOLUME_SIZE}"
-                storageClassName: "${STORAGE_CLASS_NAME}"
-              source:
-                pvc:
-                  name: ${NODE_VM_IMAGE_TEMPLATE}
-                  # namespace: golden-images
           runStrategy: Always
           template:
             spec:
@@ -91,15 +74,12 @@ spec:
                   disks:
                     - disk:
                         bus: virtio
-                      name: dv-volume
+                      name: containervolume
               evictionStrategy: External
               volumes:
-                # - name: serviceaccount
-                #   serviceAccount:
-                #     serviceAccountName: cdi-cloner
-                - dataVolume:
-                    name: "boot-volume"
-                  name: dv-volume
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 kind: KubeadmControlPlane
 apiVersion: controlplane.cluster.x-k8s.io/v1beta1
@@ -130,6 +110,12 @@ spec:
                   [Unit]
                   Requires=containerd.service
                   After=containerd.service
+    # The CAPK automatic SSH key authorization doesn't work for Ignition as it assumes cloud-init
+    # is used. We need to explicitly add a key to be able to SSH into cluster nodes.
+    users:
+    - name: core
+      sshAuthorizedKeys:
+      - "${SSH_AUTHORIZED_KEY}"
     clusterConfiguration:
       networking:
         dnsDomain: "${CLUSTER_NAME}.${NAMESPACE}.local"
@@ -165,22 +151,6 @@ spec:
           preference:
             kind: VirtualMachineClusterPreference
             name: "${INSTANCE_PREFERENCE}"
-          dataVolumeTemplates:
-          - metadata:
-              name: "boot-volume"
-            spec:
-              pvc:
-                volumeMode: Block
-                accessModes:
-                - ReadWriteOnce
-                resources:
-                  requests:
-                    storage: "${ROOT_VOLUME_SIZE}"
-                storageClassName: "${STORAGE_CLASS_NAME}"
-              source:
-                pvc:
-                  name: ${NODE_VM_IMAGE_TEMPLATE}
-                  # namespace: golden-images
           runStrategy: Always
           template:
             metadata:
@@ -205,15 +175,12 @@ spec:
                   disks:
                     - disk:
                         bus: virtio
-                      name: dv-volume
+                      name: containervolume
               evictionStrategy: External
               volumes:
-                # - name: serviceaccount
-                #   serviceAccount:
-                #     serviceAccountName: cdi-cloner
-                - dataVolume:
-                    name: "boot-volume"
-                  name: dv-volume
+                - containerDisk:
+                    image: "${NODE_VM_IMAGE_TEMPLATE}"
+                  name: containervolume
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
 kind: KubeadmConfigTemplate
@@ -241,6 +208,12 @@ spec:
                     [Unit]
                     Requires=containerd.service
                     After=containerd.service
+      # The CAPK automatic SSH key authorization doesn't work for Ignition as it assumes cloud-init
+      # is used. We need to explicitly add a key to be able to SSH into cluster nodes.
+      users:
+      - name: core
+        sshAuthorizedKeys:
+        - "${SSH_AUTHORIZED_KEY}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment
