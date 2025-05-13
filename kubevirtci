@@ -3,7 +3,7 @@
 set -e
 
 export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.32}
-export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.31.1}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.32.1}
 export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2501140834-56eb34e6}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
@@ -13,10 +13,10 @@ export KUBEVIRT_DEPLOY_CDI="true"
 export METALLB_VERSION="v0.14.9"
 export CAPK_RELEASE_VERSION="v0.1.0-rc.0"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
-export CLUSTERCTL_VERSION="v1.9.3"
+export CLUSTERCTL_VERSION="$(curl https://api.github.com/repos/kubernetes-sigs/cluster-api/releases/latest | jq -r .name)"
 export CALICO_VERSION="v3.29.1"
-export KUBEVIRT_VERSION="v1.4.0"
-export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2204-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+export KUBEVIRT_VERSION="v1.5.0"
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2404-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 
 KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
 KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"

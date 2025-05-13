@@ -1,0 +1,403 @@
+# export CLUSTER_NAME=my-cluster # replace your cluster name here
+# export NAMESPACE=default # replace your namespace here
+# export ROOT_VOLUME_SIZE=200G
+# export KUBERNETES_VERSION=v1.30.5
+# export NODE_VM_IMAGE_TEMPLATE="talos-1-8-2-openstack.img" # Talos image should be the OpenStack one. You can download the image from https://factory.talos.dev
+# export STORAGE_CLASS_NAME=ceph-block
+# export CONTROL_PLANE_MACHINE_COUNT=3
+# export WORKER_MACHINE_COUNT=3
+# export INSTANCE_TYPE=u1.large
+# export INSTANCE_PREFERENCE=ubuntu
+# export TALOS_VERSION=v1.8
+# export TALOS_CODE="t${TALOS_VERSION//[^0-9]/}"
+
+# envsubst < templates/cluster-template-lb-talos.yaml | kubectl apply -f -
+
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: "${CLUSTER_NAME}"
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.243.0.0/16
+    services:
+      cidrBlocks:
+        - 10.95.0.0/16
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: KubevirtCluster
+    name: '${CLUSTER_NAME}'
+    namespace: "${NAMESPACE}"
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+    kind: TalosControlPlane
+    name: ${CLUSTER_NAME}-controlplane
+    namespace: "${NAMESPACE}"
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtCluster
+metadata:
+  name: "${CLUSTER_NAME}"
+  namespace: "${NAMESPACE}"
+spec:
+  controlPlaneServiceTemplate:
+    spec:
+      type: LoadBalancer
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-control-plane-${TALOS_CODE}"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: none
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+        spec:
+          instancetype:
+            kind: VirtualMachineClusterInstancetype
+            name: "${INSTANCE_TYPE}"
+          preference:
+            kind: VirtualMachineClusterPreference
+            name: "${INSTANCE_PREFERENCE}"
+          dataVolumeTemplates:
+          - metadata:
+              name: "boot-volume"
+            spec:
+              pvc:
+                volumeMode: Block
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
+              source:
+                pvc:
+                  name: ${NODE_VM_IMAGE_TEMPLATE}
+                  # namespace: golden-images
+          runStrategy: Always
+          template:
+            spec:
+              domain:
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: dv-volume
+              evictionStrategy: External
+              volumes:
+                # - name: serviceaccount
+                #   serviceAccount:
+                #     serviceAccountName: cdi-cloner
+                - dataVolume:
+                    name: "boot-volume"
+                  name: dv-volume
+---
+kind: TalosControlPlane
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha3
+metadata:
+  name: ${CLUSTER_NAME}-controlplane
+  namespace: "${NAMESPACE}"
+spec:
+  version: ${KUBERNETES_VERSION}
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+  infrastructureTemplate:
+    kind: KubevirtMachineTemplate
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    name: "${CLUSTER_NAME}-control-plane-${TALOS_CODE}"
+    namespace: "${NAMESPACE}"
+  controlPlaneConfig:
+    controlplane:
+      generateType: controlplane
+      talosVersion: ${TALOS_VERSION}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: KubevirtMachineTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0-${TALOS_CODE}"
+  namespace: "${NAMESPACE}"
+spec:
+  template:
+    spec:
+      virtualMachineBootstrapCheck:
+        checkStrategy: none
+      virtualMachineTemplate:
+        metadata:
+          namespace: "${NAMESPACE}"
+          labels:
+            app: ${CLUSTER_NAME}-md-0
+        spec:
+          instancetype:
+            kind: VirtualMachineClusterInstancetype
+            name: "${INSTANCE_TYPE}"
+          preference:
+            kind: VirtualMachineClusterPreference
+            name: "${INSTANCE_PREFERENCE}"
+          dataVolumeTemplates:
+          - metadata:
+              name: "boot-volume"
+            spec:
+              pvc:
+                volumeMode: Block
+                accessModes:
+                - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "${ROOT_VOLUME_SIZE}"
+                storageClassName: "${STORAGE_CLASS_NAME}"
+              source:
+                pvc:
+                  name: ${NODE_VM_IMAGE_TEMPLATE}
+                  # namespace: golden-images
+          runStrategy: Always
+          template:
+            metadata:
+              labels:
+                app: ${CLUSTER_NAME}-md-0
+            spec:
+              affinity:
+                podAntiAffinity: ## set the anti-affinity rule to spread the pods across nodes
+                  preferredDuringSchedulingIgnoredDuringExecution: ## pods will be scheduled on the same node if number if nodes are not matching the number of replicas
+                  - weight: 100
+                    podAffinityTerm:
+                      labelSelector:
+                        matchExpressions:
+                        - key: app
+                          operator: In
+                          values:
+                          - ${CLUSTER_NAME}-md-0
+                      topologyKey: kubernetes.io/hostname   
+              domain:
+                devices:
+                  networkInterfaceMultiqueue: true
+                  disks:
+                    - disk:
+                        bus: virtio
+                      name: dv-volume
+              evictionStrategy: External
+              volumes:
+                # - name: serviceaccount
+                #   serviceAccount:
+                #     serviceAccountName: cdi-cloner
+                - dataVolume:
+                    name: "boot-volume"
+                  name: dv-volume
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+kind: TalosConfigTemplate
+metadata:
+  name: "${CLUSTER_NAME}-md-0-${TALOS_CODE}"
+spec:
+  template:
+    spec:
+      generateType: join
+      talosVersion: ${TALOS_VERSION}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  labels:
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: "${CLUSTER_NAME}-md-0"
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: "${CLUSTER_NAME}"
+  replicas: ${WORKER_MACHINE_COUNT}
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  template:
+    metadata:
+      labels:
+        cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+        node-role.kubernetes.io/worker: ''
+    spec:
+      clusterName: "${CLUSTER_NAME}"
+      version: "${KUBERNETES_VERSION}"
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha3
+          kind: TalosConfigTemplate
+          name: "${CLUSTER_NAME}-md-0-${TALOS_CODE}"
+      infrastructureRef:
+        name: "${CLUSTER_NAME}-md-0-${TALOS_CODE}"
+        namespace: "${NAMESPACE}"
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: KubevirtMachineTemplate
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineHealthCheck
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+  namespace: "${NAMESPACE}"
+spec:
+  clusterName: ${CLUSTER_NAME}
+  maxUnhealthy: 100%
+  nodeStartupTimeout: 10m
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/deployment-name: ${CLUSTER_NAME}-md-0
+  unhealthyConditions:
+  - type: Ready
+    status: Unknown
+    timeout: 300s
+  - type: Ready
+    status: "False"
+    timeout: 300s---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm
+  namespace: ${NAMESPACE}
+rules:
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachineinstances
+  verbs:
+  - get
+  - watch
+  - list
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: kccm-sa
+  namespace: ${NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kccm
+subjects:
+- kind: ServiceAccount
+  name: cloud-controller-manager
+  namespace: ${NAMESPACE}
+---
+apiVersion: v1
+data:
+  cloud-config: |
+    loadBalancer:
+      creationPollInterval: 5
+      creationPollTimeout: 60
+    namespace: ${NAMESPACE}
+    instancesV2:
+      enabled: true
+      zoneAndRegionEnabled: false
+kind: ConfigMap
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  name: cloud-config
+  namespace: ${NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    capk.cluster.x-k8s.io/template-kind: extra-resource
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+    k8s-app: kubevirt-cloud-controller-manager
+  name: kubevirt-cloud-controller-manager
+  namespace: ${NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      capk.cluster.x-k8s.io/template-kind: extra-resource
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+      k8s-app: kubevirt-cloud-controller-manager
+  template:
+    metadata:
+      labels:
+        capk.cluster.x-k8s.io/template-kind: extra-resource
+        cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+        k8s-app: kubevirt-cloud-controller-manager
+    spec:
+      containers:
+      - args:
+        - --cloud-provider=kubevirt
+        - --cloud-config=/etc/cloud/cloud-config
+        - --kubeconfig=/etc/kubernetes/kubeconfig/value
+        - --authentication-skip-lookup=true
+        - --cluster-name="${CLUSTER_NAME}"
+        command:
+        - /bin/kubevirt-cloud-controller-manager
+        image: quay.io/kubevirt/kubevirt-cloud-controller-manager:v0.5.1
+        imagePullPolicy: Always
+        name: kubevirt-cloud-controller-manager
+        resources:
+          requests:
+            cpu: 100m
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /etc/kubernetes/kubeconfig
+          name: kubeconfig
+          readOnly: true
+        - mountPath: /etc/cloud
+          name: cloud-config
+          readOnly: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      serviceAccountName: cloud-controller-manager
+      tolerations:
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - configMap:
+          name: cloud-config
+        name: cloud-config
+      - name: kubeconfig
+        secret:
+          secretName: ${CLUSTER_NAME}-kubeconfig
