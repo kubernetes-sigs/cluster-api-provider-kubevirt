@@ -10,6 +10,7 @@ packages:
   - gzip
   - rsync
   - findutils
+  - glibc
 context:
   containerfile: Dockerfile.rhtap
 arches:

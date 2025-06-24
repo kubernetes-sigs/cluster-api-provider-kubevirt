@@ -18,13 +18,13 @@ arches:
     name: oniguruma
     evr: 6.9.6-1.el9.5
     sourcerpm: oniguruma-6.9.6-1.el9.5.src.rpm
-  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/aarch64/baseos/os/Packages/r/rsync-3.2.3-20.el9_5.1.aarch64.rpm
+  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/aarch64/baseos/os/Packages/r/rsync-3.2.5-3.el9.aarch64.rpm
     repoid: ubi-9-for-aarch64-baseos-rpms
-    size: 404320
-    checksum: sha256:cfe364a3eec12784b2397428ed21d7300a3cab826ec04208ff8e7a8539b73ccd
+    size: 416293
+    checksum: sha256:99235a7555f6454898ebbcdcf927ebed68e3a60599c9226b9d1d60578d292878
     name: rsync
-    evr: 3.2.3-20.el9_5.1
-    sourcerpm: rsync-3.2.3-20.el9_5.1.src.rpm
+    evr: 3.2.5-3.el9
+    sourcerpm: rsync-3.2.5-3.el9.src.rpm
   source: []
   module_metadata: []
 - arch: ppc64le
@@ -43,13 +43,13 @@ arches:
     name: oniguruma
     evr: 6.9.6-1.el9.5
     sourcerpm: oniguruma-6.9.6-1.el9.5.src.rpm
-  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/ppc64le/baseos/os/Packages/r/rsync-3.2.3-20.el9_5.1.ppc64le.rpm
+  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/ppc64le/baseos/os/Packages/r/rsync-3.2.5-3.el9.ppc64le.rpm
     repoid: ubi-9-for-ppc64le-baseos-rpms
-    size: 437418
-    checksum: sha256:cdaf5865066cf04fdecbaeafdde5c69126a949426fe03966f4db30061ba5f67e
+    size: 449938
+    checksum: sha256:1fd8762ad73a60556c9808a5bf2a9d964965adec91c026ef27058266dc75e1f0
     name: rsync
-    evr: 3.2.3-20.el9_5.1
-    sourcerpm: rsync-3.2.3-20.el9_5.1.src.rpm
+    evr: 3.2.5-3.el9
+    sourcerpm: rsync-3.2.5-3.el9.src.rpm
   source: []
   module_metadata: []
 - arch: s390x
@@ -68,13 +68,13 @@ arches:
     name: oniguruma
     evr: 6.9.6-1.el9.5
     sourcerpm: oniguruma-6.9.6-1.el9.5.src.rpm
-  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/s390x/baseos/os/Packages/r/rsync-3.2.3-20.el9_5.1.s390x.rpm
+  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/s390x/baseos/os/Packages/r/rsync-3.2.5-3.el9.s390x.rpm
     repoid: ubi-9-for-s390x-baseos-rpms
-    size: 406780
-    checksum: sha256:da733c8c0afb85c1d3c5c1c637c3e4ba23fc083f02fb4298915cb12891f151f3
+    size: 418877
+    checksum: sha256:2d1a87e86fb23bc665b7c7ce8775c73d500ef6e152f15c78493b95638dfb7925
     name: rsync
-    evr: 3.2.3-20.el9_5.1
-    sourcerpm: rsync-3.2.3-20.el9_5.1.src.rpm
+    evr: 3.2.5-3.el9
+    sourcerpm: rsync-3.2.5-3.el9.src.rpm
   source: []
   module_metadata: []
 - arch: x86_64
@@ -93,12 +93,12 @@ arches:
     name: oniguruma
     evr: 6.9.6-1.el9.5
     sourcerpm: oniguruma-6.9.6-1.el9.5.src.rpm
-  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/x86_64/baseos/os/Packages/r/rsync-3.2.3-20.el9_5.1.x86_64.rpm
+  - url: https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi9/9/x86_64/baseos/os/Packages/r/rsync-3.2.5-3.el9.x86_64.rpm
     repoid: ubi-9-for-x86_64-baseos-rpms
-    size: 409799
-    checksum: sha256:cb9b3bbbba8f4f00414da7ce1b2ae12c8f3313a7ddb8b1162d60a690ca7e3a98
+    size: 421930
+    checksum: sha256:b1d90c38b613f2d66dfe0c7c3d067a3ce429f7b2ec5224e560f326fc2fd8d1e5
     name: rsync
-    evr: 3.2.3-20.el9_5.1
-    sourcerpm: rsync-3.2.3-20.el9_5.1.src.rpm
+    evr: 3.2.5-3.el9
+    sourcerpm: rsync-3.2.5-3.el9.src.rpm
   source: []
   module_metadata: []

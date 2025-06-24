@@ -1,10 +1,10 @@
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23.6 AS builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.23 as builder
 
-WORKDIR /workspace
-
-# Run this with docker build --build-arg goproxy=$(go env GOPROXY) to override the goproxy
+# Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
 ENV GOPROXY=$goproxy
+
+WORKDIR /workspace
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -13,11 +13,6 @@ COPY go.sum go.sum
 # Copy the sources
 COPY ./ ./
 
-# Cache the go build into the the Go’s compiler cache folder so we take benefits of compiler caching across docker build calls
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    go build -mod=readonly .
-
 # Build
 ARG ARCH=amd64
 ARG ldflags
@@ -25,12 +20,12 @@ ARG ldflags
 # Do not force rebuild of up-to-date packages (do not use -a) and use the compiler cache folder
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${ARCH} \
-    go build -mod=readonly -a -ldflags "${ldflags} -extldflags '-static'" \
+    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} \
+    go build -mod=readonly \
     -o manager .
 
 # Copy the controller-manager into a thin image
-FROM registry.redhat.io/rhel9-4-els/rhel:9.4
+FROM registry.redhat.io/rhel9-6-els/rhel:9.6
 LABEL \
     name="cluster-api-provider-kubevirt" \
     com.redhat.component="cluster-api-provider-kubevirt" \
