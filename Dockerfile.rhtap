@@ -13,14 +13,10 @@ COPY go.sum go.sum
 # Copy the sources
 COPY ./ ./
 
-# Build
-ARG ARCH=amd64
-ARG ldflags
-
 # Do not force rebuild of up-to-date packages (do not use -a) and use the compiler cache folder
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} \
+    CGO_ENABLED=1 \
     go build -mod=readonly \
     -o manager .
 
