@@ -181,7 +181,19 @@ func (m *Machine) Exists() bool {
 func (m *Machine) Create(ctx gocontext.Context) error {
 	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
-	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+	// Get assigned hostname from MachineSet annotation if available
+	hostnameSelector := NewHostnameSelector(m.client)
+	assignedHostname, err := hostnameSelector.GetAssignedHostname(ctx, m.machineContext.KubevirtMachine, m.machineContext.Machine)
+	if err != nil {
+		m.machineContext.Logger.Error(err, "Failed to get assigned hostname, using original name")
+		assignedHostname = m.machineContext.KubevirtMachine.Name
+	}
+
+	if assignedHostname != m.machineContext.KubevirtMachine.Name {
+		m.machineContext.Logger.Info(fmt.Sprintf("Using assigned hostname '%s' instead of generated name '%s'", assignedHostname, m.machineContext.KubevirtMachine.Name))
+	}
+
+	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace, assignedHostname)
 
 	mutateFn := func() (err error) {
 		if virtualMachine.Labels == nil {

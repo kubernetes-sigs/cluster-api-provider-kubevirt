@@ -38,6 +38,7 @@ const ( //labels
 const ( // annotations
 	VmiDeletionGraceTime       = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
 	VmiDeletionGraceTimeEscape = "capk.cluster.x-k8s.io~1vmi-deletion-grace-time"
+	HostnameListAnnotation     = "capk.cluster.x-k8s.io/hostname-list"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.

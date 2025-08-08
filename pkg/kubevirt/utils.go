@@ -68,8 +68,8 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 }
 
 // newVirtualMachineFromKubevirtMachine creates VirtualMachine instance.
-func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string) *kubevirtv1.VirtualMachine {
-	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx)
+func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace string, assignedHostname string) *kubevirtv1.VirtualMachine {
+	vmiTemplate := buildVirtualMachineInstanceTemplate(ctx, assignedHostname)
 
 	virtualMachine := &kubevirtv1.VirtualMachine{
 		Spec: *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.DeepCopy(),
@@ -80,8 +80,14 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	virtualMachine.APIVersion = "kubevirt.io/v1"
 	virtualMachine.Kind = "VirtualMachine"
 
+	// Use assigned hostname if provided, otherwise fall back to original KubevirtMachine name
+	vmName := assignedHostname
+	if vmName == "" {
+		vmName = ctx.KubevirtMachine.Name
+	}
+
 	virtualMachine.ObjectMeta = metav1.ObjectMeta{
-		Name:      ctx.KubevirtMachine.Name,
+		Name:      vmName,
 		Namespace: namespace,
 		Labels:    map[string]string{},
 	}
@@ -94,13 +100,13 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 		virtualMachine.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
 	}
 
-	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
-	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
+	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = vmName
+	virtualMachine.ObjectMeta.Labels["name"] = vmName
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	// make each datavolume unique by appending machine name as a prefix
-	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)
+	virtualMachine = prefixDataVolumeTemplates(virtualMachine, vmName)
 
 	return virtualMachine
 }
@@ -115,7 +121,7 @@ func mapCopy(src map[string]string) map[string]string {
 }
 
 // buildVirtualMachineInstanceTemplate creates VirtualMachineInstanceTemplateSpec.
-func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
+func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext, assignedHostname string) *kubevirtv1.VirtualMachineInstanceTemplateSpec {
 	template := &kubevirtv1.VirtualMachineInstanceTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      map[string]string{},
@@ -131,8 +137,14 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 		template.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Annotations)
 	}
 
-	template.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
-	template.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
+	// Use assigned hostname if provided, otherwise fall back to original KubevirtMachine name
+	vmName := assignedHostname
+	if vmName == "" {
+		vmName = ctx.KubevirtMachine.Name
+	}
+
+	template.ObjectMeta.Labels["kubevirt.io/vm"] = vmName
+	template.ObjectMeta.Labels["name"] = vmName
 	template.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 	template.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
