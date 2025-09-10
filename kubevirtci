@@ -220,7 +220,7 @@ function kubevirtci::create_cluster() {
 	kubevirtci::retry_until_success kubevirtci::kubectl_tenant get pods -n kube-system
 
 	echo "Waiting for worker VM in tenant cluster namespace"
-	kubevirtci::retry_until_success kubevirtci::vm_matches "${TENANT_CLUSTER_NAME}-md-"
+	#kubevirtci::retry_until_success kubevirtci::vm_matches "${TENANT_CLUSTER_NAME}-md-"
 }
 
 

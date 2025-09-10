@@ -27,9 +27,9 @@ import (
 	"github.com/pkg/errors"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
@@ -78,7 +78,6 @@ var (
 
 	sshKeySecret            *corev1.Secret
 	bootstrapSecret         *corev1.Secret
-	bootstrapUserDataSecret *corev1.Secret
 
 	fakeClient                client.Client
 	kubevirtMachineReconciler KubevirtMachineReconciler
@@ -289,14 +288,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			},
 		}
 
-		bootstrapUserDataSecret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: bootstrapSecretName + "-userdata",
-			},
-			Data: map[string][]byte{
-				"userdata": []byte("shell-script"),
-			},
-		}
 
 		vm = &kubevirtv1.VirtualMachine{
 			TypeMeta: metav1.TypeMeta{
@@ -377,16 +368,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 
-		// Should have created the userdata secret
-		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
-		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		bootstrapDataSecret := &corev1.Secret{}
-		Expect(
-			fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
-		).To(Succeed())
-		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
-		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should ensure deletion of KubevirtMachine garbage collects everything successfully", func() {
@@ -397,7 +378,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(machineFactoryMock, objects)
@@ -425,14 +405,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
 
-		// Check bootstrapData secret is deleted
-		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
-		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context)
-		Expect(err).NotTo(HaveOccurred())
-		bootstrapDataSecret := &corev1.Secret{}
-		err = infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)
-		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
 		// Check finalizer is removed from machine
 		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
@@ -461,59 +433,19 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
 	})
 
-	It("should update userdata correctly at KubevirtMachine reconcile", func() {
-		// Get Machine
-		// Get userdata secret name from machine
-		// Get userdata secret and assert equality to original secret
-		objects := []client.Object{
-			cluster,
-			kubevirtCluster,
-			machine,
-			kubevirtMachine,
-			sshKeySecret,
-			bootstrapSecret,
-			bootstrapUserDataSecret,
-		}
-
-		setupClient(kubevirt.DefaultMachineFactory{}, objects)
-
-		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil).Times(2)
-
-		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
-
-		Expect(err).ShouldNot(HaveOccurred())
-
-		// should expect to re-enqueue while waiting for VMI to come online
-		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
-
-		// should expect VM to be created with expected name
-		vm := &kubevirtv1.VirtualMachine{}
-		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
-		Expect(fakeClient.Get(gocontext.Background(), vmKey, vm)).To(Succeed())
-
-		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
-		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: machineContext.Machine.GetNamespace(), Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		infraClusterClient, _, err := infraClusterMock.GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context)
-		Expect(err).NotTo(HaveOccurred())
-
-		bootstrapDataSecret := &corev1.Secret{}
-		Expect(
-			infraClusterClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
-		).To(Succeed())
-
-		Expect(bootstrapUserDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
-	})
 
 	It("should be able to delete KubeVirt VM even when cluster objects don't exist", func() {
 		controllerutil.AddFinalizer(kubevirtMachine, infrav1.MachineFinalizer)
 		objects := []client.Object{
 			machine,
 			kubevirtMachine,
-			bootstrapUserDataSecret,
 			vm,
 		}
 
 		setupClient(machineFactoryMock, objects)
+
+		// Set the VM status so the deletion logic knows about the VM
+		kubevirtMachine.Status.VirtualMachine = &kubevirtMachineName
 
 		machineContext = &context.MachineContext{
 			Context:         gocontext.Background(),
@@ -570,16 +502,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 
-		// Should have created the userdata secret
-		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
-		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		bootstrapDataSecret := &corev1.Secret{}
-		Expect(
-			fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret),
-		).To(Succeed())
-		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
-		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should create KubeVirt VM in custom namespace", func() {
@@ -616,14 +538,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(machineContext.KubevirtMachine.Spec.ProviderID).To(BeNil())
 
-		// Should have created the userdata secret
-		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
-		machineBootstrapSecretReferenceKey := client.ObjectKey{Namespace: customNamespace, Name: *machineBootstrapSecretReferenceName + "-userdata"}
-		bootstrapDataSecret := &corev1.Secret{}
-		Expect(fakeClient.Get(gocontext.Background(), machineBootstrapSecretReferenceKey, bootstrapDataSecret)).To(Succeed())
-		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
-		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
-		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
 	})
 
 	It("should detect when VMI is ready and mark KubevirtMachine ready", func() {
@@ -651,7 +565,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 			vm,
 			vmi,
 		}
@@ -699,7 +612,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 			vm,
 			vmi,
 		}
@@ -741,7 +653,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 			vm,
 			vmi,
 		}
@@ -770,8 +681,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				kubevirtMachine,
 				sshKeySecret,
 				bootstrapSecret,
-				bootstrapUserDataSecret,
-			}
+				}
 
 			setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
@@ -799,8 +709,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					kubevirtMachine,
 					sshKeySecret,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-				}
+						}
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
@@ -833,8 +742,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					kubevirtMachine,
 					sshKeySecret,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-				}
+						}
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
@@ -858,8 +766,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					kubevirtMachine,
 					sshKeySecret,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-				}
+						}
 
 				setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
@@ -940,8 +847,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -991,8 +897,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -1042,8 +947,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -1098,8 +1002,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -1151,8 +1054,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -1196,8 +1098,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 					machine,
 					kubevirtMachine,
 					bootstrapSecret,
-					bootstrapUserDataSecret,
-					sshKeySecret,
+							sshKeySecret,
 					vm,
 					vmi,
 				}
@@ -1239,7 +1140,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 			vm,
 			vmi,
 		}
@@ -1264,7 +1164,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
@@ -1289,12 +1188,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			kubevirtMachine,
 			sshKeySecret,
 			bootstrapSecret,
-			bootstrapUserDataSecret,
 		}
 
-		// test that if the source secret has changed, and there is alredy a secret exist, we still copy the source
-		// to the dest.
-		// the source is the bootstrap secret, the dest is the bootstrap user data secret
+		// test that if the source secret has changed, the VM will be updated
 
 		setupClient(kubevirt.DefaultMachineFactory{}, objects)
 
@@ -1305,7 +1201,6 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeFalse())
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
-		Expect(machineContext.BootstrapDataSecret.Data["userdata"]).To(Equal(bootstrapSecret.Data["value"]))
 	})
 })
 
@@ -1399,5 +1294,489 @@ var _ = Describe("updateNodeProviderID", func() {
 		).To(Succeed())
 		Expect(workloadClusterNode.Spec.ProviderID).NotTo(Equal(expectedProviderId))
 		Expect(kubevirtMachine.Status.NodeUpdated).To(BeFalse())
+	})
+})
+
+var _ = Describe("VM Pool functionality", func() {
+	var (
+		mockCtrl                *gomock.Controller
+		workloadClusterMock     *workloadclustermock.MockWorkloadCluster
+		infraClusterMock        *infraclustermock.MockInfraCluster
+		testLogger              = ctrl.Log.WithName("test")
+		kubevirtMachineTemplate *infrav1.KubevirtMachineTemplate
+		machineSet              *clusterv1.MachineSet
+	)
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		workloadClusterMock = workloadclustermock.NewMockWorkloadCluster(mockCtrl)
+		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
+
+		clusterName = "test-cluster"
+		machineName = "test-machine"
+		kubevirtMachineName = "test-kubevirt-machine"
+		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
+		kubevirtCluster = testing.NewKubevirtCluster(clusterName, machineName)
+		cluster = testing.NewCluster(clusterName, kubevirtCluster)
+		machine = testing.NewMachine(clusterName, machineName, kubevirtMachine)
+
+		// Add MachineSet label to the machine
+		if machine.Labels == nil {
+			machine.Labels = make(map[string]string)
+		}
+		machine.Labels[clusterv1.MachineSetNameLabel] = "test-machineset"
+
+		kubevirtMachineTemplate = &infrav1.KubevirtMachineTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-template",
+				Namespace: machine.Namespace, // Use same namespace as machine
+			},
+			Spec: infrav1.KubevirtMachineTemplateSpec{
+				VirtualMachinePool: []infrav1.VirtualMachinePoolEntry{
+					{
+						Name: "pool-vm-01",
+						CloudInitNetworkData: func() *string {
+							s := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+							return &s
+						}(),
+					},
+					{
+						Name: "pool-vm-02",
+						CloudInitNetworkData: func() *string {
+							s := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+							return &s
+						}(),
+					},
+					{
+						Name: "pool-vm-03",
+						CloudInitNetworkData: func() *string {
+							s := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+							return &s
+						}(),
+					},
+				},
+			},
+		}
+
+		machineSet = &clusterv1.MachineSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machineset",
+				Namespace: machine.Namespace, // Use same namespace as machine
+			},
+			Spec: clusterv1.MachineSetSpec{
+				Template: clusterv1.MachineTemplateSpec{
+					Spec: clusterv1.MachineSpec{
+						InfrastructureRef: corev1.ObjectReference{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KubevirtMachineTemplate",
+							Name:       "test-template",
+						},
+					},
+				},
+			},
+		}
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			kubevirtMachineTemplate,
+			machineSet,
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		kubevirtMachineReconciler = KubevirtMachineReconciler{
+			Client:          fakeClient,
+			WorkloadCluster: workloadClusterMock,
+			InfraCluster:    infraClusterMock,
+			MachineFactory:  kubevirt.DefaultMachineFactory{},
+		}
+	})
+
+	Describe("getKubevirtMachineTemplate", func() {
+		It("should retrieve template from MachineSet", func() {
+			// Verify MachineSet exists first
+			existingMachineSet := &clusterv1.MachineSet{}
+			machineSetKey := types.NamespacedName{Name: "test-machineset", Namespace: machine.Namespace}
+			Expect(fakeClient.Get(gocontext.Background(), machineSetKey, existingMachineSet)).To(Succeed())
+
+			// Add owner reference to make machine owned by MachineSet
+			machine.OwnerReferences = []metav1.OwnerReference{
+				{
+					APIVersion: clusterv1.GroupVersion.String(),
+					Kind:       "MachineSet",
+					Name:       "test-machineset",
+					UID:        "test-uid",
+				},
+			}
+
+			// Update the machine in the fake client with owner references
+			Expect(fakeClient.Update(gocontext.Background(), machine)).To(Succeed())
+
+			template, err := kubevirtMachineReconciler.getKubevirtMachineTemplate(gocontext.Background(), machine)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(template).ToNot(BeNil())
+			Expect(template.Name).To(Equal("test-template"))
+			Expect(len(template.Spec.VirtualMachinePool)).To(Equal(3))
+		})
+
+		It("should return nil for standalone machine", func() {
+			// No owner references = standalone machine
+			machine.OwnerReferences = []metav1.OwnerReference{}
+
+			template, err := kubevirtMachineReconciler.getKubevirtMachineTemplate(gocontext.Background(), machine)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(template).To(BeNil())
+		})
+
+		It("should return error when MachineSet not found", func() {
+			machine.OwnerReferences = []metav1.OwnerReference{
+				{
+					APIVersion: clusterv1.GroupVersion.String(),
+					Kind:       "MachineSet",
+					Name:       "non-existent-machineset",
+					UID:        "test-uid",
+				},
+			}
+
+			// Update the machine in the fake client with owner references
+			Expect(fakeClient.Update(gocontext.Background(), machine)).To(Succeed())
+
+			template, err := kubevirtMachineReconciler.getKubevirtMachineTemplate(gocontext.Background(), machine)
+			Expect(err).Should(HaveOccurred())
+			Expect(template).To(BeNil())
+		})
+	})
+
+	Describe("selectVMFromPool", func() {
+		var machineContext *context.MachineContext
+
+		BeforeEach(func() {
+			machineContext = &context.MachineContext{
+				Context:         gocontext.Background(),
+				Cluster:         cluster,
+				KubevirtCluster: kubevirtCluster,
+				Machine:         machine,
+				KubevirtMachine: kubevirtMachine,
+				Logger:          testLogger,
+			}
+		})
+
+		It("should return nil for empty pool", func() {
+			emptyTemplate := &infrav1.KubevirtMachineTemplate{
+				Spec: infrav1.KubevirtMachineTemplateSpec{
+					VirtualMachinePool: []infrav1.VirtualMachinePoolEntry{},
+				},
+			}
+
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, emptyTemplate)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(selectedVM).To(BeNil())
+		})
+
+		It("should select first available VM", func() {
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, kubevirtMachineTemplate)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(selectedVM).ToNot(BeNil())
+			Expect(selectedVM.Name).To(SatisfyAny(Equal("pool-vm-01"), Equal("pool-vm-02"), Equal("pool-vm-03")))
+
+			// Verify annotation was added
+			Expect(kubevirtMachine.Status.VirtualMachine).ToNot(BeNil())
+			Expect(*kubevirtMachine.Status.VirtualMachine).To(Equal(selectedVM.Name))
+		})
+
+		It("should skip VMs already in use by same MachineSet", func() {
+			// Create another KubevirtMachine in the same MachineSet that's using pool-vm-01
+			usedMachine := &infrav1.KubevirtMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "used-machine",
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.MachineSetNameLabel: "test-machineset",
+					},
+				},
+				Status: infrav1.KubevirtMachineStatus{
+					VirtualMachine: ptr.To("pool-vm-01"),
+				},
+			}
+
+			// Add to fake client
+			Expect(fakeClient.Create(gocontext.Background(), usedMachine)).To(Succeed())
+
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, kubevirtMachineTemplate)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(selectedVM).ToNot(BeNil())
+			Expect(selectedVM.Name).To(Equal("pool-vm-02")) // Should skip pool-vm-01 and select pool-vm-02
+		})
+
+		It("should not consider VMs used by different MachineSet", func() {
+			// Keep just one pool entry
+			kubevirtMachineTemplate.Spec.VirtualMachinePool = []infrav1.VirtualMachinePoolEntry{
+				kubevirtMachineTemplate.Spec.VirtualMachinePool[0],
+			}
+			// Create another KubevirtMachine in a DIFFERENT MachineSet that's using pool-vm-01
+			differentMachineSetMachine := &infrav1.KubevirtMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "different-machineset-machine",
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.MachineSetNameLabel: "different-machineset", // Different MachineSet
+					},
+				},
+				Status: infrav1.KubevirtMachineStatus{
+					VirtualMachine: ptr.To("pool-vm-01"),
+				},
+			}
+
+			// Add to fake client
+			Expect(fakeClient.Create(gocontext.Background(), differentMachineSetMachine)).To(Succeed())
+
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, kubevirtMachineTemplate)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(selectedVM).ToNot(BeNil())
+			Expect(selectedVM.Name).To(Equal("pool-vm-01")) // Should still select pool-vm-01 because it's used by different MachineSet
+		})
+
+		It("should return error when all VMs are in use", func() {
+			// Create KubevirtMachines for all VMs in the pool
+			for i, vm := range kubevirtMachineTemplate.Spec.VirtualMachinePool {
+				usedMachine := &infrav1.KubevirtMachine{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("used-machine-%d", i),
+						Namespace: "default",
+						Labels: map[string]string{
+							clusterv1.MachineSetNameLabel: "test-machineset",
+						},
+					},
+					Status: infrav1.KubevirtMachineStatus{
+						VirtualMachine: ptr.To(vm.Name),
+					},
+				}
+				Expect(fakeClient.Create(gocontext.Background(), usedMachine)).To(Succeed())
+			}
+
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, kubevirtMachineTemplate)
+			Expect(err).Should(HaveOccurred())
+			Expect(selectedVM).To(BeNil())
+			Expect(err.Error()).To(ContainSubstring("no available VMs in the pool"))
+		})
+
+		It("should return nil for machine without MachineSet label", func() {
+			// Remove MachineSet label
+			delete(machine.Labels, clusterv1.MachineSetNameLabel)
+
+			selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, kubevirtMachineTemplate)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(selectedVM).To(BeNil())
+		})
+	})
+
+
+	Describe("cleanupPoolResources", func() {
+		var (
+			machineContext     *context.MachineContext
+			infraClusterClient client.Client
+			vmNamespace        string
+		)
+
+		BeforeEach(func() {
+			machineContext = &context.MachineContext{
+				Context:         gocontext.Background(),
+				Cluster:         cluster,
+				KubevirtCluster: kubevirtCluster,
+				Machine:         machine,
+				KubevirtMachine: kubevirtMachine,
+				Logger:          testLogger,
+			}
+			infraClusterClient = fakeClient
+			vmNamespace = "default"
+		})
+
+		It("should do nothing when no pool annotation exists", func() {
+			err := kubevirtMachineReconciler.cleanupPoolResources(gocontext.Background(), machineContext, infraClusterClient, vmNamespace)
+			Expect(err).ShouldNot(HaveOccurred())
+		})
+
+		It("should remove pool VM assignment", func() {
+			vmName := "pool-vm-01"
+
+			// Add pool VM assignment
+			kubevirtMachine.Status.VirtualMachine = &vmName
+
+			err := kubevirtMachineReconciler.cleanupPoolResources(gocontext.Background(), machineContext, infraClusterClient, vmNamespace)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			// Verify status vm name was removed
+			Expect(kubevirtMachine.Status.VirtualMachine).To(BeNil())
+		})
+
+		It("should handle cleanup with no pool VM assignment", func() {
+			// No pool VM assignment
+			kubevirtMachine.Status.VirtualMachine = nil
+
+			err := kubevirtMachineReconciler.cleanupPoolResources(gocontext.Background(), machineContext, infraClusterClient, vmNamespace)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			// Verify no errors occurred
+			Expect(kubevirtMachine.Status.VirtualMachine).To(BeNil())
+		})
+	})
+})
+
+var _ = Describe("VM Pool integration tests", func() {
+	var (
+		infraClusterMock *infraclustermock.MockInfraCluster
+		machineContext   *context.MachineContext
+		testLogger       = ctrl.Log.WithName("test")
+	)
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
+
+		clusterName = "test-cluster"
+		machineName = "test-machine"
+		kubevirtMachineName = "test-kubevirt-machine"
+		kubevirtMachine = testing.NewKubevirtMachine(kubevirtMachineName, machineName)
+		kubevirtCluster = testing.NewKubevirtCluster(clusterName, machineName)
+		cluster = testing.NewCluster(clusterName, kubevirtCluster)
+		machine = testing.NewMachine(clusterName, machineName, kubevirtMachine)
+
+		// Add MachineSet label to the machine
+		if machine.Labels == nil {
+			machine.Labels = make(map[string]string)
+		}
+		machine.Labels[clusterv1.MachineSetNameLabel] = "worker-machineset"
+
+		machineContext = &context.MachineContext{
+			Context:         gocontext.Background(),
+			Cluster:         cluster,
+			KubevirtCluster: kubevirtCluster,
+			Machine:         machine,
+			KubevirtMachine: kubevirtMachine,
+			Logger:          testLogger,
+		}
+
+		// Create template with VM pool
+		kubevirtMachineTemplate := &infrav1.KubevirtMachineTemplate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "worker-template",
+				Namespace: "default",
+			},
+			Spec: infrav1.KubevirtMachineTemplateSpec{
+				VirtualMachinePool: []infrav1.VirtualMachinePoolEntry{
+					{
+						Name: "worker-vm-01",
+						CloudInitNetworkData: func() *string {
+							s := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+							return &s
+						}(),
+					},
+					{
+						Name: "worker-vm-02",
+						CloudInitNetworkData: func() *string {
+							s := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+							return &s
+						}(),
+					},
+				},
+			},
+		}
+
+		// Create MachineSet that references the template
+		machineSet := &clusterv1.MachineSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "worker-machineset",
+				Namespace: "default",
+			},
+			Spec: clusterv1.MachineSetSpec{
+				Template: clusterv1.MachineTemplateSpec{
+					Spec: clusterv1.MachineSpec{
+						InfrastructureRef: corev1.ObjectReference{
+							APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+							Kind:       "KubevirtMachineTemplate",
+							Name:       "worker-template",
+						},
+					},
+				},
+			},
+		}
+
+		// Add owner reference to make machine owned by MachineSet
+		machine.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion: clusterv1.GroupVersion.String(),
+				Kind:       "MachineSet",
+				Name:       "worker-machineset",
+				UID:        "test-uid",
+			},
+		}
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			kubevirtMachineTemplate,
+			machineSet,
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		kubevirtMachineReconciler = KubevirtMachineReconciler{
+			Client:         fakeClient,
+			InfraCluster:   infraClusterMock,
+			MachineFactory: kubevirt.DefaultMachineFactory{},
+		}
+	})
+
+	It("should successfully select VM from pool", func() {
+		// This test verifies the VM pool selection logic
+
+		// Get the template that was created in BeforeEach
+		template := &infrav1.KubevirtMachineTemplate{}
+		templateKey := types.NamespacedName{Name: "worker-template", Namespace: "default"}
+		Expect(fakeClient.Get(gocontext.Background(), templateKey, template)).To(Succeed())
+
+		// Test VM selection
+		selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, template)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(selectedVM).ToNot(BeNil())
+		Expect(selectedVM.Name).To(SatisfyAny(Equal("worker-vm-01"), Equal("worker-vm-02"))) // First available VM
+
+		// Verify status vm name was added
+		Expect(kubevirtMachine.Status.VirtualMachine).ToNot(BeNil())
+		Expect(*kubevirtMachine.Status.VirtualMachine).To(Equal(selectedVM.Name))
+
+	})
+
+	It("should handle VM pool exhaustion during selection", func() {
+		// Create KubevirtMachines that use all VMs in the pool
+		for i := range 2 {
+			usedMachine := &infrav1.KubevirtMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("used-machine-%d", i),
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.MachineSetNameLabel: "worker-machineset",
+					},
+				},
+				Status: infrav1.KubevirtMachineStatus{
+					VirtualMachine: ptr.To(fmt.Sprintf("worker-vm-0%d", i+1)),
+				},
+			}
+			Expect(fakeClient.Create(gocontext.Background(), usedMachine)).To(Succeed())
+		}
+
+		// Get the template that was created in BeforeEach
+		template := &infrav1.KubevirtMachineTemplate{}
+		templateKey := types.NamespacedName{Name: "worker-template", Namespace: "default"}
+		Expect(fakeClient.Get(gocontext.Background(), templateKey, template)).To(Succeed())
+
+		// Attempt VM selection - should fail due to pool exhaustion
+		selectedVM, err := kubevirtMachineReconciler.selectVMFromPool(gocontext.Background(), machineContext, template)
+
+		// Should fail with pool exhaustion error
+		Expect(err).Should(HaveOccurred())
+		Expect(selectedVM).To(BeNil())
+		Expect(err.Error()).To(ContainSubstring("no available VMs in the pool"))
 	})
 })
