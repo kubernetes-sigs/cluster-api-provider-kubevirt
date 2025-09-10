@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	capierrors "sigs.k8s.io/cluster-api/errors"
 	"sigs.k8s.io/cluster-api/util"
@@ -62,7 +63,8 @@ type KubevirtMachineReconciler struct {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines;machinesets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;delete
@@ -244,11 +246,72 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to fetch kubevirt bootstrap secret")
 	}
+	// Check if there's a VM pool available and select a VM from it
+	ctx.Logger.Info("Checking for VM pool configuration")
+	var selectedPoolEntry *infrav1.VirtualMachinePoolEntry
+	template, err := r.getKubevirtMachineTemplate(ctx.Context, ctx.Machine)
+	if err != nil {
+		ctx.Logger.Error(err, "failed to get KubevirtMachineTemplate, proceeding with default behavior")
+	} else if template != nil {
+		ctx.Logger.Info("Found KubevirtMachineTemplate", "template", template.Name, "poolSize", len(template.Spec.VirtualMachinePool))
+		if len(template.Spec.VirtualMachinePool) > 0 {
+			ctx.Logger.Info("VM pool detected, attempting to select VM from pool")
+			// Try to select a VM from the pool, but don't fail if no pool exists
+			selectedPoolEntry, err = r.selectVMFromPool(ctx.Context, ctx, template)
+			if err != nil {
+				ctx.Logger.Error(err, "failed to select VM from pool")
+				return ctrl.Result{}, errors.Wrap(err, "failed to select VM from pool")
+			}
+		} else {
+			ctx.Logger.Info("No VM pool configured in template, using default VM creation")
+		}
+	} else {
+		ctx.Logger.Info("No KubevirtMachineTemplate found, using default VM creation")
+	}
+
+	// By default the virtual machine name is the kubevirtmachine name that can
+	// be overriden later on
+	if ctx.KubevirtMachine.Status.VirtualMachine == nil {
+		ctx.KubevirtMachine.Status.VirtualMachine = &ctx.KubevirtMachine.Name
+	}
 
 	// Create a helper for managing the KubeVirt VM hosting the machine.
-	externalMachine, err := r.MachineFactory.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
+	var externalMachine kubevirt.MachineInterface
+	if selectedPoolEntry != nil {
+		ctx.Logger.Info("Using VM from pool", "vmName", selectedPoolEntry.Name, "hasCustomCloudInit", selectedPoolEntry.CloudInitUserData != nil || selectedPoolEntry.CloudInitUserDataSecretRef != nil)
+
+		// Handle pool-specific cloud-init configuration
+		ctx.Logger.Info("Setting up pool-specific cloud-init configuration")
+		poolSecretName, err := r.setupPoolCloudInit(ctx.Context, ctx, selectedPoolEntry, infraClusterClient, vmNamespace)
+		if err != nil {
+			ctx.Logger.Error(err, "failed to setup cloud-init for pool VM")
+			return ctrl.Result{}, errors.Wrap(err, "failed to setup cloud-init for pool VM")
+		}
+		ctx.Logger.Info("Pool cloud-init setup completed", "poolSecretName", poolSecretName)
+
+		// Update the context to use the pool VM name and secret
+		if poolSecretName != "" {
+			// Update the bootstrap secret name to point to our pool secret
+			ctx.Logger.Info("Updating bootstrap secret reference for pool VM", "newSecretName", poolSecretName)
+			// The -userdata will be added at the machine to kubevirtmachine logic
+			ctx.Machine.Spec.Bootstrap.DataSecretName = ptr.To(selectedPoolEntry.Name + "-pool")
+		}
+
+		// Create the machine helper with the pool VM configuration
+		ctx.Logger.Info("Creating machine helper with pool VM configuration", "vmName", selectedPoolEntry.Name)
+		externalMachine, err = r.MachineFactory.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
+
+		if err != nil {
+			ctx.Logger.Error(err, "failed to create helper for managing the externalMachine with pool VM")
+			return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine with pool VM")
+		}
+		ctx.Logger.Info("Successfully created machine helper for pool VM", "vmName", selectedPoolEntry.Name)
+	} else {
+		// Create a helper for managing the KubeVirt VM hosting the machine (default behavior).
+		externalMachine, err = r.MachineFactory.NewMachine(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to create helper for managing the externalMachine")
+		}
 	}
 
 	isTerminal, terminalReason, err := externalMachine.IsTerminal()
@@ -474,6 +537,11 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 		if err := externalMachine.Delete(); err != nil {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to delete VM")
 		}
+	}
+
+	// Clean up pool-related resources
+	if err := r.cleanupPoolResources(ctx.Context, ctx, infraClusterClient, vmNamespace); err != nil {
+		ctx.Logger.Error(err, "failed to cleanup pool resources, continuing with deletion")
 	}
 
 	// Machine is deleted so remove the finalizer.
@@ -723,4 +791,302 @@ func usersYamlNodes(sshAuthorizedKey []byte) (*yaml.Node, *yaml.Node, error) {
 
 	data := node.Content[0].Content
 	return data[0], data[1], nil
+}
+
+// getKubevirtMachineTemplate retrieves the KubevirtMachineTemplate associated with the given machine.
+func (r *KubevirtMachineReconciler) getKubevirtMachineTemplate(ctx gocontext.Context, machine *clusterv1.Machine) (*infrav1.KubevirtMachineTemplate, error) {
+	log := ctrl.LoggerFrom(ctx).WithName("getKubevirtMachineTemplate")
+	log.Info("Looking for KubevirtMachineTemplate", "machineName", machine.Name, "ownerRefs", len(machine.GetOwnerReferences()))
+
+	// Find the MachineSet that owns this machine
+	machineSet := &clusterv1.MachineSet{}
+	for _, ownerRef := range machine.GetOwnerReferences() {
+		log.V(1).Info("Checking owner reference", "kind", ownerRef.Kind, "apiVersion", ownerRef.APIVersion, "name", ownerRef.Name)
+		if ownerRef.Kind == "MachineSet" && ownerRef.APIVersion == clusterv1.GroupVersion.String() {
+			machineSetKey := types.NamespacedName{
+				Namespace: machine.Namespace,
+				Name:      ownerRef.Name,
+			}
+			log.Info("Found MachineSet owner reference, fetching MachineSet", "machineSetKey", machineSetKey)
+			if err := r.Client.Get(ctx, machineSetKey, machineSet); err != nil {
+				log.Error(err, "failed to get MachineSet", "machineSetKey", machineSetKey)
+				return nil, errors.Wrapf(err, "failed to get MachineSet %s", machineSetKey)
+			}
+			log.Info("Successfully retrieved MachineSet", "machineSetName", machineSet.Name)
+			break
+		}
+	}
+
+	if machineSet.Name == "" {
+		log.Info("No MachineSet found, checking for standalone machine")
+		// If there's no MachineSet, this might be a standalone machine created directly from a template
+		// We need to look at the machine's InfrastructureRef
+		if machine.Spec.InfrastructureRef.Kind != "KubevirtMachine" {
+			log.Info("Unsupported infrastructure ref kind for standalone machine", "kind", machine.Spec.InfrastructureRef.Kind)
+			return nil, fmt.Errorf("machine %s has unsupported infrastructure ref kind: %s", machine.Name, machine.Spec.InfrastructureRef.Kind)
+		}
+
+		// Get the KubevirtMachine
+		kubevirtMachine := &infrav1.KubevirtMachine{}
+		kubevirtMachineKey := types.NamespacedName{
+			Namespace: machine.Namespace,
+			Name:      machine.Spec.InfrastructureRef.Name,
+		}
+		log.Info("Fetching standalone KubevirtMachine", "kubevirtMachineKey", kubevirtMachineKey)
+		if err := r.Client.Get(ctx, kubevirtMachineKey, kubevirtMachine); err != nil {
+			log.Error(err, "failed to get KubevirtMachine", "kubevirtMachineKey", kubevirtMachineKey)
+			return nil, errors.Wrapf(err, "failed to get KubevirtMachine %s", kubevirtMachineKey)
+		}
+
+		// For standalone machines, we cannot get the template, so return nil
+		log.Info("Standalone machine detected, no template available")
+		return nil, nil
+	}
+
+	// Get the KubevirtMachineTemplate from the MachineSet
+	log.Info("Checking MachineSet infrastructure reference", "infraRefKind", machineSet.Spec.Template.Spec.InfrastructureRef.Kind)
+	if machineSet.Spec.Template.Spec.InfrastructureRef.Kind != "KubevirtMachineTemplate" {
+		log.Info("Unsupported infrastructure template kind", "kind", machineSet.Spec.Template.Spec.InfrastructureRef.Kind)
+		return nil, fmt.Errorf("MachineSet %s has unsupported infrastructure template kind: %s", machineSet.Name, machineSet.Spec.Template.Spec.InfrastructureRef.Kind)
+	}
+
+	template := &infrav1.KubevirtMachineTemplate{}
+	templateKey := types.NamespacedName{
+		Namespace: machineSet.Namespace,
+		Name:      machineSet.Spec.Template.Spec.InfrastructureRef.Name,
+	}
+	log.Info("Fetching KubevirtMachineTemplate", "templateKey", templateKey)
+	if err := r.Client.Get(ctx, templateKey, template); err != nil {
+		log.Error(err, "failed to get KubevirtMachineTemplate", "templateKey", templateKey)
+		return nil, errors.Wrapf(err, "failed to get KubevirtMachineTemplate %s", templateKey)
+	}
+
+	log.Info("Successfully retrieved KubevirtMachineTemplate", "templateName", template.Name, "poolSize", len(template.Spec.VirtualMachinePool))
+	return template, nil
+}
+
+// selectVMFromPool selects an available VM from the pool and returns its name and cloud-init config.
+// It also marks the VM as used by adding an annotation to the KubevirtMachine.
+func (r *KubevirtMachineReconciler) selectVMFromPool(ctx gocontext.Context, machineCtx *context.MachineContext, template *infrav1.KubevirtMachineTemplate) (*infrav1.VirtualMachinePoolEntry, error) {
+	log := machineCtx.Logger.WithName("selectVMFromPool")
+	log.Info("Selecting VM from pool", "poolSize", len(template.Spec.VirtualMachinePool), "templateName", template.Name)
+
+	if len(template.Spec.VirtualMachinePool) == 0 {
+		log.Info("VM pool is empty, returning nil")
+		return nil, nil
+	}
+	vmPool := map[string]infrav1.VirtualMachinePoolEntry{}
+	for _, vmEntry := range template.Spec.VirtualMachinePool {
+		vmPool[vmEntry.Name] = vmEntry
+	}
+
+	if machineCtx.KubevirtMachine.Status.VirtualMachine != nil {
+		selectedVMPoolEntry, ok := vmPool[*machineCtx.KubevirtMachine.Status.VirtualMachine]
+		if !ok {
+			return nil, fmt.Errorf("missing pool entry")
+		}
+		return &selectedVMPoolEntry, nil
+	}
+
+	machineSetName, exists := machineCtx.Machine.Labels[clusterv1.MachineSetNameLabel]
+	if !exists {
+		log.Info("No MachineSet label found, this might be a standalone machine")
+		return nil, nil
+	}
+	log.Info("Found MachineSet label", "machineSetName", machineSetName)
+
+	// List KubevirtMachines that belong to the same MachineSet using label selector
+	machineList := &infrav1.KubevirtMachineList{}
+	listOptions := []client.ListOption{
+		client.InNamespace(machineCtx.KubevirtMachine.Namespace),
+		client.MatchingLabels{clusterv1.MachineSetNameLabel: machineSetName},
+	}
+
+	log.Info("Listing KubevirtMachines by MachineSet label", "namespace", machineCtx.KubevirtMachine.Namespace, "machineSetName", machineSetName)
+	if err := r.Client.List(ctx, machineList, listOptions...); err != nil {
+		log.Error(err, "failed to list KubevirtMachines by MachineSet label")
+		return nil, errors.Wrap(err, "failed to list KubevirtMachines by MachineSet label")
+	}
+	log.Info("Retrieved KubevirtMachine list for MachineSet", "totalMachines", len(machineList.Items), "machineSetName", machineSetName)
+
+	// Build a set of used VM names from machines in the same MachineSet that have pool annotations
+	for _, machine := range machineList.Items {
+		// Skip machines that don't have the pool annotation
+		vmName := machine.Status.VirtualMachine
+		if vmName == nil {
+			continue
+		}
+		log.Info("Removing used VM from pool", "vmName", *vmName)
+		delete(vmPool, *vmName)
+	}
+
+	for _, vmPoolEntry := range vmPool {
+		log.Info("Found available VM in pool", "vmName", vmPoolEntry.Name)
+		machineCtx.KubevirtMachine.Status.VirtualMachine = &vmPoolEntry.Name
+		return &vmPoolEntry, nil
+	}
+
+	log.Error(nil, "No available VMs in pool", "totalVMs", len(template.Spec.VirtualMachinePool))
+	return nil, fmt.Errorf("no available VMs in the pool, all %d VMs are currently in use", len(template.Spec.VirtualMachinePool))
+}
+
+// setupPoolCloudInit creates or updates the cloud-init secret for a VM pool entry.
+// Returns the name of the created secret, or empty string if no custom cloud-init was specified.
+func (r *KubevirtMachineReconciler) setupPoolCloudInit(ctx gocontext.Context, machineCtx *context.MachineContext, poolEntry *infrav1.VirtualMachinePoolEntry, infraClusterClient client.Client, vmNamespace string) (string, error) {
+	log := machineCtx.Logger.WithName("setupPoolCloudInit")
+	log.Info("Setting up pool cloud-init", "vmName", poolEntry.Name, "vmNamespace", vmNamespace, "hasInlineData", poolEntry.CloudInitUserData != nil, "hasSecretRef", poolEntry.CloudInitUserDataSecretRef != nil)
+
+	// If no custom cloud-init is specified in the pool entry, use the default behavior
+	if poolEntry.CloudInitUserData == nil && poolEntry.CloudInitUserDataSecretRef == nil {
+		log.Info("No custom cloud-init specified, using default behavior")
+		return "", nil
+	}
+
+	var cloudInitData string
+
+	// Get cloud-init data either from the direct field or from a secret reference
+	if poolEntry.CloudInitUserData != nil {
+		log.Info("Using inline cloud-init data", "dataLength", len(*poolEntry.CloudInitUserData))
+		cloudInitData = *poolEntry.CloudInitUserData
+	} else if poolEntry.CloudInitUserDataSecretRef != nil {
+		log.Info("Reading cloud-init data from secret reference", "secretName", poolEntry.CloudInitUserDataSecretRef.Name)
+		// Read cloud-init data from the referenced secret
+		secretRef := poolEntry.CloudInitUserDataSecretRef
+		secret := &corev1.Secret{}
+		secretKey := types.NamespacedName{
+			Namespace: machineCtx.KubevirtMachine.Namespace, // Use the same namespace as the KubevirtMachine
+			Name:      secretRef.Name,
+		}
+
+		log.Info("Fetching cloud-init secret", "secretKey", secretKey)
+		if err := r.Client.Get(ctx, secretKey, secret); err != nil {
+			log.Error(err, "failed to get cloud-init secret", "secretKey", secretKey)
+			return "", errors.Wrapf(err, "failed to get cloud-init secret %s", secretKey)
+		}
+
+		// Look for cloud-init data in the secret (try common keys)
+		availableKeys := make([]string, 0, len(secret.Data))
+		for key := range secret.Data {
+			availableKeys = append(availableKeys, key)
+		}
+		log.V(1).Info("Available keys in cloud-init secret", "keys", availableKeys)
+
+		if data, exists := secret.Data["userdata"]; exists {
+			cloudInitData = string(data)
+			log.Info("Found cloud-init data with 'userdata' key", "dataLength", len(cloudInitData))
+		} else if data, exists := secret.Data["user-data"]; exists {
+			cloudInitData = string(data)
+			log.Info("Found cloud-init data with 'user-data' key", "dataLength", len(cloudInitData))
+		} else if data, exists := secret.Data["cloud-init"]; exists {
+			cloudInitData = string(data)
+			log.Info("Found cloud-init data with 'cloud-init' key", "dataLength", len(cloudInitData))
+		} else {
+			log.Error(nil, "Cloud-init secret missing expected keys", "secretKey", secretKey, "availableKeys", availableKeys)
+			return "", fmt.Errorf("cloud-init secret %s does not contain expected keys (userdata, user-data, or cloud-init)", secretKey)
+		}
+	}
+
+	// Create a new secret with the pool's cloud-init data
+	// This secret will replace the default bootstrap secret for this specific VM
+	poolSecretName := fmt.Sprintf("%s-pool-userdata", poolEntry.Name)
+	log.Info("Creating pool cloud-init secret", "secretName", poolSecretName, "namespace", vmNamespace)
+
+	poolSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      poolSecretName,
+			Namespace: vmNamespace,
+			Labels: map[string]string{
+				"cluster.x-k8s.io/cluster-name": machineCtx.Cluster.Name,
+				"kubevirt.io/vm-pool":           "true",
+			},
+		},
+		Data: map[string][]byte{
+			"userdata": []byte(cloudInitData),
+		},
+	}
+
+	// Set the KubevirtMachine as the owner of this secret
+	log.V(1).Info("Setting controller reference for pool secret")
+	if err := controllerutil.SetControllerReference(machineCtx.KubevirtMachine, poolSecret, r.Client.Scheme()); err != nil {
+		log.Error(err, "failed to set controller reference for pool cloud-init secret")
+		return "", errors.Wrap(err, "failed to set controller reference for pool cloud-init secret")
+	}
+
+	// Create or update the secret
+	log.Info("Creating pool cloud-init secret in infra cluster")
+	if err := infraClusterClient.Create(ctx, poolSecret); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			log.Info("Pool secret already exists, updating it", "secretName", poolSecretName)
+			// Update the existing secret
+			existingSecret := &corev1.Secret{}
+			if err := infraClusterClient.Get(ctx, types.NamespacedName{Name: poolSecretName, Namespace: vmNamespace}, existingSecret); err != nil {
+				log.Error(err, "failed to get existing pool cloud-init secret")
+				return "", errors.Wrap(err, "failed to get existing pool cloud-init secret")
+			}
+			existingSecret.Data = poolSecret.Data
+			if err := infraClusterClient.Update(ctx, existingSecret); err != nil {
+				log.Error(err, "failed to update pool cloud-init secret")
+				return "", errors.Wrap(err, "failed to update pool cloud-init secret")
+			}
+			log.Info("Successfully updated existing pool secret", "secretName", poolSecretName)
+		} else {
+			log.Error(err, "failed to create pool cloud-init secret")
+			return "", errors.Wrap(err, "failed to create pool cloud-init secret")
+		}
+	} else {
+		log.Info("Successfully created new pool secret", "secretName", poolSecretName)
+	}
+
+	log.Info("Pool cloud-init secret ready", "secretName", poolSecretName, "vmName", poolEntry.Name, "dataLength", len(cloudInitData))
+	return poolSecretName, nil
+}
+
+// cleanupPoolResources removes pool-related annotations and cleans up any pool-specific secrets.
+func (r *KubevirtMachineReconciler) cleanupPoolResources(ctx gocontext.Context, machineCtx *context.MachineContext, infraClusterClient client.Client, vmNamespace string) error {
+	log := machineCtx.Logger.WithName("cleanupPoolResources")
+	log.Info("Starting pool resources cleanup", "vmNamespace", vmNamespace)
+
+	// Check if this machine was using a VM from the pool
+	vmName := machineCtx.KubevirtMachine.Status.VirtualMachine
+	if vmName == nil {
+		log.Info("No pool VM found, nothing to clean up")
+		// No pool VM was used, nothing to clean up
+		return nil
+	}
+
+	log.Info("Cleaning up pool resources", "vmName", *vmName)
+
+	// Remove the status vm name to free up the VM for future use
+	// Note: This will be persisted when the finalizer is removed and the object is patched
+	log.Info("Removing pool annotation to free VM for future use")
+	machineCtx.KubevirtMachine.Status.VirtualMachine = nil
+
+	// Clean up the pool-specific cloud-init secret if it exists
+	poolSecretName := fmt.Sprintf("%s-pool-userdata", *vmName)
+	poolSecret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      poolSecretName,
+		Namespace: vmNamespace,
+	}
+
+	log.Info("Checking for pool cloud-init secret to cleanup", "secretKey", secretKey)
+	if err := infraClusterClient.Get(ctx, secretKey, poolSecret); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Error(err, "failed to get pool cloud-init secret", "secretKey", secretKey)
+			return errors.Wrapf(err, "failed to get pool cloud-init secret %s", secretKey)
+		}
+		// Secret doesn't exist, nothing to clean up
+		log.Info("Pool cloud-init secret not found, nothing to cleanup", "secretName", poolSecretName)
+		return nil
+	}
+
+	// Delete the pool-specific secret
+	log.Info("Deleting pool cloud-init secret", "secretName", poolSecretName)
+	if err := infraClusterClient.Delete(ctx, poolSecret); err != nil {
+		log.Error(err, "failed to delete pool cloud-init secret", "secretKey", secretKey)
+		return errors.Wrapf(err, "failed to delete pool cloud-init secret %s", secretKey)
+	}
+
+	log.Info("Successfully cleaned up pool resources", "secretName", poolSecretName, "vmName", vmName)
+	return nil
 }
