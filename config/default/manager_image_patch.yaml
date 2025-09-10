@@ -8,5 +8,5 @@ spec:
     spec:
       containers:
       # Change the value of image field below to your controller image URL
-      - image: controller
+      - image: 127.0.0.1:32771/capk-manager-amd64:dev
         name: manager

@@ -39,6 +39,7 @@ type MachineContext struct {
 	KubevirtCluster     *infrav1.KubevirtCluster
 	KubevirtMachine     *infrav1.KubevirtMachine
 	BootstrapDataSecret *corev1.Secret
+	PoolEntry           *infrav1.VirtualMachinePoolEntry
 	Logger              logr.Logger
 }
 
