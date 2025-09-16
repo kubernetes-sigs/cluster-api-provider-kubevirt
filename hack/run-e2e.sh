@@ -21,7 +21,7 @@ fi
 
 if [ ! -f "${CLUSTERCTL_PATH}" ]; then
 	echo >&2 "Downloading clusterctl ..."
-	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.5.2/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
+	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.1/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
 	chmod +x "${CLUSTERCTL_PATH}"
 fi
 

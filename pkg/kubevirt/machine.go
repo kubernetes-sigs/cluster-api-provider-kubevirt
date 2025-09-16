@@ -29,7 +29,7 @@ import (
 	kubedrain "k8s.io/kubectl/pkg/drain"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -97,7 +97,7 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 	if machine.vmInstance != nil {
 		for _, dvTemp := range machine.vmInstance.Spec.DataVolumeTemplates {
 			dv := &cdiv1.DataVolume{}
-			err = client.Get(ctx.Context, types.NamespacedName{Name: dvTemp.ObjectMeta.Name, Namespace: namespace}, dv)
+			err = client.Get(ctx.Context, types.NamespacedName{Name: dvTemp.Name, Namespace: namespace}, dv)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					return nil, err
@@ -274,9 +274,10 @@ func (m *Machine) GetVMNotReadyReason() (reason string, message string) {
 
 	cond := m.getVMCondition(kubevirtv1.VirtualMachineConditionType(corev1.PodScheduled))
 	if cond != nil {
-		if cond.Status == corev1.ConditionTrue {
+		switch cond.Status {
+		case corev1.ConditionTrue:
 			return
-		} else if cond.Status == corev1.ConditionFalse {
+		case corev1.ConditionFalse:
 			if cond.Reason == "Unschedulable" {
 				return "Unschedulable", cond.Message
 			}
@@ -552,7 +553,7 @@ func (m *Machine) drainNode(wrkldClstr workloadcluster.WorkloadCluster) (time.Du
 		// If a pod is not evicted in 20 seconds, retry the eviction next time the
 		// machine gets reconciled again (to allow other machines to be reconciled).
 		Timeout: 20 * time.Second,
-		OnPodDeletedOrEvicted: func(pod *corev1.Pod, usingEviction bool) {
+		OnPodDeletionOrEvictionFinished: func(pod *corev1.Pod, usingEviction bool, err error) {
 			verbStr := "Deleted"
 			if usingEviction {
 				verbStr = "Evicted"
