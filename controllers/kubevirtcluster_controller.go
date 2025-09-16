@@ -30,7 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -81,7 +81,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	// Fetch the KubevirtCluster.
 	kubevirtCluster := &infrav1.KubevirtCluster{}
-	if err := r.Client.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
+	if err := r.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -165,7 +165,12 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	// Create the service serving as load balancer, if not existing
 	if !externalLoadBalancer.IsFound() {
 		if err := externalLoadBalancer.Create(ctx); err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
+			conditions.Set(ctx.KubevirtCluster, metav1.Condition{
+				Type:    infrav1.LoadBalancerAvailableCondition,
+				Status:  metav1.ConditionFalse,
+				Reason:  infrav1.LoadBalancerProvisioningFailedReason,
+				Message: fmt.Sprintf("%v", err.Error()),
+			})
 			return ctrl.Result{}, errors.Wrap(err, "failed to create load balancer")
 		}
 	}
@@ -180,7 +185,12 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	} else if ctx.KubevirtCluster.Spec.ControlPlaneServiceTemplate.Spec.Type == "LoadBalancer" {
 		lbip4, err := externalLoadBalancer.ExternalIP(ctx)
 		if err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
+			conditions.Set(ctx.KubevirtCluster, metav1.Condition{
+				Type:    infrav1.LoadBalancerAvailableCondition,
+				Status:  metav1.ConditionFalse,
+				Reason:  infrav1.LoadBalancerProvisioningFailedReason,
+				Message: fmt.Sprintf("%v", err.Error()),
+			})
 			return ctrl.Result{}, errors.Wrap(err, "failed to get ExternalIP for the load balancer")
 		}
 		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
@@ -192,7 +202,12 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 	} else {
 		lbip4, err := externalLoadBalancer.IP(ctx)
 		if err != nil {
-			conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, infrav1.LoadBalancerProvisioningFailedReason, clusterv1.ConditionSeverityWarning, "%v", err.Error())
+			conditions.Set(ctx.KubevirtCluster, metav1.Condition{
+				Type:    infrav1.LoadBalancerAvailableCondition,
+				Status:  metav1.ConditionFalse,
+				Reason:  infrav1.LoadBalancerProvisioningFailedReason,
+				Message: fmt.Sprintf("%v", err.Error()),
+			})
 			return ctrl.Result{}, errors.Wrap(err, "failed to get ClusterIP for the load balancer")
 		}
 		ctx.KubevirtCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
@@ -201,7 +216,12 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 		}
 	}
 
-	conditions.MarkTrue(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition)
+	conditions.Set(ctx.KubevirtCluster, metav1.Condition{
+		Type:    infrav1.LoadBalancerAvailableCondition,
+		Status:  metav1.ConditionTrue,
+		Reason:  clusterv1.UpToDateReason,
+		Message: "",
+	})
 
 	// Generate ssh keys for cluster nodes, and persist them to a secret
 	clusterNodeSSHKeys := ssh.NewClusterNodeSshKeys(ctx, r.Client)
@@ -243,7 +263,12 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	conditions.MarkFalse(ctx.KubevirtCluster, infrav1.LoadBalancerAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+	conditions.Set(ctx.KubevirtCluster, metav1.Condition{
+		Type:    infrav1.LoadBalancerAvailableCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  clusterv1.DeletingReason,
+		Message: "",
+	})
 	if err := ctx.PatchKubevirtCluster(patchHelper); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtCluster")
 	}

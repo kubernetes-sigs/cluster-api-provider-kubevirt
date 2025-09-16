@@ -20,10 +20,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -206,8 +205,12 @@ var _ = Describe("CreateCluster", func() {
 		}
 		Expect(k8sclient.Update(ctx, kvCluster)).To(Succeed())
 
-		conditions.MarkTrue(kvCluster, infrav1.LoadBalancerAvailableCondition)
-		kvCluster.Status.Ready = true
+		conditions.Set(kvCluster, metav1.Condition{
+			Type:    infrav1.LoadBalancerAvailableCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  clusterv1.UpToDateReason,
+			Message: "",
+		})
 
 		Expect(k8sclient.Status().Update(ctx, kvCluster)).To(Succeed())
 		Expect(kvCluster.Status.Ready).To(BeTrue())
@@ -359,9 +362,9 @@ var _ = Describe("CreateCluster", func() {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
 			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
-			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition)).To(
+			g.Expect(ptr.Equal(cluster.Status.Initialization.ControlPlaneInitialized, ptr.To(true))).To(
 				BeTrue(),
-				"still waiting on controlPlaneReady condition to be true",
+				"still waiting on controlPlaneInitialized condition to be true",
 			)
 		}).WithOffset(1).
 			WithTimeout(20*time.Minute).
@@ -373,14 +376,14 @@ var _ = Describe("CreateCluster", func() {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
 			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
-			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition)).To(
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ClusterControlPlaneAvailableCondition)).To(
 				BeTrue(),
-				"still waiting on controlPlaneInitialized condition to be true",
+				"still waiting on controlplaneAvailable condition to be true",
 			)
 		}).WithOffset(1).
 			WithTimeout(15*time.Minute).
 			WithPolling(5*time.Second).
-			Should(Succeed(), "cluster should have control plane initialized")
+			Should(Succeed(), "cluster should have control plane available")
 	}
 
 	injectKubevirtClusterExternallyManagedAnnotation := func(yamlStr string) string {
@@ -469,26 +472,24 @@ var _ = Describe("CreateCluster", func() {
 						"cluster.x-k8s.io/cluster-name": clusterName,
 					},
 				},
-				MaxUnhealthy: &maxUnhealthy,
-
-				UnhealthyConditions: []clusterv1.UnhealthyCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionFalse,
-						Timeout: metav1.Duration{
-							Duration: 5 * time.Minute,
+				Checks: clusterv1.MachineHealthCheckChecks{
+					UnhealthyNodeConditions: []clusterv1.UnhealthyNodeCondition{
+						{
+							Type:           corev1.NodeReady,
+							Status:         corev1.ConditionFalse,
+							TimeoutSeconds: ptr.To(int32(300)),
 						},
-					},
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionUnknown,
-						Timeout: metav1.Duration{
-							Duration: 5 * time.Minute,
+						{
+							Type:           corev1.NodeReady,
+							Status:         corev1.ConditionUnknown,
+							TimeoutSeconds: ptr.To(int32(300)),
 						},
 					},
 				},
-				NodeStartupTimeout: &metav1.Duration{
-					Duration: 10 * time.Minute,
+				Remediation: clusterv1.MachineHealthCheckRemediation{
+					TriggerIf: clusterv1.MachineHealthCheckRemediationTriggerIf{
+						UnhealthyLessThanOrEqualTo: &maxUnhealthy,
+					},
 				},
 			},
 		}
@@ -886,7 +887,7 @@ func evictNode(ctx context.Context, cli *kubernetes.Clientset, pod *corev1.Pod) 
 			Name: pod.Name,
 		},
 		DeleteOptions: &metav1.DeleteOptions{
-			GracePeriodSeconds: pointer.Int64(60 * 10), // 10 minutes
+			GracePeriodSeconds: ptr.To(int64(60 * 10)), // 10 minutes
 		},
 	})
 

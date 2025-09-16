@@ -51,13 +51,13 @@ func prefixDataVolumeTemplates(vm *kubevirtv1.VirtualMachine, prefix string) *ku
 	}
 
 	for i, volume := range vm.Spec.Template.Spec.Volumes {
-		if volume.VolumeSource.PersistentVolumeClaim != nil {
-			prefixedName, ok := dvNameMap[volume.VolumeSource.PersistentVolumeClaim.ClaimName]
+		if volume.PersistentVolumeClaim != nil {
+			prefixedName, ok := dvNameMap[volume.PersistentVolumeClaim.ClaimName]
 			if ok {
 				vm.Spec.Template.Spec.Volumes[i].PersistentVolumeClaim.ClaimName = prefixedName
 			}
-		} else if volume.VolumeSource.DataVolume != nil {
-			prefixedName, ok := dvNameMap[volume.VolumeSource.DataVolume.Name]
+		} else if volume.DataVolume != nil {
+			prefixedName, ok := dvNameMap[volume.DataVolume.Name]
 			if ok {
 				vm.Spec.Template.Spec.Volumes[i].DataVolume.Name = prefixedName
 			}
@@ -87,17 +87,17 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	}
 
 	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels != nil {
-		virtualMachine.ObjectMeta.Labels = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels)
+		virtualMachine.Labels = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels)
 	}
 
 	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations != nil {
-		virtualMachine.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
+		virtualMachine.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
 	}
 
-	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
-	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
-	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
-	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
+	virtualMachine.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	virtualMachine.Labels["name"] = ctx.KubevirtMachine.Name
+	virtualMachine.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
+	virtualMachine.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
 
 	// make each datavolume unique by appending machine name as a prefix
 	virtualMachine = prefixDataVolumeTemplates(virtualMachine, ctx.KubevirtMachine.Name)

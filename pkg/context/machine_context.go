@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 
@@ -61,18 +61,23 @@ func (c *MachineContext) String() string {
 func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 	// Always update the readyCondition by summarizing the state of other conditions.
 	// A step counter is added to represent progress during the provisioning process (instead we are hiding the step counter during the deletion process).
-	conditions.SetSummary(c.KubevirtMachine,
-		conditions.WithConditions(
+	if err := conditions.SetSummaryCondition(
+		c.KubevirtMachine,
+		c.KubevirtMachine,
+		clusterv1.ReadyCondition,
+		conditions.ForConditionTypes{
 			infrav1.VMProvisionedCondition,
 			infrav1.BootstrapExecSucceededCondition,
-		),
-	)
+		},
+	); err != nil {
+		return fmt.Errorf("failed to set summary condition: %w", err)
+	}
 
 	// Patch the object, ignoring conflicts on the conditions owned by this controller.
 	return patchHelper.Patch(
 		c.Context,
 		c.KubevirtMachine,
-		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
+		patch.WithOwnedConditions{Conditions: []string{
 			clusterv1.ReadyCondition,
 			infrav1.VMProvisionedCondition,
 			infrav1.BootstrapExecSucceededCondition,

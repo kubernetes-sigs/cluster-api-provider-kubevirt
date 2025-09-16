@@ -182,7 +182,7 @@ generate-go: $(CONTROLLER_GEN) $(CONVERSION_GEN) ## Runs Go related generate tar
 		paths=./api/...
 	(IFS=','; for i in "./api/v1alpha1"; do find $$i -type f -name 'zz_generated.conversion*' -exec rm -f {} \;; done)
 	$(CONVERSION_GEN) \
-		--extra-peer-dirs=sigs.k8s.io/cluster-api/api/v1beta1 \
+		--extra-peer-dirs=sigs.k8s.io/cluster-api/api/core/v1beta2 \
 		--output-file=zz_generated.conversion.go \
 		--go-header-file=hack/boilerplate.generatego.txt \
 		sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1
@@ -340,7 +340,7 @@ goimports:
 
 GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.63.4)
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0)
 
 .PHONY: linter
 linter: golangci-lint
