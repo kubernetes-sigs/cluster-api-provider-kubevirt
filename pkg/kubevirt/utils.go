@@ -85,6 +85,9 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 		Namespace: namespace,
 		Labels:    map[string]string{},
 	}
+	if ctx.KubevirtMachine.Status.VirtualMachine != nil {
+		virtualMachine.Name = *ctx.KubevirtMachine.Status.VirtualMachine
+	}
 
 	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels != nil {
 		virtualMachine.ObjectMeta.Labels = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Labels)
@@ -94,7 +97,11 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 		virtualMachine.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
 	}
 
-	virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	if ctx.KubevirtMachine.Status.VirtualMachine != nil {
+		virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = *ctx.KubevirtMachine.Status.VirtualMachine
+	} else {
+		virtualMachine.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	}
 	virtualMachine.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 	virtualMachine.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
@@ -131,7 +138,11 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 		template.ObjectMeta.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.ObjectMeta.Annotations)
 	}
 
-	template.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	if ctx.KubevirtMachine.Status.VirtualMachine != nil {
+		template.ObjectMeta.Labels["kubevirt.io/vm"] = *ctx.KubevirtMachine.Status.VirtualMachine
+	} else {
+		template.ObjectMeta.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
+	}
 	template.ObjectMeta.Labels["name"] = ctx.KubevirtMachine.Name
 	template.ObjectMeta.Labels["cluster.x-k8s.io/role"] = nodeRole(ctx)
 	template.ObjectMeta.Labels["cluster.x-k8s.io/cluster-name"] = ctx.Cluster.Name
@@ -149,6 +160,12 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 			},
 		},
 	}
+
+	// Add NetworkData directly if available from pool entry
+	if ctx.PoolEntry != nil && ctx.PoolEntry.CloudInitNetworkData != nil {
+		cloudInitVolume.VolumeSource.CloudInitConfigDrive.NetworkData = *ctx.PoolEntry.CloudInitNetworkData
+	}
+
 	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 
 	cloudInitDisk := kubevirtv1.Disk{

@@ -69,8 +69,10 @@ func NewMachine(ctx *context.MachineContext, client client.Client, namespace str
 		dataVolumes:        nil,
 		getCommandExecutor: ssh.NewVMCommandExecutor,
 	}
-
-	namespacedName := types.NamespacedName{Namespace: namespace, Name: ctx.KubevirtMachine.Name}
+	if ctx.KubevirtMachine.Status.VirtualMachine == nil {
+		return nil, fmt.Errorf("missing selected virtual machine at new machine")
+	}
+	namespacedName := types.NamespacedName{Namespace: namespace, Name: *ctx.KubevirtMachine.Status.VirtualMachine}
 	vm := &kubevirtv1.VirtualMachine{}
 	vmi := &kubevirtv1.VirtualMachineInstance{}
 
@@ -179,9 +181,10 @@ func (m *Machine) Exists() bool {
 
 // Create creates a new VM for this machine.
 func (m *Machine) Create(ctx gocontext.Context) error {
-	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM with role '%s'...", nodeRole(m.machineContext)))
 
 	virtualMachine := newVirtualMachineFromKubevirtMachine(m.machineContext, m.namespace)
+
+	m.machineContext.Logger.Info(fmt.Sprintf("Creating VM %q with role '%s'...", virtualMachine.Name, nodeRole(m.machineContext)))
 
 	mutateFn := func() (err error) {
 		if virtualMachine.Labels == nil {
@@ -394,7 +397,10 @@ func (m *Machine) GenerateProviderID() (string, error) {
 
 // Delete deletes VM for this machine.
 func (m *Machine) Delete() error {
-	namespacedName := types.NamespacedName{Namespace: m.namespace, Name: m.machineContext.KubevirtMachine.Name}
+	if m.machineContext.KubevirtMachine.Status.VirtualMachine == nil {
+		return fmt.Errorf("missing selected virtual machine at deletion")
+	}
+	namespacedName := types.NamespacedName{Namespace: m.namespace, Name: *m.machineContext.KubevirtMachine.Status.VirtualMachine}
 	vm := &kubevirtv1.VirtualMachine{}
 	if err := m.client.Get(m.machineContext.Context, namespacedName, vm); err != nil {
 		if apierrors.IsNotFound(err) {
