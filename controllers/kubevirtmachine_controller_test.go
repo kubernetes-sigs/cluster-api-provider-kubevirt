@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,7 +35,7 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -423,7 +424,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		out, err = kubevirtMachineReconciler.reconcileDelete(machineContext)
 		Expect(err).ShouldNot(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 0}))
 
 		// Check bootstrapData secret is deleted
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
@@ -455,7 +456,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		out, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
 		Expect(err).ShouldNot(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 0}))
 
 		// Check finalizer is removed from machine
 		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
@@ -761,7 +762,10 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 	Context("update kubevirt machine conditions correctly", func() {
 		It("adds a failed VMProvisionedCondition with reason WaitingForClusterInfrastructureReason when the infrastructure is not ready", func() {
-			cluster.Status.InfrastructureReady = false
+			conditions.Set(cluster, metav1.Condition{
+				Type:   clusterv1.InfrastructureReadyCondition,
+				Status: metav1.ConditionFalse,
+			})
 
 			objects := []client.Object{
 				cluster,
@@ -781,7 +785,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Expect(err).ShouldNot(HaveOccurred())
 
 			newKubevirtMachine := &infrav1.KubevirtMachine{}
-			err = kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
+			err = kubevirtMachineReconciler.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
 			Expect(
 				err,
 			).To(Succeed())
@@ -823,8 +827,8 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Context("reconcileNormal", func() {
 			It("adds a failed VMProvisionedCondition with reason WaitingForControlPlaneAvailableReason when the control plane is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
-				conditions.MarkFalse(cluster, clusterv1.ControlPlaneInitializedCondition, "nonce", clusterv1.ConditionSeverityInfo, "")
+				delete(machine.Labels, clusterv1.MachineControlPlaneNameLabel)
+				cluster.Status.Initialization.ControlPlaneInitialized = ptr.To(false)
 
 				objects := []client.Object{
 					cluster,
@@ -844,12 +848,15 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				conditions := machineContext.KubevirtMachine.GetConditions()
 				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))
-				Expect(conditions[0].Reason).To(Equal(clusterv1.WaitingForControlPlaneAvailableReason))
+				Expect(conditions[0].Reason).To(Equal(clusterv1.WaitingForControlPlaneInitializedReason))
 			})
 			It("adds a failed VMProvisionedCondition with reason WaitingForBootstrapDataReason when bootstrap data is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
-				conditions.MarkTrue(cluster, clusterv1.ControlPlaneInitializedCondition)
+				delete(machine.Labels, clusterv1.MachineControlPlaneNameLabel)
+				conditions.Set(cluster, metav1.Condition{
+					Type:   clusterv1.AvailableCondition,
+					Status: metav1.ConditionTrue,
+				})
 
 				objects := []client.Object{
 					cluster,
@@ -892,7 +899,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(conditions[0].Reason).To(Equal(infrav1.WaitingForBootstrapDataReason))
 			})
 
-			It("adds a failed VMProvisionedCondition with reason VMCreateFailed when failng to create VM", func() {
+			It("adds a failed VMProvisionedCondition with reason VMCreateFailed when failing to create VM", func() {
 				objects := []client.Object{
 					cluster,
 					kubevirtCluster,
@@ -924,7 +931,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				// should expect condition
 				conditions := machineContext.KubevirtMachine.GetConditions()
 				Expect(conditions[0].Type).To(Equal(infrav1.VMProvisionedCondition))
-				Expect(conditions[0].Status).To(Equal(corev1.ConditionFalse))
+				Expect(conditions[0].Status).To(Equal(metav1.ConditionFalse))
 				Expect(conditions[0].Reason).To(Equal(infrav1.VMCreateFailedReason))
 			})
 
@@ -967,9 +974,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 				conditions := machineContext.KubevirtMachine.GetConditions()
 				Expect(conditions[0].Type).To(Equal(infrav1.VMLiveMigratableCondition))
-				Expect(conditions[0].Status).To(Equal(corev1.ConditionFalse))
+				Expect(conditions[0].Status).To(Equal(metav1.ConditionFalse))
 				Expect(conditions[1].Type).To(Equal(infrav1.VMProvisionedCondition))
-				Expect(conditions[1].Status).To(Equal(corev1.ConditionTrue))
+				Expect(conditions[1].Status).To(Equal(metav1.ConditionTrue))
 			})
 			It("adds a failed BootstrapExecSucceededCondition with reason BootstrapFailedReason when bootstraping is possible and failed", func() {
 				vmiReadyCondition := kubevirtv1.VirtualMachineInstanceCondition{
@@ -1070,7 +1077,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				conditions := machineContext.KubevirtMachine.GetConditions()
 
 				Expect(conditions[0].Type).To(Equal(infrav1.BootstrapExecSucceededCondition))
-				Expect(conditions[0].Status).To(Equal(corev1.ConditionTrue))
+				Expect(conditions[0].Status).To(Equal(metav1.ConditionTrue))
 			})
 
 			It("adds a succeeded VMLiveMigratableCondition", func() {
@@ -1126,9 +1133,9 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				conditions := machineContext.KubevirtMachine.GetConditions()
 
 				Expect(conditions[0].Type).To(Equal(infrav1.BootstrapExecSucceededCondition))
-				Expect(conditions[0].Status).To(Equal(corev1.ConditionTrue))
+				Expect(conditions[0].Status).To(Equal(metav1.ConditionTrue))
 				Expect(conditions[1].Type).To(Equal(infrav1.VMLiveMigratableCondition))
-				Expect(conditions[1].Status).To(Equal(corev1.ConditionTrue))
+				Expect(conditions[1].Status).To(Equal(metav1.ConditionTrue))
 			})
 
 			It("should requeue on node draining", func() {
