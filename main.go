@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"math/rand"
 	"os"
@@ -132,6 +133,16 @@ func main() {
 		}
 	}
 
+	webhookOptions := webhook.Options{
+		Port:    webhookPort,
+		CertDir: webhookCertDir,
+		TLSOpts: []func(*tls.Config){
+			func(t *tls.Config) {
+				t.MinVersion = tls.VersionTLS12
+			},
+		},
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:           myscheme,
 		Metrics:          server.Options{BindAddress: metricsBindAddr},
@@ -142,7 +153,7 @@ func main() {
 			DefaultNamespaces: defaultNamespaces,
 		},
 		HealthProbeBindAddress: healthAddr,
-		WebhookServer:          webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: webhookCertDir}),
+		WebhookServer:          webhook.NewServer(webhookOptions),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
