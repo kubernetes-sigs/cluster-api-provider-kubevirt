@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-kubevirt
 
-go 1.24.7
+go 1.24.0
 
 require (
 	github.com/go-logr/logr v1.4.3
