@@ -56,14 +56,19 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 
 	// flags.
-	metricsBindAddr      string
-	enableLeaderElection bool
-	syncPeriod           time.Duration
-	concurrency          int
-	healthAddr           string
-	webhookPort          int
-	webhookCertDir       string
-	watchNamespace       string
+	metricsBindAddr             string
+	enableLeaderElection        bool
+	leaderElectionLeaseDuration time.Duration
+	leaderElectionRenewDeadline time.Duration
+	leaderElectionRetryPeriod   time.Duration
+	syncPeriod                  time.Duration
+	concurrency                 int
+	restConfigQPS               float32
+	restConfigBurst             int
+	healthAddr                  string
+	webhookPort                 int
+	webhookCertDir              string
+	watchNamespace              string
 )
 
 func init() {
@@ -95,8 +100,18 @@ func initFlags(fs *pflag.FlagSet) {
 		"The number of machines to process simultaneously")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
+	fs.DurationVar(&leaderElectionLeaseDuration, "leader-elect-lease-duration", 15*time.Second,
+		"Interval at which non-leader candidates will wait to force acquire leadership (duration string)")
+	fs.DurationVar(&leaderElectionRenewDeadline, "leader-elect-renew-deadline", 10*time.Second,
+		"Duration that the leading controller manager will retry refreshing leadership before giving up (duration string)")
+	fs.DurationVar(&leaderElectionRetryPeriod, "leader-elect-retry-period", 2*time.Second,
+		"Duration the LeaderElector clients should wait between tries of actions (duration string)")
 	fs.DurationVar(&syncPeriod, "sync-period", 60*time.Second,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
+	fs.Float32Var(&restConfigQPS, "kube-api-qps", 20,
+		"Maximum queries per second from the controller client to the Kubernetes API server.")
+	fs.IntVar(&restConfigBurst, "kube-api-burst", 30,
+		"Maximum number of queries that should be allowed in one burst from the controller client to the Kubernetes API server.")
 	fs.StringVar(&healthAddr, "health-addr", ":9440",
 		"The address the health endpoint binds to.")
 	fs.IntVar(&webhookPort, "webhook-port", 9443,
@@ -143,11 +158,18 @@ func main() {
 		},
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+	restConfig.QPS = restConfigQPS
+	restConfig.Burst = restConfigBurst
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:           myscheme,
 		Metrics:          server.Options{BindAddress: metricsBindAddr},
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "controller-leader-election-capk",
+		LeaseDuration:    &leaderElectionLeaseDuration,
+		RenewDeadline:    &leaderElectionRenewDeadline,
+		RetryPeriod:      &leaderElectionRetryPeriod,
 		Cache: cache.Options{
 			SyncPeriod:        &syncPeriod,
 			DefaultNamespaces: defaultNamespaces,
