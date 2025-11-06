@@ -8,13 +8,13 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "release-4.20"
+      == "release-4.21"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: release-mce-210
-    appstudio.openshift.io/component: cluster-api-provider-kubevirt-mce-210
+    appstudio.openshift.io/application: release-mce-211
+    appstudio.openshift.io/component: cluster-api-provider-kubevirt-mce-211
     pipelines.appstudio.openshift.io/type: build
-  name: cluster-api-provider-kubevirt-mce-210-on-push
+  name: cluster-api-provider-kubevirt-mce-211-on-push
   namespace: crt-redhat-acm-tenant
 spec:
   params:
@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/cluster-api-provider-kubevirt-mce-210:{{revision}}
+    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/cluster-api-provider-kubevirt-mce-211:{{revision}}
   - name: build-platforms
     value:
     - linux/x86_64
@@ -48,9 +48,9 @@ spec:
       - name: revision
         value: main
       - name: pathInRepo
-        value: pipelines/common_mce_2.10.yaml
+        value: pipelines/common_mce_2.11.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-cluster-api-provider-kubevirt-mce-210
+    serviceAccountName: build-pipeline-cluster-api-provider-kubevirt-mce-211
   workspaces:
   - name: git-auth
     secret:
