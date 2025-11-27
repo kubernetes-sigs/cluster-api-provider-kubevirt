@@ -610,6 +610,44 @@ var _ = Describe("util functions", func() {
 		Expect(newVM.Spec.DataVolumeTemplates[0].ObjectMeta.Name).To(Equal(kubevirtMachineName + "-dv1"))
 		Expect(newVM.Spec.Template.Spec.Volumes[0].VolumeSource.DataVolume.Name).To(Equal(kubevirtMachineName + "-dv1"))
 	})
+
+	It("should use ConfigDrive when network data is not specified", func() {
+		newVM := newVirtualMachineFromKubevirtMachine(machineContext, "default")
+
+		var cloudInitVolume *kubevirtv1.Volume
+		for i := range newVM.Spec.Template.Spec.Volumes {
+			if newVM.Spec.Template.Spec.Volumes[i].Name == "cloudinitvolume" {
+				cloudInitVolume = &newVM.Spec.Template.Spec.Volumes[i]
+				break
+			}
+		}
+
+		Expect(cloudInitVolume).ToNot(BeNil())
+		Expect(cloudInitVolume.CloudInitConfigDrive).ToNot(BeNil())
+		Expect(cloudInitVolume.CloudInitNoCloud).To(BeNil())
+	})
+
+	It("should use NoCloud with inline network data when network data is specified", func() {
+		networkData := "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true"
+		machineContext.KubevirtMachine.Spec.NetworkData = &networkData
+
+		newVM := newVirtualMachineFromKubevirtMachine(machineContext, "default")
+
+		var cloudInitVolume *kubevirtv1.Volume
+		for i := range newVM.Spec.Template.Spec.Volumes {
+			if newVM.Spec.Template.Spec.Volumes[i].Name == "cloudinitvolume" {
+				cloudInitVolume = &newVM.Spec.Template.Spec.Volumes[i]
+				break
+			}
+		}
+
+		Expect(cloudInitVolume).ToNot(BeNil())
+		Expect(cloudInitVolume.CloudInitNoCloud).ToNot(BeNil())
+		Expect(cloudInitVolume.CloudInitConfigDrive).To(BeNil())
+		Expect(cloudInitVolume.CloudInitNoCloud.NetworkData).To(Equal(networkData))
+		Expect(cloudInitVolume.CloudInitNoCloud.UserDataSecretRef).ToNot(BeNil())
+		Expect(cloudInitVolume.CloudInitNoCloud.UserDataSecretRef.Name).To(Equal(*machineContext.Machine.Spec.Bootstrap.DataSecretName + "-userdata"))
+	})
 })
 
 var _ = Describe("With KubeVirt VM running externally", func() {
