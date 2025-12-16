@@ -49,7 +49,7 @@ func (c *ClusterContext) PatchKubevirtCluster(patchHelper *patch.Helper) error {
 		conditions.WithConditions(
 			infrav1.LoadBalancerAvailableCondition,
 		),
-		conditions.WithStepCounterIf(c.KubevirtCluster.ObjectMeta.DeletionTimestamp.IsZero()),
+		conditions.WithStepCounterIf(c.KubevirtCluster.DeletionTimestamp.IsZero()),
 	)
 
 	// Patch the object, ignoring conflicts on the conditions owned by this controller.

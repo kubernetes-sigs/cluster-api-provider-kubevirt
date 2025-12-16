@@ -21,7 +21,7 @@ fi
 
 if [ ! -f "${CLUSTERCTL_PATH}" ]; then
 	echo >&2 "Downloading clusterctl ..."
-	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.5.2/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
+	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.10.9/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
 	chmod +x "${CLUSTERCTL_PATH}"
 fi
 
@@ -29,7 +29,6 @@ if [ ! -f "${KUBECTL_PATH}" ]; then
 	echo >&2 "Downloading kubectl ..."
 	# temporary taking a hard coded version, as the latest version is not found
 	curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o "${KUBECTL_PATH}"
-	#curl -L "https://dl.k8s.io/release/v1.28.2/bin/linux/amd64/kubectl" -o "${KUBECTL_PATH}"
 	chmod +x "${KUBECTL_PATH}"
 fi
 

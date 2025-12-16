@@ -104,7 +104,7 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 	t.tenantApiPort = apiPort
 
 	fmt.Printf("Found free port: %d\n", t.tenantApiPort)
-	cmd := exec.CommandContext(ctx, VirtctlPath, "port-forward", "-n", t.namespace, fmt.Sprintf("vm/%s", vmiName), fmt.Sprintf("%d:6443", t.tenantApiPort))
+	cmd := exec.CommandContext(ctx, VirtctlPath, "port-forward", "-n", t.namespace, fmt.Sprintf("vmi/%s", vmiName), fmt.Sprintf("%d:6443", t.tenantApiPort))
 	t.cancelFunc = cmd.Cancel
 	if t.cancelFunc == nil {
 		klog.Errorln("unable to get cancel function for port-forward command")
@@ -116,7 +116,7 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 		if err != nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				if exitErr.ProcessState.String() == "signal: killed" {
+				if exitErr.String() == "signal: killed" {
 					return
 				}
 			}
@@ -128,10 +128,13 @@ func (t *tenantClusterAccess) startPortForwarding(ctx context.Context, vmiName s
 }
 
 func (t *tenantClusterAccess) stopPortForwarding() {
-	if t.cancelFunc != nil {
-		if err := t.cancelFunc(); err != nil {
-			klog.Errorf("failed to stop port foerwarding; %v", err)
-		}
+	if t.cancelFunc == nil {
+		klog.Info("port forwarding already stopped")
+		return
+	}
+
+	if err := t.cancelFunc(); err != nil {
+		klog.Errorf("failed to stop port forwarding; %v", err)
 	}
 }
 
@@ -182,8 +185,18 @@ func (t *tenantClusterAccess) waitForConnection() {
 // handleConnection copies data between the local connection and the stream to
 // the remote server.
 func (t *tenantClusterAccess) handleConnection(local, remote net.Conn) {
-	defer local.Close()
-	defer remote.Close()
+	defer func(local net.Conn) {
+		err := local.Close()
+		if err != nil {
+			klog.Errorf("error closing local connection: %v", err)
+		}
+	}(local)
+	defer func(remote net.Conn) {
+		err := remote.Close()
+		if err != nil {
+			klog.Errorf("error closing remote connection: %v", err)
+		}
+	}(remote)
 	errs := make(chan error, 2)
 	go func() {
 		_, err := io.Copy(remote, local)
@@ -208,7 +221,12 @@ func getFreePort() (port int, err error) {
 	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
 		var l *net.TCPListener
 		if l, err = net.ListenTCP("tcp", a); err == nil {
-			defer l.Close()
+			defer func(l *net.TCPListener) {
+				err := l.Close()
+				if err != nil {
+					klog.Errorf("error closing tcp listener: %v", err)
+				}
+			}(l)
 			return l.Addr().(*net.TCPAddr).Port, nil
 		}
 	}

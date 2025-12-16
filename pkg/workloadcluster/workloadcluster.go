@@ -42,7 +42,7 @@ func (w *workloadCluster) GenerateWorkloadClusterClient(ctx *context.MachineCont
 	}
 
 	// create the client
-	workloadClusterClient, err := client.New(restConfig, client.Options{Scheme: w.Client.Scheme()})
+	workloadClusterClient, err := client.New(restConfig, client.Options{Scheme: w.Scheme()})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create workload cluster client")
 	}
@@ -78,7 +78,7 @@ func (w *workloadCluster) getKubeconfigForWorkloadCluster(ctx *context.MachineCo
 	// workload cluster kubeconfig can be found in a secret with suffix "-kubeconfig"
 	kubeconfigSecret := &corev1.Secret{}
 	kubeconfigSecretKey := client.ObjectKey{Namespace: ctx.KubevirtCluster.Namespace, Name: ctx.Cluster.Name + "-kubeconfig"}
-	if err := w.Client.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
+	if err := w.Get(ctx, kubeconfigSecretKey, kubeconfigSecret); err != nil {
 		return "", errors.Wrapf(err, "failed to fetch kubeconfig for workload cluster")
 	}
 

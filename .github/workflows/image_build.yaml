@@ -1,14 +1,14 @@
 on:
   push:
     branches:
-      - "main"
+      - "release-1.10"
 jobs:
   build-and-push-image:
     if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       - name: build image
@@ -16,7 +16,7 @@ jobs:
         env:
           QUAY_TOKEN: ${{secrets.QUAY_TOKEN}}
           REGISTRY: "quay.io/capk"
-          TAG: "dev-latest"
+          TAG: "dev-1.10"
         run: |
           echo $QUAY_TOKEN | docker login -u="capk+capk_robot" quay.io --password-stdin
           make docker-build-all
