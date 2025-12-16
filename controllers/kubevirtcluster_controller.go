@@ -81,7 +81,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	// Fetch the KubevirtCluster.
 	kubevirtCluster := &infrav1.KubevirtCluster{}
-	if err := r.Client.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
+	if err := r.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}

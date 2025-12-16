@@ -374,15 +374,13 @@ spec:
                                         volumeAttributesClassName may be used to set the VolumeAttributesClass used by this claim.
                                         If specified, the CSI driver will create or update the volume with the attributes defined
                                         in the corresponding VolumeAttributesClass. This has a different purpose than storageClassName,
-                                        it can be changed after the claim is created. An empty string value means that no VolumeAttributesClass
-                                        will be applied to the claim but it's not allowed to reset this field to empty string once it is set.
-                                        If unspecified and the PersistentVolumeClaim is unbound, the default VolumeAttributesClass
-                                        will be set by the persistentvolume controller if it exists.
+                                        it can be changed after the claim is created. An empty string or nil value indicates that no
+                                        VolumeAttributesClass will be applied to the claim. If the claim enters an Infeasible error state,
+                                        this field can be reset to its previous value (including nil) to cancel the modification.
                                         If the resource referred to by volumeAttributesClass does not exist, this PersistentVolumeClaim will be
                                         set to a Pending state, as reflected by the modifyVolumeStatus field, until such as a resource
                                         exists.
                                         More info: https://kubernetes.io/docs/concepts/storage/volume-attributes-classes/
-                                        (Beta) Using this field requires the VolumeAttributesClass feature gate to be enabled (off by default).
                                       type: string
                                     volumeMode:
                                       description: |-
@@ -510,6 +508,15 @@ spec:
                                           description: ImageStream is the name of
                                             image stream for import
                                           type: string
+                                        platform:
+                                          description: Platform describes the minimum
+                                            runtime requirements of the image
+                                          properties:
+                                            architecture:
+                                              description: Architecture specifies
+                                                the image target CPU architecture
+                                              type: string
+                                          type: object
                                         pullMethod:
                                           description: PullMethod can be either "pod"
                                             (default import), or "node" (node docker
@@ -576,6 +583,11 @@ spec:
                                           description: BackingFile is the path to
                                             the virtual hard disk to migrate from
                                             vCenter/ESXi
+                                          type: string
+                                        extraArgs:
+                                          description: ExtraArgs is a reference to
+                                            a ConfigMap containing extra arguments
+                                            to pass directly to the VDDK library
                                           type: string
                                         initImageURL:
                                           description: InitImageURL is an optional
@@ -1289,7 +1301,6 @@ spec:
                                                     pod labels will be ignored. The default value is empty.
                                                     The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                                     Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                                   items:
                                                     type: string
                                                   type: array
@@ -1304,7 +1315,6 @@ spec:
                                                     pod labels will be ignored. The default value is empty.
                                                     The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                                     Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                                   items:
                                                     type: string
                                                   type: array
@@ -1474,7 +1484,6 @@ spec:
                                                 pod labels will be ignored. The default value is empty.
                                                 The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                                 Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                               items:
                                                 type: string
                                               type: array
@@ -1489,7 +1498,6 @@ spec:
                                                 pod labels will be ignored. The default value is empty.
                                                 The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                                 Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                               items:
                                                 type: string
                                               type: array
@@ -1584,8 +1592,8 @@ spec:
                                           most preferred is the one with the greatest sum of weights, i.e.
                                           for each node that meets all of the scheduling requirements (resource
                                           request, requiredDuringScheduling anti-affinity expressions, etc.),
-                                          compute a sum by iterating through the elements of this field and adding
-                                          "weight" to the sum if the node has pods which matches the corresponding podAffinityTerm; the
+                                          compute a sum by iterating through the elements of this field and subtracting
+                                          "weight" from the sum if the node has pods which matches the corresponding podAffinityTerm; the
                                           node(s) with the highest sum are the most preferred.
                                         items:
                                           description: The weights of all of the matched
@@ -1658,7 +1666,6 @@ spec:
                                                     pod labels will be ignored. The default value is empty.
                                                     The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                                     Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                                   items:
                                                     type: string
                                                   type: array
@@ -1673,7 +1680,6 @@ spec:
                                                     pod labels will be ignored. The default value is empty.
                                                     The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                                     Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                                   items:
                                                     type: string
                                                   type: array
@@ -1843,7 +1849,6 @@ spec:
                                                 pod labels will be ignored. The default value is empty.
                                                 The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                                 Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                               items:
                                                 type: string
                                               type: array
@@ -1858,7 +1863,6 @@ spec:
                                                 pod labels will be ignored. The default value is empty.
                                                 The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                                 Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                               items:
                                                 type: string
                                               type: array
@@ -2304,7 +2308,11 @@ spec:
                                             cache:
                                               description: |-
                                                 Cache specifies which kvm disk cache mode should be used.
-                                                Supported values are: CacheNone, CacheWriteThrough.
+                                                Supported values are:
+                                                none: Guest I/O not cached on the host, but may be kept in a disk cache.
+                                                writethrough: Guest I/O cached on the host but written through to the physical medium. Slowest but with most guarantees.
+                                                writeback: Guest I/O cached on the host.
+                                                Defaults to none if the storage supports O_DIRECT, otherwise writethrough.
                                               type: string
                                             cdrom:
                                               description: Attach a volume as a cdrom
@@ -2436,11 +2444,23 @@ spec:
                                           to the vmi.
                                         items:
                                           properties:
+                                            claimName:
+                                              description: |-
+                                                ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
+                                                device is allocated
+                                              type: string
                                             deviceName:
+                                              description: DeviceName is the name
+                                                of the device provisioned by device-plugins
                                               type: string
                                             name:
                                               description: Name of the GPU device
                                                 as exposed by a device plugin
+                                              type: string
+                                            requestName:
+                                              description: |-
+                                                RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
+                                                device is requested
                                               type: string
                                             tag:
                                               description: If specified, the virtual
@@ -2471,7 +2491,6 @@ spec:
                                                   type: object
                                               type: object
                                           required:
-                                          - deviceName
                                           - name
                                           type: object
                                         type: array
@@ -2481,12 +2500,21 @@ spec:
                                           to the vmi.
                                         items:
                                           properties:
+                                            claimName:
+                                              description: |-
+                                                ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
+                                                device is allocated
+                                              type: string
                                             deviceName:
-                                              description: DeviceName is the resource
-                                                name of the host device exposed by
-                                                a device plugin
+                                              description: DeviceName is the name
+                                                of the device provisioned by device-plugins
                                               type: string
                                             name:
+                                              type: string
+                                            requestName:
+                                              description: |-
+                                                RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
+                                                device is requested
                                               type: string
                                             tag:
                                               description: If specified, the virtual
@@ -2495,7 +2523,6 @@ spec:
                                                 via config drive
                                               type: string
                                           required:
-                                          - deviceName
                                           - name
                                           type: object
                                         type: array
@@ -2720,6 +2747,19 @@ spec:
                                           the VirtualMachineInstance, like the number
                                           of guest CPUs.
                                         type: boolean
+                                      panicDevices:
+                                        description: PanicDevices provides additional
+                                          crash information when a guest crashes.
+                                        items:
+                                          properties:
+                                            model:
+                                              description: |-
+                                                Model specifies what type of panic device is provided.
+                                                The panic model used when this attribute is missing depends on the hypervisor and guest arch.
+                                                One of: isa, hyperv, pvpanic.
+                                              type: string
+                                          type: object
+                                        type: array
                                       rng:
                                         description: Whether to have random number
                                           generator from host
@@ -2743,6 +2783,11 @@ spec:
                                       tpm:
                                         description: Whether to emulate a TPM device.
                                         properties:
+                                          enabled:
+                                            description: |-
+                                              Enabled allows a user to explicitly disable the vTPM even when one is enabled by a preference referenced by the VirtualMachine
+                                              Defaults to True
+                                            type: boolean
                                           persistent:
                                             description: |-
                                               Persistent indicates the state of the TPM device should be kept accross reboots
@@ -2755,10 +2800,30 @@ spec:
                                           This is helpful for old machines like CentOS6 or RHEL6 which
                                           do not understand virtio_non_transitional (virtio 1.0).
                                         type: boolean
+                                      video:
+                                        description: Video describes the video device
+                                          configuration for the vmi.
+                                        properties:
+                                          type:
+                                            description: |-
+                                              Type specifies the video device type (e.g., virtio, vga, bochs, ramfb).
+                                              If not specified, the default is architecture-dependent (VGA for BIOS-based VMs, Bochs for EFI-based VMs on AMD64; virtio for Arm and s390x).
+                                            type: string
+                                        type: object
                                       watchdog:
                                         description: Watchdog describes a watchdog
                                           device which can be added to the vmi.
                                         properties:
+                                          diag288:
+                                            description: diag288 watchdog device (specific
+                                              to s390x architecture).
+                                            properties:
+                                              action:
+                                                description: |-
+                                                  The action to take. Valid values are poweroff, reset, shutdown.
+                                                  Defaults to reset.
+                                                type: string
+                                            type: object
                                           i6300esb:
                                             description: i6300esb watchdog device.
                                             properties:
@@ -3032,6 +3097,11 @@ spec:
                                         description: Information that can be set in
                                           the ACPI table
                                         properties:
+                                          msdmNameRef:
+                                            description: |-
+                                              Similar to SlicNameRef, another ACPI entry that is used in more recent Windows versions.
+                                              The above points to the spec of MSDM too.
+                                            type: string
                                           slicNameRef:
                                             description: |-
                                               SlicNameRef should match the volume name of a secret object. The data in the secret should
@@ -3138,7 +3208,7 @@ spec:
                                     description: |-
                                       Controls whether or not disks will share IOThreads.
                                       Omitting IOThreadsPolicy disables use of IOThreads.
-                                      One of: shared, auto
+                                      One of: shared, auto, supplementalPool
                                     type: string
                                   launchSecurity:
                                     description: Launch Security setting of the vmi.
@@ -3257,7 +3327,7 @@ spec:
                                   - "None": No action will be taken, according to the specified 'RunStrategy' the VirtualMachine will be restarted or shutdown.
                                   - "LiveMigrate": the VirtualMachineInstance will be migrated instead of being shutdown.
                                   - "LiveMigrateIfPossible": the same as "LiveMigrate" but only if the VirtualMachine is Live-Migratable, otherwise it will behave as "None".
-                                  - "External": the VirtualMachineInstance will be protected by a PDB and `vmi.Status.EvacuationNodeName` will be set on eviction. This is mainly useful for cluster-api-provider-kubevirt (capk) which needs a way for VMI's to be blocked from eviction, yet signal capk that eviction has been called on the VMI so the capk controller can handle tearing the VMI down. Details can be found in the commit description https://github.com/kubevirt/kubevirt/commit/c1d77face705c8b126696bac9a3ee3825f27f1fa.
+                                  - "External": the VirtualMachineInstance will be protected and `vmi.Status.EvacuationNodeName` will be set on eviction. This is mainly useful for cluster-api-provider-kubevirt (capk) which needs a way for VMI's to be blocked from eviction, yet signal capk that eviction has been called on the VMI so the capk controller can handle tearing the VMI down. Details can be found in the commit description https://github.com/kubevirt/kubevirt/commit/c1d77face705c8b126696bac9a3ee3825f27f1fa.
                                 type: string
                               hostname:
                                 description: |-
@@ -3600,6 +3670,65 @@ spec:
                                     format: int32
                                     type: integer
                                 type: object
+                              resourceClaims:
+                                description: |-
+                                  ResourceClaims define which ResourceClaims must be allocated
+                                  and reserved before the VMI, hence virt-launcher pod is allowed to start. The resources
+                                  will be made available to the domain which consumes them
+                                  by name.
+
+                                  This is an alpha field and requires enabling the
+                                  DynamicResourceAllocation feature gate in kubernetes
+                                   https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/
+                                  This field should only be configured if one of the feature-gates GPUsWithDRA or HostDevicesWithDRA is enabled.
+                                  This feature is in alpha.
+                                items:
+                                  description: |-
+                                    PodResourceClaim references exactly one ResourceClaim, either directly
+                                    or by naming a ResourceClaimTemplate which is then turned into a ResourceClaim
+                                    for the pod.
+
+                                    It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
+                                    Containers that need access to the ResourceClaim reference it with this name.
+                                  properties:
+                                    name:
+                                      description: |-
+                                        Name uniquely identifies this resource claim inside the pod.
+                                        This must be a DNS_LABEL.
+                                      type: string
+                                    resourceClaimName:
+                                      description: |-
+                                        ResourceClaimName is the name of a ResourceClaim object in the same
+                                        namespace as this pod.
+
+                                        Exactly one of ResourceClaimName and ResourceClaimTemplateName must
+                                        be set.
+                                      type: string
+                                    resourceClaimTemplateName:
+                                      description: |-
+                                        ResourceClaimTemplateName is the name of a ResourceClaimTemplate
+                                        object in the same namespace as this pod.
+
+                                        The template will be used to create a new ResourceClaim, which will
+                                        be bound to this pod. When this pod is deleted, the ResourceClaim
+                                        will also be deleted. The pod name and resource name, along with a
+                                        generated component, will be used to form a unique name for the
+                                        ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
+
+                                        This field is immutable and no changes will be made to the
+                                        corresponding ResourceClaim by the control plane after creating the
+                                        ResourceClaim.
+
+                                        Exactly one of ResourceClaimName and ResourceClaimTemplateName must
+                                        be set.
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                type: array
+                                x-kubernetes-list-map-keys:
+                                - name
+                                x-kubernetes-list-type: map
                               schedulerName:
                                 description: |-
                                   If specified, the VMI will be dispatched by specified scheduler.
@@ -3787,7 +3916,6 @@ spec:
                                         - Ignore: nodeAffinity/nodeSelector are ignored. All nodes are included in the calculations.
 
                                         If this value is nil, the behavior is equivalent to the Honor policy.
-                                        This is a beta-level feature default enabled by the NodeInclusionPolicyInPodTopologySpread feature flag.
                                       type: string
                                     nodeTaintsPolicy:
                                       description: |-
@@ -3798,7 +3926,6 @@ spec:
                                         - Ignore: node taints are ignored. All nodes are included.
 
                                         If this value is nil, the behavior is equivalent to the Ignore policy.
-                                        This is a beta-level feature default enabled by the NodeInclusionPolicyInPodTopologySpread feature flag.
                                       type: string
                                     topologyKey:
                                       description: |-

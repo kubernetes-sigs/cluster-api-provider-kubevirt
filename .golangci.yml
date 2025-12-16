@@ -1,19 +1,32 @@
-linters-settings:
-  ginkgolinter:
-    forbid-focus-container: true
-
+version: "2"
 linters:
   enable:
-    - errcheck
     - ginkgolinter
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - typecheck
-    - unused
-  disable: []
-
-issues:
-  exclude:
-    - SA1019 # todo remove the exclude parameter when issue #85 is resolved
+  settings:
+    ginkgolinter:
+      forbid-focus-container: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: (.+)\.go$
+        text: ST1019
+      - path: (.+)\.go$
+        text: SA1019
+      - path: (.+)\.go$
+        text: ST1005
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
