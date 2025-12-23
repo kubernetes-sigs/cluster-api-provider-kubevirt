@@ -1,11 +1,9 @@
 package e2e_test
 
 import (
+	"context"
 	"flag"
-	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -67,22 +65,12 @@ var _ = BeforeSuite(func() {
 	// parse test suite arguments
 	flag.Parse()
 	logf.SetLogger(GinkgoLogr)
+
+	Expect(initClients()).To(Succeed())
 })
 
-var _ = JustAfterEach(func() {
+var _ = JustAfterEach(func(ctx context.Context) {
 	if CurrentSpecReport().Failed() && DumpPath != "" {
-		dump(os.Getenv("KUBECONFIG"), "")
+		dump(ctx, os.Getenv("KUBECONFIG"), "")
 	}
 })
-
-func dump(kubeconfig, artifactsSuffix string) {
-	cmd := exec.Command(DumpPath, "--kubeconfig", kubeconfig)
-
-	failureLocation := CurrentSpecReport().Failure.Location
-	artifactsPath := filepath.Join(os.Getenv("ARTIFACTS"), fmt.Sprintf("%s:%d", filepath.Base(failureLocation.FileName), failureLocation.LineNumber), artifactsSuffix)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("ARTIFACTS=%s", artifactsPath))
-
-	By(fmt.Sprintf("dumping k8s artifacts to %s", artifactsPath))
-	output, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), string(output))
-}
