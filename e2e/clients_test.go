@@ -6,10 +6,12 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	kubeadmv1beta2 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
 var (
@@ -56,6 +58,11 @@ func initClients() error {
 		err = kubevirtv1.AddToScheme(s)
 		if err != nil {
 			err = fmt.Errorf("failed to setup scheme for kubevirtv1; %w", err)
+		}
+
+		err = kubeadmv1beta2.AddToScheme(s)
+		if err != nil {
+			err = fmt.Errorf("failed to setup scheme for kubeadmv1beta2; %w", err)
 		}
 	})
 
