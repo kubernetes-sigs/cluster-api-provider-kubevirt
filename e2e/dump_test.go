@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -26,6 +27,9 @@ func dump(ctx context.Context, kubeconfig, artifactsSuffix string) {
 	By(fmt.Sprintf("dumping k8s artifacts to %s", artifactsPath))
 	output, err := cmd.CombinedOutput()
 	Expect(err).To(Succeed(), string(output))
+
+	By(fmt.Sprintf("dumping cluster-api artifacts to %s", artifactsPath))
+	dumpCAPIResources(ctx, artifactsPath)
 
 	By(fmt.Sprintf("dumping CAPK artifacts to %s", artifactsPath))
 	dumpCAPKResources(ctx, artifactsPath)
@@ -77,6 +81,66 @@ func dumpCAPKResources(ctx context.Context, artifactsDir string) {
 	}
 	Expect(
 		dumpJsonFile(kvMachineTmpltList, filepath.Join(artifactsDir, "0_kubevirtmachinetemplates.json")),
+	).To(Succeed())
+}
+
+func dumpCAPIResources(ctx context.Context, artifactsDir string) {
+	GinkgoHelper()
+
+	By("dump Clusters")
+	clusterList := &clusterv1.ClusterList{}
+	Expect(k8sclient.List(ctx, clusterList, &client.ListOptions{})).To(Succeed())
+	for i := range clusterList.Items {
+		item := &clusterList.Items[i]
+		item.SetManagedFields(nil)
+	}
+
+	Expect(
+		dumpJsonFile(clusterList, filepath.Join(artifactsDir, "0_clusters.json")),
+	).To(Succeed())
+
+	By("dump Machines")
+	machineList := &clusterv1.MachineList{}
+	Expect(k8sclient.List(ctx, machineList, &client.ListOptions{})).To(Succeed())
+	for i := range machineList.Items {
+		item := &machineList.Items[i]
+		item.SetManagedFields(nil)
+	}
+	Expect(
+		dumpJsonFile(machineList, filepath.Join(artifactsDir, "0_machines.json")),
+	).To(Succeed())
+
+	By("dump MachineDeployments")
+	machineDeploymentList := &clusterv1.MachineDeploymentList{}
+	Expect(k8sclient.List(ctx, machineDeploymentList, &client.ListOptions{})).To(Succeed())
+	for i := range machineDeploymentList.Items {
+		item := &machineDeploymentList.Items[i]
+		item.SetManagedFields(nil)
+	}
+	Expect(
+		dumpJsonFile(machineDeploymentList, filepath.Join(artifactsDir, "0_machinedeployments.json")),
+	).To(Succeed())
+
+	By("dump KubevirtMachineTemplates")
+	machineHealthCheckList := &clusterv1.MachineHealthCheckList{}
+	Expect(k8sclient.List(ctx, machineHealthCheckList, &client.ListOptions{})).To(Succeed())
+	for i := range machineHealthCheckList.Items {
+		item := &machineHealthCheckList.Items[i]
+		item.SetManagedFields(nil)
+	}
+	Expect(
+		dumpJsonFile(machineHealthCheckList, filepath.Join(artifactsDir, "0_machinehealthchecks.json")),
+	).To(Succeed())
+
+	By("dump MachineSets")
+	machineSetList := &clusterv1.MachineSetList{}
+	Expect(k8sclient.List(ctx, machineSetList, &client.ListOptions{})).To(Succeed())
+	for i := range machineSetList.Items {
+		item := &machineSetList.Items[i]
+		item.SetManagedFields(nil)
+	}
+	Expect(
+		dumpJsonFile(machineSetList, filepath.Join(artifactsDir, "0_machinesets.json")),
 	).To(Succeed())
 }
 
