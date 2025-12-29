@@ -39,7 +39,7 @@ var _ = Describe("test kubeconfig function", func() {
 					},
 				},
 			}
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				sa,
 				&corev1.Secret{
@@ -71,7 +71,7 @@ var _ = Describe("test kubeconfig function", func() {
 					},
 				},
 			}
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				sa,
 				&corev1.Secret{
@@ -102,7 +102,7 @@ var _ = Describe("test kubeconfig function", func() {
 					},
 				},
 			}
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				sa,
 			)
@@ -129,7 +129,7 @@ var _ = Describe("test kubeconfig function", func() {
 				},
 			}
 
-			client := fake.NewSimpleClientset(sa)
+			client := fake.NewClientset(sa)
 			cmdCtx.Client = client
 
 			doneUpdatingSa := make(chan struct{})
@@ -168,7 +168,7 @@ var _ = Describe("test kubeconfig function", func() {
 				},
 			}
 
-			client := fake.NewSimpleClientset(sa)
+			client := fake.NewClientset(sa)
 			cmdCtx.Client = client
 
 			timestampBeforeGet := time.Now()
@@ -178,7 +178,7 @@ var _ = Describe("test kubeconfig function", func() {
 		})
 
 		It("Should fail if the SA is not exist", func() {
-			client := fake.NewSimpleClientset()
+			client := fake.NewClientset()
 			cmdCtx.Client = client
 
 			_, err := getServiceAccount(context.Background(), cmdCtx)
