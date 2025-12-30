@@ -26,7 +26,6 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -43,8 +42,6 @@ const (
 var _ = Describe("CreateCluster", func() {
 
 	var tmpDir string
-	var k8sclient client.Client
-	var k8sClientSet *kubernetes.Clientset
 	var manifestsFile string
 	var tenantKubeconfigFile string
 	var namespace string
@@ -59,19 +56,6 @@ var _ = Describe("CreateCluster", func() {
 
 		manifestsFile = filepath.Join(tmpDir, "manifests.yaml")
 		tenantKubeconfigFile = filepath.Join(tmpDir, "tenant-kubeconfig.yaml")
-
-		cfg, err := config.GetConfig()
-		Expect(err).ToNot(HaveOccurred())
-		k8sclient, err = client.New(cfg, client.Options{})
-		Expect(err).ToNot(HaveOccurred())
-
-		k8sClientSet, err = kubernetes.NewForConfig(cfg)
-		ExpectWithOffset(1, err).ToNot(HaveOccurred())
-
-		s := k8sclient.Scheme()
-		Expect(clusterv1.AddToScheme(s)).To(Succeed())
-		Expect(infrav1.AddToScheme(s)).To(Succeed())
-		Expect(kubevirtv1.AddToScheme(s)).To(Succeed())
 
 		namespace = "e2e-test-create-cluster-" + rand.String(6)
 
