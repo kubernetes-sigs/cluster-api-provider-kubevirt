@@ -35,12 +35,12 @@ import (
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/feature"
+	"sigs.k8s.io/cluster-api/util/flags"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -69,6 +69,8 @@ var (
 	webhookPort                 int
 	webhookCertDir              string
 	watchNamespace              string
+
+	managerOptions = flags.ManagerOptions{}
 )
 
 func init() {
@@ -122,10 +124,17 @@ func initFlags(fs *pflag.FlagSet) {
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
 
 	feature.MutableGates.AddFlag(fs)
+
+	flags.AddManagerOptions(fs, &managerOptions)
 }
 
 func main() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// metricsBindAddr is kept for backward compatibility
+	if metricsBindAddr != "" {
+		managerOptions.DiagnosticsAddress = metricsBindAddr
+	}
 
 	initFlags(pflag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
@@ -162,9 +171,15 @@ func main() {
 	restConfig.QPS = restConfigQPS
 	restConfig.Burst = restConfigBurst
 
+	_, metricsOptions, err := flags.GetManagerOptions(managerOptions)
+	if err != nil {
+		setupLog.Error(err, "unable to start manager: invalid flags")
+		os.Exit(1)
+	}
+
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:           myscheme,
-		Metrics:          server.Options{BindAddress: metricsBindAddr},
+		Metrics:          *metricsOptions,
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "controller-leader-election-capk",
 		LeaseDuration:    &leaderElectionLeaseDuration,
