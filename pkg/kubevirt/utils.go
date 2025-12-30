@@ -139,15 +139,33 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
 	cloudInitVolumeName := "cloudinitvolume"
-	cloudInitVolume := kubevirtv1.Volume{
-		Name: cloudInitVolumeName,
-		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
-				UserDataSecretRef: &corev1.LocalObjectReference{
-					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
+	secretName := *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"
+
+	// Use NoCloud when network data is specified, otherwise use ConfigDrive
+	var cloudInitVolume kubevirtv1.Volume
+	if ctx.KubevirtMachine.Spec.NetworkData != nil && *ctx.KubevirtMachine.Spec.NetworkData != "" {
+		cloudInitVolume = kubevirtv1.Volume{
+			Name: cloudInitVolumeName,
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserDataSecretRef: &corev1.LocalObjectReference{
+						Name: secretName,
+					},
+					NetworkData: *ctx.KubevirtMachine.Spec.NetworkData,
 				},
 			},
-		},
+		}
+	} else {
+		cloudInitVolume = kubevirtv1.Volume{
+			Name: cloudInitVolumeName,
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
+					UserDataSecretRef: &corev1.LocalObjectReference{
+						Name: secretName,
+					},
+				},
+			},
+		}
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 
