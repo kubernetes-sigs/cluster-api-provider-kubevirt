@@ -153,13 +153,11 @@ function kubevirtci::down() {
 
 function kubevirtci::build() {
 	export REGISTRY="127.0.0.1:$(${KUBEVIRTCI_PATH}/cluster-up/cli.sh ports registry)"
+	INSECURE_REGISTRY_PARAM=""
 	if curl --unix-socket "/run/podman/podman.sock" http://d/v3.0.0/libpod/info >/dev/null 2>&1; then
-		cat <<EOF >> /etc/containers/registries.conf
-[[registry]]
-location = "$REGISTRY"
-insecure = true
-EOF
+    INSECURE_REGISTRY_PARAM="--tls-verify=false"
 	fi
+	export INSECURE_REGISTRY_PARAM
 	make docker-build
 	make docker-push
 }

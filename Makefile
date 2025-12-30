@@ -20,6 +20,7 @@ TARGET ?= target
 TESTS = $(shell go list ./... | grep -vE "./(i|apply)tests")
 OUTFILE = $(TARGET)/tests/unittest.out
 XUNIT = $(TARGET)/tests/TEST-units.xml
+INSECURE_REGISTRY_PARAM ?=
 # Use GOPROXY environment variable if set
 GOPROXY := $(shell go env GOPROXY)
 ifeq ($(GOPROXY),)
@@ -225,7 +226,7 @@ docker-build: docker-pull-prerequisites ## Build the docker image for controller
 
 .PHONY: docker-push
 docker-push: ## Push the docker image
-	docker push $(CONTROLLER_IMG)-$(ARCH):$(TAG)
+	docker push $(INSECURE_REGISTRY_PARAM) $(CONTROLLER_IMG)-$(ARCH):$(TAG)
 
 ## --------------------------------------
 ## Docker — All ARCH
