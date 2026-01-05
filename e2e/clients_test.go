@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"sync"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	kubeadmv1beta2 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -46,6 +48,18 @@ func initClients() error {
 		err = clusterv1.AddToScheme(s)
 		if err != nil {
 			err = fmt.Errorf("failed to setup scheme for clusterv1; %w", err)
+			return
+		}
+
+		err = clusterv1beta1.AddToScheme(s)
+		if err != nil {
+			err = fmt.Errorf("failed to setup scheme for clusterv1beta1; %w", err)
+			return
+		}
+
+		err = apiextensionsv1.AddToScheme(s)
+		if err != nil {
+			err = fmt.Errorf("failed to setup scheme for apiextensionsv1; %w", err)
 			return
 		}
 
