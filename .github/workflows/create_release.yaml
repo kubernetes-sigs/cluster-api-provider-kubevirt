@@ -29,6 +29,8 @@ jobs:
     name: Upload Release Asset
     needs: build-and-push-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -50,7 +52,7 @@ jobs:
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: | 
+          files: |
             infrastructure-components.yaml
             metadata.yaml
             templates/*.yaml
