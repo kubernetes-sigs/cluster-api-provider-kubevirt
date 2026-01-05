@@ -20,8 +20,10 @@ import (
 	gocontext "context"
 	"fmt"
 	"regexp"
+	"slices"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/utils/ptr"
+	clusterv1v1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
@@ -44,19 +47,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/crds"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
+const (
+	machineCRDName = "machines.cluster.x-k8s.io"
+)
+
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
 type KubevirtMachineReconciler struct {
 	client.Client
-	InfraCluster    infracluster.InfraCluster
-	WorkloadCluster workloadcluster.WorkloadCluster
-	MachineFactory  kubevirt.MachineFactory
+	InfraCluster           infracluster.InfraCluster
+	WorkloadCluster        workloadcluster.WorkloadCluster
+	MachineFactory         kubevirt.MachineFactory
+	getOwnerMachine        func(ctx gocontext.Context, c client.Client, obj metav1.ObjectMeta) (*clusterv1.Machine, error)
+	getClusterFromMetadata func(ctx gocontext.Context, c client.Client, obj metav1.ObjectMeta) (*clusterv1.Cluster, error)
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
@@ -70,6 +81,7 @@ type KubevirtMachineReconciler struct {
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(goctx)
+	log.Info("Reconciling KubevirtMachine")
 
 	// Fetch the KubevirtMachine instance.
 	kubevirtMachine := &infrav1.KubevirtMachine{}
@@ -81,7 +93,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Machine.
-	machine, err := util.GetOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
+	machine, err := r.getOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -108,7 +120,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Cluster.
-	cluster, err := util.GetClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
+	cluster, err := r.getClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
 	if err != nil {
 		log.Info("KubevirtMachine owner Machine is missing cluster label or cluster does not exist")
 		return ctrl.Result{}, err
@@ -549,30 +561,59 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 }
 
 // SetupWithManager will add watches for this controller.
-func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mgr ctrl.Manager, options controller.Options) error {
+func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mgr ctrl.Manager, options controller.Options, logger logr.Logger) error {
 	clusterToKubevirtMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.KubevirtMachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	clusterAPIVersions, err := crds.GetSupportedVersions(goctx, mgr.GetAPIReader(), machineCRDName)
+	if err != nil {
+		return fmt.Errorf("unable to get CRD versions of %s: %w", machineCRDName, err)
+	}
+
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtMachine{}).
 		WithOptions(options).
 		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), ctrl.LoggerFrom(goctx))).
 		Watches(
-			&clusterv1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtMachine"))),
-		).
-		Watches(
 			&infrav1.KubevirtCluster{},
 			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
-		).
-		Watches(
+		)
+
+	if slices.Contains(clusterAPIVersions, "v1beta2") {
+		logger.Info("reconciling cluster-api Machine v1beta2")
+
+		r.getOwnerMachine = util.GetOwnerMachine
+		r.getClusterFromMetadata = util.GetClusterFromMetadata
+
+		controllerBuilder.Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtMachine"))),
+		).Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
 			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
-		).
-		Complete(r)
+		)
+	} else if slices.Contains(clusterAPIVersions, "v1beta1") {
+		logger.Info("reconciling cluster-api Machine v1beta1")
+
+		r.getOwnerMachine = capiv1beta1.GetOwnerMachine
+		r.getClusterFromMetadata = capiv1beta1.GetClusterFromMetadata
+
+		controllerBuilder.Watches(
+			&clusterv1v1beta1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(capiv1beta1.MapV1beta1MachineToKVMachine),
+		).Watches(
+			&clusterv1v1beta1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(capiv1beta1.MapV1beta1ClusterToKVKind(mgr.GetClient(), "KubevirtMachine")),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
+		)
+	} else {
+		return fmt.Errorf("unsupported controller types: %v", controllerBuilder)
+	}
+
+	return controllerBuilder.Complete(r)
 }
 
 // KubevirtClusterToKubevirtMachines is a handler.ToRequestsFunc to be used to enqueue
@@ -627,11 +668,8 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	if sshKeys != nil {
 		var err error
-		var modified bool
-		if value, modified, err = addCapkUserToCloudInitConfig(value, sshKeys.PublicKey); err != nil {
+		if value, _, err = addCapkUserToCloudInitConfig(value, sshKeys.PublicKey); err != nil {
 			return errors.Wrapf(err, "failed to add capk user to KubevirtMachine %s/%s userdata", ctx.Machine.GetNamespace(), ctx.Machine.GetName())
-		} else if modified {
-			ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
 		}
 	}
 
@@ -644,7 +682,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	}
 	ctx.BootstrapDataSecret = newBootstrapDataSecret
 
-	_, err := controllerutil.CreateOrUpdate(ctx, infraClusterClient, newBootstrapDataSecret, func() error {
+	res, err := controllerutil.CreateOrUpdate(ctx, infraClusterClient, newBootstrapDataSecret, func() error {
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
@@ -655,6 +693,13 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	if err != nil {
 		return errors.Wrapf(err, "failed to create kubevirt bootstrap secret for cluster")
+	}
+
+	switch res {
+	case controllerutil.OperationResultCreated:
+		ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
+	case controllerutil.OperationResultUpdated:
+		ctx.Logger.Info("Updated capk user with ssh config to bootstrap userdata")
 	}
 
 	return nil

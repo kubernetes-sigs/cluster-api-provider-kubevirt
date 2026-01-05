@@ -19,8 +19,10 @@ package controllers
 import (
 	gocontext "context"
 	"fmt"
+	"slices"
 	"time"
 
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 
 	"github.com/go-logr/logr"
@@ -42,10 +44,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/crds"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
+)
+
+const (
+	clusterCRDName = "clusters.cluster.x-k8s.io"
 )
 
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
@@ -54,9 +62,10 @@ type KubevirtClusterReconciler struct {
 	// APIReader is used to prune the Cloud Controller resources for the given cluster:
 	// this client doesn't locally cache the resources upon a GET/LIST request,
 	// decreasing memory consumption and avoiding granting further RBAC verbs.
-	APIReader    client.Reader
-	InfraCluster infracluster.InfraCluster
-	Log          logr.Logger
+	APIReader       client.Reader
+	InfraCluster    infracluster.InfraCluster
+	Log             logr.Logger
+	GetOwnerCluster func(ctx gocontext.Context, c client.Client, obj metav1.ObjectMeta) (*clusterv1.Cluster, error)
 }
 
 func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string) string {
@@ -73,11 +82,13 @@ func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;configmaps,verbs=delete;list
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=delete;list
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=delete;list
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list
 
 // Reconcile reads that state of the cluster for a KubevirtCluster object and makes changes based on the state read
 // and what is in the KubevirtCluster.Spec.
 func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(goctx)
+	log.Info("Reconciling KubevirtCluster")
 
 	// Fetch the KubevirtCluster.
 	kubevirtCluster := &infrav1.KubevirtCluster{}
@@ -94,7 +105,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Cluster.
-	cluster, err := util.GetOwnerCluster(goctx, r.Client, kubevirtCluster.ObjectMeta)
+	cluster, err := r.GetOwnerCluster(goctx, r.Client, kubevirtCluster.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -292,11 +303,20 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 
 // SetupWithManager will add watches for this controller.
 func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	clusterAPIVersions, err := crds.GetSupportedVersions(ctx, mgr.GetAPIReader(), clusterCRDName)
+	if err != nil {
+		return fmt.Errorf("unable to get CRD versions of %s: %w", clusterCRDName, err)
+	}
+
+	typedBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
 		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), r.Log)).
-		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme(), r.Log)).
-		Watches(
+		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme(), r.Log))
+
+	if slices.Contains(clusterAPIVersions, "v1beta2") {
+		r.Log.Info("reconciling cluster-api Cluster v1beta2")
+		r.GetOwnerCluster = util.GetOwnerCluster
+		typedBuilder.Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(util.ClusterToInfrastructureMapFunc(
 				ctx,
@@ -305,8 +325,20 @@ func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr 
 				&infrav1.KubevirtCluster{},
 			)),
 			builder.WithPredicates(predicates.ClusterUnpaused(r.Scheme(), r.Log)),
-		).
-		Complete(r)
+		)
+	} else if slices.Contains(clusterAPIVersions, "v1beta1") {
+		r.Log.Info("reconciling cluster-api Cluster v1beta1")
+		r.GetOwnerCluster = capiv1beta1.GetOwnerCluster
+		typedBuilder.Watches(
+			&clusterv1beta1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(capiv1beta1.MapV1beta1ClusterToKVKind(mgr.GetClient(), "KubevirtCluster")),
+			builder.WithPredicates(predicates.ClusterUnpaused(r.Scheme(), r.Log)),
+		)
+	} else {
+		return fmt.Errorf("unsupported cluster-api versions: %v", clusterAPIVersions)
+	}
+
+	return typedBuilder.Complete(r)
 }
 
 func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, extraGVK schema.GroupVersionKind) error {
