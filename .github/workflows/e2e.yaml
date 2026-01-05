@@ -7,6 +7,11 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt') && contains(github.event.pull_request.labels.*.name, 'ok-to-test')
+    strategy:
+      matrix:
+        prowjobname:
+        - "pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e"
+        - "pull-cluster-api-provider-kubevirt-capi-1.10-e2e"
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -23,4 +28,4 @@ jobs:
           KUBECONFIG: ${{secrets.KUBECONFIG}}
       - name: Test
         run: |
-          $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job pull-kubernetes-sigs-cluster-api-provider-kubevirt-e2e --pull-number ${{github.event.number}} --kubeconfig $GITHUB_WORKSPACE/project-infra/.kubeconfig --trigger-job --fail-with-job
+          $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job ${{ matrix.prowjobname }} --pull-number ${{github.event.number}} --kubeconfig $GITHUB_WORKSPACE/project-infra/.kubeconfig --trigger-job --fail-with-job
