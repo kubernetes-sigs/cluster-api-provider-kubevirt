@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/klog/v2/textlogger"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/feature"
 	"sigs.k8s.io/cluster-api/util/flags"
@@ -84,8 +86,10 @@ func registerScheme() (*runtime.Scheme, error) {
 		scheme.AddToScheme,
 		infrav1.AddToScheme,
 		clusterv1.AddToScheme,
+		clusterv1beta1.AddToScheme,
 		kubevirtv1.AddToScheme,
 		cdiv1.AddToScheme,
+		apiextensionsv1.AddToScheme,
 		// +kubebuilder:scaffold:scheme
 	} {
 		if err := f(myscheme); err != nil {
@@ -238,7 +242,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		MachineFactory:  kubevirt.DefaultMachineFactory{},
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
-	}); err != nil {
+	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "reconciler")
 		os.Exit(1)
 	}

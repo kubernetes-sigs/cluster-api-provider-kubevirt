@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/cluster-api/util"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -116,8 +117,10 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 		}
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
-			Client:         fakeClient,
-			MachineFactory: kubevirt.DefaultMachineFactory{},
+			Client:                 fakeClient,
+			MachineFactory:         kubevirt.DefaultMachineFactory{},
+			getOwnerMachine:        util.GetOwnerMachine,
+			getClusterFromMetadata: util.GetClusterFromMetadata,
 		}
 
 		ctx = gocontext.Background()
@@ -333,10 +336,12 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).WithStatusSubresource(objects...).WithInterceptorFuncs(interceptorFuncs).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
-			Client:          fakeClient,
-			WorkloadCluster: workloadClusterMock,
-			InfraCluster:    infraClusterMock,
-			MachineFactory:  machineFactory,
+			Client:                 fakeClient,
+			WorkloadCluster:        workloadClusterMock,
+			InfraCluster:           infraClusterMock,
+			MachineFactory:         machineFactory,
+			getOwnerMachine:        util.GetOwnerMachine,
+			getClusterFromMetadata: util.GetClusterFromMetadata,
 		}
 	}
 
@@ -1339,9 +1344,11 @@ var _ = Describe("updateNodeProviderID", func() {
 		}
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
-			Client:          fakeClient,
-			WorkloadCluster: workloadClusterMock,
-			InfraCluster:    infraClusterMock,
+			Client:                 fakeClient,
+			WorkloadCluster:        workloadClusterMock,
+			InfraCluster:           infraClusterMock,
+			getOwnerMachine:        util.GetOwnerMachine,
+			getClusterFromMetadata: util.GetClusterFromMetadata,
 		}
 
 		workloadClusterObjects := []client.Object{
