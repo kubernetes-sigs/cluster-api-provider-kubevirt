@@ -971,7 +971,7 @@ func printObjFunc(obj any) func() string {
 var supportedVersions = []string{"v1beta2", "v1beta1"}
 
 func getClusterAPIVersion(ctx context.Context) (string, error) {
-	versions, err := crds.GetSupportedVersions(ctx, k8sclient, "clusters.cluster.x-k8s.io")
+	versions, err := crds.GetSupportedVersions(ctx, k8sConfig, "clusters.cluster.x-k8s.io")
 	if err != nil {
 		return "", err
 	}

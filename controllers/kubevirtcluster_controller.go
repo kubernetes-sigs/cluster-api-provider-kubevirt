@@ -82,7 +82,6 @@ func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;configmaps,verbs=delete;list
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=delete;list
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=delete;list
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list
 
 // Reconcile reads that state of the cluster for a KubevirtCluster object and makes changes based on the state read
 // and what is in the KubevirtCluster.Spec.
@@ -303,7 +302,7 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 
 // SetupWithManager will add watches for this controller.
 func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
-	clusterAPIVersions, err := crds.GetSupportedVersions(ctx, mgr.GetAPIReader(), clusterCRDName)
+	clusterAPIVersions, err := crds.GetSupportedVersions(ctx, mgr.GetConfig(), clusterCRDName)
 	if err != nil {
 		return fmt.Errorf("unable to get CRD versions of %s: %w", clusterCRDName, err)
 	}

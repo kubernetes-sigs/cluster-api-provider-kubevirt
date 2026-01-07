@@ -6,6 +6,7 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	kubeadmv1beta2 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
@@ -19,6 +20,7 @@ import (
 var (
 	k8sclient    client.Client
 	k8sClientSet *kubernetes.Clientset
+	k8sConfig    *rest.Config
 
 	clientsOnce = &sync.Once{}
 )
@@ -31,6 +33,7 @@ func initClients() error {
 			err = fmt.Errorf("failed to get config; %w", doErr)
 			return
 		}
+		k8sConfig = cfg
 
 		k8sclient, err = client.New(cfg, client.Options{})
 		if err != nil {

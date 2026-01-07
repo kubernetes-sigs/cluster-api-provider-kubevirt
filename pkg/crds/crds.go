@@ -2,30 +2,44 @@ package crds
 
 import (
 	"context"
+	"strings"
 
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/rest"
 )
 
-func GetSupportedVersions(ctx context.Context, cli client.Reader, name string) ([]string, error) {
-	crd := &apiextensionsv1.CustomResourceDefinition{}
-	err := cli.Get(ctx, client.ObjectKey{Name: name}, crd)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, nil
-		}
+// GetSupportedVersions returns the list of supported versions for a CRD
+// using the Kubernetes Discovery API (does not require RBAC for CRDs).
+// The name parameter should be in the format "resource.group" (e.g., "clusters.cluster.x-k8s.io").
+func GetSupportedVersions(ctx context.Context, config *rest.Config, name string) ([]string, error) {
+	// Parse the CRD name to extract group (format: "resource.group")
+	parts := strings.SplitN(name, ".", 2)
+	if len(parts) != 2 {
+		return nil, nil
+	}
+	group := parts[1]
 
+	// Create discovery client using the provided REST config
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
 		return nil, err
 	}
 
-	if crd == nil || len(crd.Spec.Versions) == 0 {
-		return nil, nil
+	// Get all API groups
+	apiGroupList, err := discoveryClient.ServerGroups()
+	if err != nil {
+		return nil, err
 	}
 
-	versions := make([]string, 0, len(crd.Spec.Versions))
-	for _, version := range crd.Spec.Versions {
-		versions = append(versions, version.Name)
+	// Find versions for our group
+	versions := make([]string, 0)
+	for _, apiGroup := range apiGroupList.Groups {
+		if apiGroup.Name == group {
+			for _, version := range apiGroup.Versions {
+				versions = append(versions, version.Version)
+			}
+			break
+		}
 	}
 
 	return versions, nil

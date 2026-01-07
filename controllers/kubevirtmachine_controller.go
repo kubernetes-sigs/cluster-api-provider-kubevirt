@@ -567,7 +567,7 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		return err
 	}
 
-	clusterAPIVersions, err := crds.GetSupportedVersions(goctx, mgr.GetAPIReader(), machineCRDName)
+	clusterAPIVersions, err := crds.GetSupportedVersions(goctx, mgr.GetConfig(), machineCRDName)
 	if err != nil {
 		return fmt.Errorf("unable to get CRD versions of %s: %w", machineCRDName, err)
 	}
