@@ -20,7 +20,6 @@ import (
 	gocontext "context"
 	"fmt"
 	"regexp"
-	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -31,13 +30,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/utils/ptr"
-	clusterv1v1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
+	capierrors "sigs.k8s.io/cluster-api/errors"          //nolint SA1019
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"      //nolint SA1019
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -49,25 +47,18 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/crds"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
 
-const (
-	machineCRDName = "machines.cluster.x-k8s.io"
-)
-
 // KubevirtMachineReconciler reconciles a KubevirtMachine object.
 type KubevirtMachineReconciler struct {
 	client.Client
-	InfraCluster           infracluster.InfraCluster
-	WorkloadCluster        workloadcluster.WorkloadCluster
-	MachineFactory         kubevirt.MachineFactory
-	getOwnerMachine        func(ctx gocontext.Context, c client.Client, obj metav1.ObjectMeta) (*clusterv1.Machine, error)
-	getClusterFromMetadata func(ctx gocontext.Context, c client.Client, obj metav1.ObjectMeta) (*clusterv1.Cluster, error)
+	InfraCluster    infracluster.InfraCluster
+	WorkloadCluster workloadcluster.WorkloadCluster
+	MachineFactory  kubevirt.MachineFactory
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
@@ -93,7 +84,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Machine.
-	machine, err := r.getOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
+	machine, err := capiv1beta1.GetOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -120,7 +111,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Cluster.
-	cluster, err := r.getClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
+	cluster, err := capiv1beta1.GetClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
 	if err != nil {
 		log.Info("KubevirtMachine owner Machine is missing cluster label or cluster does not exist")
 		return ctrl.Result{}, err
@@ -178,14 +169,9 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Check if the infrastructure is ready, otherwise return and wait for the cluster object to be updated
-	if !conditions.IsTrue(cluster, clusterv1.InfrastructureReadyCondition) {
+	if !cluster.Status.InfrastructureReady {
 		log.Info("Waiting for KubevirtCluster Controller to create cluster infrastructure")
-		conditions.Set(kubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMProvisionedCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.WaitingForClusterInfrastructureReason,
-			Message: "",
-		})
+		conditions.MarkFalse(kubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForClusterInfrastructureReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
 
@@ -205,24 +191,14 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	// Make sure bootstrap data is available and populated.
 	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
-		if !util.IsControlPlaneMachine(ctx.Machine) && ptr.Equal(ctx.Cluster.Status.Initialization.ControlPlaneInitialized, ptr.To(false)) {
+		if !capiv1beta1.IsControlPlaneMachine(ctx.Machine) && !conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
 			ctx.Logger.Info("Waiting for the control plane to be initialized...")
-			conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-				Type:    infrav1.VMProvisionedCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  clusterv1.WaitingForControlPlaneInitializedReason,
-				Message: "",
-			})
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
 			return ctrl.Result{}, nil
 		}
 
 		ctx.Logger.Info("Waiting for Machine.Spec.Bootstrap.DataSecretName...")
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMProvisionedCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.WaitingForBootstrapDataReason,
-			Message: "",
-		})
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{}, nil
 	}
 
@@ -267,12 +243,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	if err := r.reconcileKubevirtBootstrapSecret(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys); err != nil {
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMProvisionedCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  infrav1.WaitingForBootstrapDataReason,
-			Message: "",
-		})
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.WaitingForBootstrapDataReason, clusterv1.ConditionSeverityInfo, "")
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to fetch kubevirt bootstrap secret")
 	}
 
@@ -287,8 +258,8 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{}, errors.Wrapf(err, "failed checking VM for terminal state")
 	}
 	if isTerminal {
-		failureErr := "UpdateError"
-		ctx.KubevirtMachine.Status.FailureReason = failureErr
+		failureErr := capierrors.UpdateMachineError
+		ctx.KubevirtMachine.Status.FailureReason = &failureErr
 		ctx.KubevirtMachine.Status.FailureMessage = &terminalReason
 	}
 
@@ -296,12 +267,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if !isTerminal && !externalMachine.Exists() {
 		ctx.KubevirtMachine.Status.Ready = false
 		if err := externalMachine.Create(ctx.Context); err != nil {
-			conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-				Type:    infrav1.VMProvisionedCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.VMCreateFailedReason,
-				Message: fmt.Sprintf("Failed vm creation: %v", err),
-			})
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, infrav1.VMCreateFailedReason, clusterv1.ConditionSeverityError, "Failed vm creation: %v", err)
 			return ctrl.Result{}, errors.Wrap(err, "failed to create VM instance")
 		}
 		ctx.Logger.Info("VM Created, waiting on vm to be provisioned.")
@@ -311,20 +277,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	// Checks to see if a VM's active VMI is ready or not
 	if externalMachine.IsReady() {
 		// Mark VMProvisionedCondition to indicate that the VM has successfully started
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMProvisionedCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.UpToDateReason,
-			Message: "",
-		})
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMProvisionedCondition)
 	} else {
 		reason, message := externalMachine.GetVMNotReadyReason()
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMProvisionedCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  reason,
-			Message: message,
-		})
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, reason, clusterv1.ConditionSeverityInfo, "%s", message)
 
 		// Waiting for VM to boot
 		ctx.KubevirtMachine.Status.Ready = false
@@ -360,22 +316,12 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	if externalMachine.SupportsCheckingIsBootstrapped() && !conditions.IsTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition) {
 		if !externalMachine.IsBootstrapped() {
 			ctx.Logger.Info("Waiting for underlying VM to bootstrap...")
-			conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-				Type:    infrav1.BootstrapExecSucceededCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.BootstrapFailedReason,
-				Message: "VM not bootstrapped yet",
-			})
+			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition, infrav1.BootstrapFailedReason, clusterv1.ConditionSeverityWarning, "VM not bootstrapped yet")
 			ctx.KubevirtMachine.Status.Ready = false
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 		// Update the condition BootstrapExecSucceededCondition
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.BootstrapExecSucceededCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.UpToDateReason,
-			Message: "",
-		})
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.BootstrapExecSucceededCondition)
 		ctx.Logger.Info("Underlying VM has boostrapped.")
 	}
 
@@ -424,19 +370,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 	if liveMigratable {
 		// Mark VMLiveMigratableCondition to indicate whether the VM can be live migrated or not
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMLiveMigratableCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.AvailableReason,
-			Message: "",
-		})
+		conditions.MarkTrue(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition)
 	} else {
-		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:    infrav1.VMLiveMigratableCondition,
-			Status:  metav1.ConditionFalse,
-			Reason:  reason,
-			Message: fmt.Sprintf("%s is not a live migratable machine: %s", ctx.KubevirtMachine.Name, message),
-		})
+		conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMLiveMigratableCondition, reason, clusterv1.ConditionSeverityInfo,
+			"%s is not a live migratable machine: %s", ctx.KubevirtMachine.Name, message)
 	}
 
 	return ctrl.Result{}, nil
@@ -546,11 +483,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 
 	// Set the VMProvisionedCondition reporting delete is started, and attempt to issue a patch in
 	// order to make this visible to the users.
-	conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-		Type:   infrav1.VMProvisionedCondition,
-		Status: metav1.ConditionFalse,
-		Reason: clusterv1.DeletingReason,
-	})
+	conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 	if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
 		if err = utilerrors.FilterOut(err, apierrors.IsNotFound); err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "failed to patch KubevirtMachine")
@@ -567,53 +500,24 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		return err
 	}
 
-	clusterAPIVersions, err := crds.GetSupportedVersions(goctx, mgr.GetAPIReader(), machineCRDName)
-	if err != nil {
-		return fmt.Errorf("unable to get CRD versions of %s: %w", machineCRDName, err)
-	}
-
-	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
+	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtMachine{}).
 		WithOptions(options).
 		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), ctrl.LoggerFrom(goctx))).
 		Watches(
-			&infrav1.KubevirtCluster{},
-			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
-		)
-
-	if slices.Contains(clusterAPIVersions, "v1beta2") {
-		logger.Info("reconciling cluster-api Machine v1beta2")
-
-		r.getOwnerMachine = util.GetOwnerMachine
-		r.getClusterFromMetadata = util.GetClusterFromMetadata
-
-		controllerBuilder.Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("KubevirtMachine"))),
-		).Watches(
+		).
+		Watches(
+			&infrav1.KubevirtCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
+		).
+		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
 			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
-		)
-	} else if slices.Contains(clusterAPIVersions, "v1beta1") {
-		logger.Info("reconciling cluster-api Machine v1beta1")
-
-		r.getOwnerMachine = capiv1beta1.GetOwnerMachine
-		r.getClusterFromMetadata = capiv1beta1.GetClusterFromMetadata
-
-		controllerBuilder.Watches(
-			&clusterv1v1beta1.Machine{},
-			handler.EnqueueRequestsFromMapFunc(capiv1beta1.MapV1beta1MachineToKVMachine),
-		).Watches(
-			&clusterv1v1beta1.Cluster{},
-			handler.EnqueueRequestsFromMapFunc(capiv1beta1.MapV1beta1ClusterToKVKind(mgr.GetClient(), "KubevirtMachine")),
-			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
-		)
-	} else {
-		return fmt.Errorf("unsupported controller types: %v", controllerBuilder)
-	}
-
-	return controllerBuilder.Complete(r)
+		).
+		Complete(r)
 }
 
 // KubevirtClusterToKubevirtMachines is a handler.ToRequestsFunc to be used to enqueue
@@ -625,7 +529,7 @@ func (r *KubevirtMachineReconciler) KubevirtClusterToKubevirtMachines(ctx gocont
 		panic(fmt.Sprintf("Expected a KubevirtCluster but got a %T", o))
 	}
 
-	cluster, err := util.GetOwnerCluster(ctx, r.Client, c.ObjectMeta)
+	cluster, err := capiv1beta1.GetOwnerCluster(ctx, r.Client, c.ObjectMeta)
 	switch {
 	case apierrors.IsNotFound(err) || cluster == nil:
 		return result

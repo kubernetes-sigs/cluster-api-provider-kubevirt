@@ -3,13 +3,11 @@ package e2e_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -25,9 +23,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/crds"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"         //nolint SA1019
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
@@ -50,12 +47,6 @@ var _ = Describe("CreateCluster", func() {
 	var namespace string
 	var tenantAccessor tenantClusterAccess
 
-	var (
-		waitForControlPlane func(ctx context.Context, k8sclient client.Client, namespace string)
-		postDefaultMHC      func(ctx context.Context, k8sclient client.Client, namespace string, clusterName string)
-		deleteCluster       func(ctx context.Context, k8sclient client.Client, namespace string, clusterName string)
-	)
-
 	BeforeEach(func(ctx context.Context) {
 		var err error
 
@@ -75,19 +66,6 @@ var _ = Describe("CreateCluster", func() {
 
 		tenantAccessor = newTenantClusterAccess(namespace, tenantKubeconfigFile)
 		Expect(k8sclient.Create(ctx, ns)).To(Succeed())
-
-		apiVersion, err := getClusterAPIVersion(ctx)
-		Expect(err).NotTo(HaveOccurred())
-
-		waitForControlPlane = waitForV1beta2ControlPlane
-		postDefaultMHC = postDefaultMHCV1Beta2
-		deleteCluster = deleteV1Beta2Cluster
-
-		if apiVersion == "v1beta1" {
-			waitForControlPlane = waitForV1beta1ControlPlane
-			postDefaultMHC = postDefaultMHCV1Beta1
-			deleteCluster = deleteV1Beta1Cluster
-		}
 	})
 
 	AfterEach(func(ctx context.Context) {
@@ -109,7 +87,13 @@ var _ = Describe("CreateCluster", func() {
 		Expect(tenantAccessor.stopForwardingTenantAPI()).To(Succeed())
 
 		By("removing cluster")
-		deleteCluster(ctx, k8sclient, namespace, "kvcluster")
+		cluster := &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      "kvcluster",
+			},
+		}
+		DeleteAndWait(ctx, k8sclient, cluster, 120)
 
 		externalInfraSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -203,12 +187,7 @@ var _ = Describe("CreateCluster", func() {
 		}
 		Expect(k8sclient.Update(ctx, kvCluster)).To(Succeed())
 
-		conditions.Set(kvCluster, metav1.Condition{
-			Type:    infrav1.LoadBalancerAvailableCondition,
-			Status:  metav1.ConditionTrue,
-			Reason:  clusterv1.UpToDateReason,
-			Message: "",
-		})
+		conditions.MarkTrue(kvCluster, infrav1.LoadBalancerAvailableCondition)
 		kvCluster.Status.Ready = true
 
 		Expect(k8sclient.Status().Update(ctx, kvCluster)).To(Succeed())
@@ -364,6 +343,36 @@ var _ = Describe("CreateCluster", func() {
 		}, 5*time.Minute, 5*time.Second).Should(Succeed(), "waiting for expected readiness.")
 	}
 
+	waitForControlPlane := func(ctx context.Context) {
+		By("Waiting on cluster's control plane to initialize")
+		Eventually(func(g Gomega) {
+			cluster := &clusterv1.Cluster{}
+			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
+			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition)).To(
+				BeTrue(),
+				"still waiting on controlPlaneReady condition to be true",
+			)
+		}).WithOffset(1).
+			WithTimeout(20*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "cluster should have control plane initialized")
+
+		By("Waiting on cluster's control plane to be ready")
+		Eventually(func(g Gomega) {
+			cluster := &clusterv1.Cluster{}
+			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
+			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition)).To(
+				BeTrue(),
+				"still waiting on controlPlaneInitialized condition to be true",
+			)
+		}).WithOffset(1).
+			WithTimeout(15*time.Minute).
+			WithPolling(5*time.Second).
+			Should(Succeed(), "cluster should have control plane initialized")
+	}
+
 	injectKubevirtClusterExternallyManagedAnnotation := func(yamlStr string) string {
 		strs := strings.Split(yamlStr, "\n")
 
@@ -437,6 +446,47 @@ var _ = Describe("CreateCluster", func() {
 			Should(Succeed(), printObjFunc(obj))
 	}
 
+	postDefaultMHC := func(ctx context.Context, clusterName string) {
+		maxUnhealthy := intstr.FromString("100%")
+		mhc := &clusterv1.MachineHealthCheck{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "testmhc",
+				Namespace: namespace,
+			},
+			Spec: clusterv1.MachineHealthCheckSpec{
+				ClusterName: clusterName,
+				Selector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"cluster.x-k8s.io/cluster-name": clusterName,
+					},
+				},
+				MaxUnhealthy: &maxUnhealthy,
+
+				UnhealthyConditions: []clusterv1.UnhealthyCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionFalse,
+						Timeout: metav1.Duration{
+							Duration: 5 * time.Minute,
+						},
+					},
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionUnknown,
+						Timeout: metav1.Duration{
+							Duration: 5 * time.Minute,
+						},
+					},
+				},
+				NodeStartupTimeout: &metav1.Duration{
+					Duration: 10 * time.Minute,
+				},
+			},
+		}
+
+		Expect(k8sclient.Create(ctx, mhc)).To(Succeed())
+	}
+
 	It("creates a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func(ctx context.Context) {
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
@@ -457,7 +507,7 @@ var _ = Describe("CreateCluster", func() {
 		RunCmd(cmd)
 
 		By("Waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 
 		By("Waiting on kubevirt machines to bootstrap")
 		waitForBootstrappedMachines(ctx)
@@ -494,7 +544,7 @@ var _ = Describe("CreateCluster", func() {
 		RunCmd(cmd)
 
 		By("Waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 
 		By("Waiting on kubevirt machines to bootstrap")
 		waitForBootstrappedMachines(ctx)
@@ -506,7 +556,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantAccess(ctx, 2)
 
 		By("creating machine health check")
-		postDefaultMHC(ctx, k8sclient, namespace, "kvcluster")
+		postDefaultMHC(ctx, "kvcluster")
 
 		// trigger remediation by marking a running VMI as being in a failed state
 		By("Selecting a worker node to remediate")
@@ -565,7 +615,7 @@ var _ = Describe("CreateCluster", func() {
 		RunCmd(cmd)
 
 		By("Waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 
 		By("Waiting on kubevirt machines to bootstrap")
 		waitForBootstrappedMachines(ctx)
@@ -577,7 +627,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForTenantAccess(ctx, 2)
 
 		By("creating machine health check")
-		postDefaultMHC(ctx, k8sclient, namespace, "kvcluster")
+		postDefaultMHC(ctx, "kvcluster")
 
 		// trigger remediation by putting the VMI in a permanent stopped state
 		By("Selecting new worker node to remediate")
@@ -639,7 +689,7 @@ var _ = Describe("CreateCluster", func() {
 		markExternalKubeVirtClusterReady(ctx, "kvcluster", namespace)
 
 		By("Waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 
 		By("Waiting on kubevirt machines to be ready")
 		waitForMachineReadiness(ctx, 2, 0)
@@ -675,7 +725,7 @@ var _ = Describe("CreateCluster", func() {
 		RunCmd(cmd)
 
 		By("Waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 
 		By("Waiting on kubevirt machines to bootstrap")
 		waitForBootstrappedMachines(ctx)
@@ -807,7 +857,7 @@ var _ = Describe("CreateCluster", func() {
 		waitForBootstrappedMachines(ctx)
 
 		By("waiting for control plane")
-		waitForControlPlane(ctx, k8sclient, namespace)
+		waitForControlPlane(ctx)
 	})
 })
 
@@ -965,26 +1015,4 @@ func printObjFunc(obj any) func() string {
 		sb.Write([]byte{'\n'})
 		return sb.String()
 	}
-}
-
-// sorted by priority
-var supportedVersions = []string{"v1beta2", "v1beta1"}
-
-func getClusterAPIVersion(ctx context.Context) (string, error) {
-	versions, err := crds.GetSupportedVersions(ctx, k8sclient, "clusters.cluster.x-k8s.io")
-	if err != nil {
-		return "", err
-	}
-
-	if len(versions) == 0 {
-		return "", errors.New("no cluster-api version found")
-	}
-
-	for _, version := range supportedVersions {
-		if slices.Contains(versions, version) {
-			return version, nil
-		}
-	}
-
-	return "", errors.New("no supported cluster-api version found")
 }
