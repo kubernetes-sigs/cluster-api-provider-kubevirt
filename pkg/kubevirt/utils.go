@@ -22,9 +22,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubevirtv1 "kubevirt.io/api/core/v1"
-	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
@@ -166,7 +166,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 
 // nodeRole returns the role of this node ("control-plane" or "worker").
 func nodeRole(ctx *context.MachineContext) string {
-	if util.IsControlPlaneMachine(ctx.Machine) {
+	if capiv1beta1.IsControlPlaneMachine(ctx.Machine) {
 		return constants.ControlPlaneNodeRoleValue
 	}
 	return constants.WorkerNodeRoleValue

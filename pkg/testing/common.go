@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
@@ -21,10 +21,11 @@ func NewCluster(clusterName string, kubevirtCluster *infrav1.KubevirtCluster) *c
 		},
 	}
 	if kubevirtCluster != nil {
-		cluster.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
-			Name:     kubevirtCluster.Name,
-			Kind:     kubevirtCluster.Kind,
-			APIGroup: kubevirtCluster.GroupVersionKind().Group,
+		cluster.Spec.InfrastructureRef = &corev1.ObjectReference{
+			Name:       kubevirtCluster.Name,
+			Namespace:  kubevirtCluster.Namespace,
+			Kind:       kubevirtCluster.Kind,
+			APIVersion: kubevirtCluster.GroupVersionKind().GroupVersion().String(),
 		}
 	}
 	return cluster
@@ -117,10 +118,11 @@ func NewMachine(clusterName, machineName string, kubevirtMachine *infrav1.Kubevi
 		},
 	}
 	if kubevirtMachine != nil {
-		machine.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
-			Name:     kubevirtMachine.Name,
-			Kind:     kubevirtMachine.Kind,
-			APIGroup: kubevirtMachine.GroupVersionKind().Group,
+		machine.Spec.InfrastructureRef = corev1.ObjectReference{
+			Name:       kubevirtMachine.Name,
+			Namespace:  kubevirtMachine.Namespace,
+			Kind:       kubevirtMachine.Kind,
+			APIVersion: kubevirtMachine.GroupVersionKind().GroupVersion().String(),
 		}
 	}
 	return machine
