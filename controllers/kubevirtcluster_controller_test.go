@@ -8,11 +8,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	. "sigs.k8s.io/controller-runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
@@ -27,7 +26,7 @@ var (
 	kubevirtCluster           *infrav1.KubevirtCluster
 	kubeconfigNamespace       string
 	cluster                   *clusterv1.Cluster
-	fakeClient                client.Client
+	fakeClient                ctrlclient.Client
 	kubevirtClusterReconciler controllers.KubevirtClusterReconciler
 	fakeContext               = goContext.TODO()
 	testLogger                = ctrl.Log.WithName("test")
@@ -41,8 +40,8 @@ var _ = Describe("Reconcile", func() {
 		infraClusterMock = infraclustermock.NewMockInfraCluster(mockCtrl)
 	})
 
-	setupClient := func(objects []client.Object) {
-		fakeClient = fake.NewClientBuilder().
+	setupClient := func(objects []ctrlclient.Object) {
+		fakeClient = ctrlfake.NewClientBuilder().
 			WithScheme(testing.SetupScheme()).
 			WithObjects(objects...).
 			WithStatusSubresource(objects...).
@@ -61,56 +60,53 @@ var _ = Describe("Reconcile", func() {
 			kubevirtClusterName = "test-kubevirt-cluster"
 			kubevirtCluster = testing.NewKubevirtCluster(kubevirtClusterName, kubevirtClusterName)
 			cluster = testing.NewCluster(kubevirtClusterName, kubevirtCluster)
-			objects := []client.Object{
+			objects := []ctrlclient.Object{
 				cluster,
 				kubevirtCluster,
 			}
-			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+			fakeClient = ctrlfake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
 		})
 
 		AfterEach(func() {})
 
 		It("should create cluster", func() {
-			objects := []client.Object{
+			objects := []ctrlclient.Object{
 				cluster,
 				kubevirtCluster,
 			}
 			setupClient(objects)
 			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
-			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
-				NamespacedName: client.ObjectKey{
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
+				NamespacedName: ctrlclient.ObjectKey{
 					Namespace: kubevirtCluster.Namespace,
 					Name:      kubevirtCluster.Name,
 				},
 			})
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
-			Expect(result.Requeue).To(BeFalse())
 		})
 
 		It("should not create cluster when namespace and kubevirtCluster is not specified", func() {
-			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
-				NamespacedName: client.ObjectKey{
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
+				NamespacedName: ctrlclient.ObjectKey{
 					Namespace: "",
 					Name:      "",
 				},
 			})
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
-			Expect(result.Requeue).To(BeFalse())
 		})
 
 		It("should not create cluster when invalid namespace and kubevirtCluster is specified", func() {
-			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
-				NamespacedName: client.ObjectKey{
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
+				NamespacedName: ctrlclient.ObjectKey{
 					Namespace: "Invalid Namespace",
 					Name:      "Invalid Name",
 				},
 			})
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
-			Expect(result.Requeue).To(BeFalse())
 		})
 	})
 
@@ -126,20 +122,20 @@ var _ = Describe("Reconcile", func() {
 		AfterEach(func() {})
 
 		It("should throw an error when reconciling unhandled clusters. ", func() {
-			objects := []client.Object{
+			objects := []ctrlclient.Object{
 				cluster,
 				kubevirtCluster,
 			}
 			setupClient(objects)
 			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
-			_, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
-				NamespacedName: client.ObjectKey{
+			_, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
+				NamespacedName: ctrlclient.ObjectKey{
 					Namespace: kubevirtCluster.Namespace,
 					Name:      kubevirtCluster.Name,
 				},
 			})
-			//Load Balancer service is not ready yet.
+			// Load Balancer service is not ready yet.
 			Expect(err).Should(HaveOccurred())
 		})
 	})
@@ -157,24 +153,23 @@ var _ = Describe("Reconcile", func() {
 		AfterEach(func() {})
 
 		It("should succeed with the kubevirt cluster being deleted.", func() {
-			objects := []client.Object{
+			objects := []ctrlclient.Object{
 				cluster,
 				kubevirtCluster,
 			}
 			setupClient(objects)
 			infraClusterMock.EXPECT().GenerateInfraClusterClient(gomock.Any(), gomock.Any(), gomock.Any()).Return(fakeClient, kubevirtCluster.Namespace, nil)
 
-			namespacedName := client.ObjectKey{
+			namespacedName := ctrlclient.ObjectKey{
 				Namespace: kubevirtCluster.Namespace,
 				Name:      kubevirtCluster.Name,
 			}
 
-			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, Request{
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
 				NamespacedName: namespacedName,
 			})
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
-			Expect(result.Requeue).To(BeFalse())
 
 			kvc := &infrav1.KubevirtCluster{}
 			err = fakeClient.Get(fakeContext, namespacedName, kvc)

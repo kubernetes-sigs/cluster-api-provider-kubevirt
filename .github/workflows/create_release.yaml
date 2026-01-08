@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       - name: build image
@@ -29,11 +29,13 @@ jobs:
     name: Upload Release Asset
     needs: build-and-push-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Install kustomize
@@ -46,11 +48,11 @@ jobs:
         run: |
           make create-infrastructure-components
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: | 
+          files: |
             infrastructure-components.yaml
             metadata.yaml
             templates/*.yaml

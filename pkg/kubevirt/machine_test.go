@@ -465,7 +465,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 				}
 
 				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
-				cl := k8sfake.NewSimpleClientset(node)
+				cl := k8sfake.NewClientset(node)
 
 				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
 
@@ -503,7 +503,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 				}
 
 				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
-				cl := k8sfake.NewSimpleClientset(node)
+				cl := k8sfake.NewClientset(node)
 
 				fakeErr := errors.New("fake error: can't get node")
 				cl.PrependReactor("get", "nodes", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {

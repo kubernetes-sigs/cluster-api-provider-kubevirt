@@ -30,11 +30,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"      //nolint SA1019
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/loadbalancer"
@@ -78,10 +79,11 @@ func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace
 // and what is in the KubevirtCluster.Spec.
 func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(goctx)
+	log.Info("Reconciling KubevirtCluster")
 
 	// Fetch the KubevirtCluster.
 	kubevirtCluster := &infrav1.KubevirtCluster{}
-	if err := r.Client.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
+	if err := r.Get(goctx, req.NamespacedName, kubevirtCluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -94,7 +96,7 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Cluster.
-	cluster, err := util.GetOwnerCluster(goctx, r.Client, kubevirtCluster.ObjectMeta)
+	cluster, err := capiv1beta1.GetOwnerCluster(goctx, r.Client, kubevirtCluster.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

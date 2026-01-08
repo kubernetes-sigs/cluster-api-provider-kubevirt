@@ -30,7 +30,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should create NS if missing", func() {
-			client := fake.NewSimpleClientset()
+			client := fake.NewClientset()
 			cmdCtx.Client = client
 
 			Expect(ensureNamespace(context.Background(), cmdCtx, clientOperationCreate)).To(Succeed())
@@ -42,7 +42,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should do nothing if applying and the NS already exist", func() {
-			client := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
+			client := fake.NewClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 			cmdCtx.Client = client
 
 			Expect(ensureNamespace(context.Background(), cmdCtx, clientOperationApply)).To(Succeed())
@@ -54,7 +54,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should return error if creating and the NS already exist", func() {
-			client := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
+			client := fake.NewClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 			cmdCtx.Client = client
 
 			err := ensureNamespace(context.Background(), cmdCtx, clientOperationCreate)
@@ -70,14 +70,14 @@ var _ = Describe("test credentials common function", func() {
 			}
 		})
 		It("should do add serviceAccount if it's missing", func() {
-			client := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
+			client := fake.NewClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 			cmdCtx.Client = client
 
 			Expect(ensureServiceAccount(context.Background(), cmdCtx)).To(Succeed())
 		})
 
 		It("should do nothing if the serviceAccount is already exist", func() {
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				&corev1.ServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
@@ -106,7 +106,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should create Role if missing", func() {
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 			)
 			cmdCtx.Client = client
@@ -136,7 +136,7 @@ var _ = Describe("test credentials common function", func() {
 
 		It("create should return error if the Role is already exist", func() {
 			expectedRole := generateRole(cmdCtx)
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				expectedRole,
 			)
@@ -157,7 +157,7 @@ var _ = Describe("test credentials common function", func() {
 				},
 			}
 
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				existingRole,
 			)
@@ -185,7 +185,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should create RoleBinding if missing", func() {
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				&rbacv1.Role{
 					ObjectMeta: metav1.ObjectMeta{
@@ -208,7 +208,7 @@ var _ = Describe("test credentials common function", func() {
 		})
 
 		It("should do nothing if the RoleBinding is already exist", func() {
-			client := fake.NewSimpleClientset(
+			client := fake.NewClientset(
 				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}},
 				&rbacv1.Role{
 					ObjectMeta: metav1.ObjectMeta{

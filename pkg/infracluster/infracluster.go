@@ -51,7 +51,7 @@ func (w *infraCluster) GenerateInfraClusterClient(infraClusterSecretRef *corev1.
 		secretNamespace = ownerNamespace
 	}
 	infraKubeconfigSecretKey := k8sclient.ObjectKey{Namespace: secretNamespace, Name: infraClusterSecretRef.Name}
-	if err := w.Client.Get(context, infraKubeconfigSecretKey, infraKubeconfigSecret); err != nil {
+	if err := w.Get(context, infraKubeconfigSecretKey, infraKubeconfigSecret); err != nil {
 		return nil, "", errors.Wrapf(err, "failed to fetch infra kubeconfig secret %s/%s", infraClusterSecretRef.Namespace, infraClusterSecretRef.Name)
 	}
 
@@ -79,7 +79,7 @@ func (w *infraCluster) GenerateInfraClusterClient(infraClusterSecretRef *corev1.
 		return nil, "", errors.Wrap(err, "failed to create REST config")
 	}
 
-	infraClusterClient, err := w.ClientFactory(restConfig, k8sclient.Options{Scheme: w.Client.Scheme()})
+	infraClusterClient, err := w.ClientFactory(restConfig, k8sclient.Options{Scheme: w.Scheme()})
 	if err != nil {
 		return nil, "", errors.Wrap(err, "failed to create infra cluster client")
 	}

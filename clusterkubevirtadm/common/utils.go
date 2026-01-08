@@ -27,7 +27,9 @@ func CmdLog(output ...interface{}) {
 func CreateClient(cmd *cobra.Command) (*k8sclient.Clientset, error) {
 	kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
 	if len(kubeconfig) > 0 {
-		os.Setenv("KUBECONFIG", kubeconfig)
+		if err := os.Setenv("KUBECONFIG", kubeconfig); err != nil {
+			return nil, fmt.Errorf("failed to set KUBECONFIG environment variable: %v", err)
+		}
 	}
 
 	cfg, err := cr.GetConfig()

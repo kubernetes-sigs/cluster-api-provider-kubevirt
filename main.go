@@ -18,28 +18,31 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"math/rand"
 	"os"
 	"time"
 
 	"github.com/spf13/pflag"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/klog/v2"
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2/textlogger"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/feature"
+	"sigs.k8s.io/cluster-api/util/flags"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -54,15 +57,22 @@ import (
 var (
 	setupLog = ctrl.Log.WithName("setup")
 
-	//flags.
-	metricsBindAddr      string
-	enableLeaderElection bool
-	syncPeriod           time.Duration
-	concurrency          int
-	healthAddr           string
-	webhookPort          int
-	webhookCertDir       string
-	watchNamespace       string
+	// flags.
+	metricsBindAddr             string
+	enableLeaderElection        bool
+	leaderElectionLeaseDuration time.Duration
+	leaderElectionRenewDeadline time.Duration
+	leaderElectionRetryPeriod   time.Duration
+	syncPeriod                  time.Duration
+	concurrency                 int
+	restConfigQPS               float32
+	restConfigBurst             int
+	healthAddr                  string
+	webhookPort                 int
+	webhookCertDir              string
+	watchNamespace              string
+
+	managerOptions = flags.ManagerOptions{}
 )
 
 func init() {
@@ -76,8 +86,10 @@ func registerScheme() (*runtime.Scheme, error) {
 		scheme.AddToScheme,
 		infrav1.AddToScheme,
 		clusterv1.AddToScheme,
+		clusterv1beta1.AddToScheme,
 		kubevirtv1.AddToScheme,
 		cdiv1.AddToScheme,
+		apiextensionsv1.AddToScheme,
 		// +kubebuilder:scaffold:scheme
 	} {
 		if err := f(myscheme); err != nil {
@@ -94,8 +106,18 @@ func initFlags(fs *pflag.FlagSet) {
 		"The number of machines to process simultaneously")
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.")
+	fs.DurationVar(&leaderElectionLeaseDuration, "leader-elect-lease-duration", 15*time.Second,
+		"Interval at which non-leader candidates will wait to force acquire leadership (duration string)")
+	fs.DurationVar(&leaderElectionRenewDeadline, "leader-elect-renew-deadline", 10*time.Second,
+		"Duration that the leading controller manager will retry refreshing leadership before giving up (duration string)")
+	fs.DurationVar(&leaderElectionRetryPeriod, "leader-elect-retry-period", 2*time.Second,
+		"Duration the LeaderElector clients should wait between tries of actions (duration string)")
 	fs.DurationVar(&syncPeriod, "sync-period", 60*time.Second,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
+	fs.Float32Var(&restConfigQPS, "kube-api-qps", 20,
+		"Maximum queries per second from the controller client to the Kubernetes API server.")
+	fs.IntVar(&restConfigBurst, "kube-api-burst", 30,
+		"Maximum number of queries that should be allowed in one burst from the controller client to the Kubernetes API server.")
 	fs.StringVar(&healthAddr, "health-addr", ":9440",
 		"The address the health endpoint binds to.")
 	fs.IntVar(&webhookPort, "webhook-port", 9443,
@@ -106,17 +128,24 @@ func initFlags(fs *pflag.FlagSet) {
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
 
 	feature.MutableGates.AddFlag(fs)
+
+	flags.AddManagerOptions(fs, &managerOptions)
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// metricsBindAddr is kept for backward compatibility
+	if metricsBindAddr != "" {
+		managerOptions.DiagnosticsAddress = metricsBindAddr
+	}
 
 	initFlags(pflag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.Parse()
 
-	ctrl.SetLogger(klogr.New())
+	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
 
 	myscheme, err := registerScheme()
 	if err != nil {
@@ -132,17 +161,40 @@ func main() {
 		}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	webhookOptions := webhook.Options{
+		Port:    webhookPort,
+		CertDir: webhookCertDir,
+		TLSOpts: []func(*tls.Config){
+			func(t *tls.Config) {
+				t.MinVersion = tls.VersionTLS12
+			},
+		},
+	}
+
+	restConfig := ctrl.GetConfigOrDie()
+	restConfig.QPS = restConfigQPS
+	restConfig.Burst = restConfigBurst
+
+	_, metricsOptions, err := flags.GetManagerOptions(managerOptions)
+	if err != nil {
+		setupLog.Error(err, "unable to start manager: invalid flags")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:           myscheme,
-		Metrics:          server.Options{BindAddress: metricsBindAddr},
+		Metrics:          *metricsOptions,
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "controller-leader-election-capk",
+		LeaseDuration:    &leaderElectionLeaseDuration,
+		RenewDeadline:    &leaderElectionRenewDeadline,
+		RetryPeriod:      &leaderElectionRetryPeriod,
 		Cache: cache.Options{
 			SyncPeriod:        &syncPeriod,
 			DefaultNamespaces: defaultNamespaces,
 		},
 		HealthProbeBindAddress: healthAddr,
-		WebhookServer:          webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: webhookCertDir}),
+		WebhookServer:          webhook.NewServer(webhookOptions),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -190,7 +242,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		MachineFactory:  kubevirt.DefaultMachineFactory{},
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
-	}); err != nil {
+	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "reconciler")
 		os.Exit(1)
 	}

@@ -24,7 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
@@ -92,7 +92,7 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 				{
 					Port:       6443,
 					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromInt(6443),
+					TargetPort: intstr.FromInt32(6443),
 				},
 			},
 			Selector: map[string]string{

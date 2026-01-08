@@ -20,8 +20,9 @@ if [ ! -f "${DUMP_PATH}" ]; then
 fi
 
 if [ ! -f "${CLUSTERCTL_PATH}" ]; then
+  CLUSTERCTL_VERSION=$(go list -m -f '{{.Version}}' sigs.k8s.io/cluster-api)
 	echo >&2 "Downloading clusterctl ..."
-	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.5.2/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
+	curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/${CLUSTERCTL_VERSION}/clusterctl-linux-amd64 -o "${CLUSTERCTL_PATH}"
 	chmod +x "${CLUSTERCTL_PATH}"
 fi
 
