@@ -8,8 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-	"sigs.k8s.io/cluster-api/util"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -48,11 +47,10 @@ var _ = Describe("Reconcile", func() {
 			WithStatusSubresource(objects...).
 			Build()
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
-			Client:          fakeClient,
-			InfraCluster:    infraClusterMock,
-			APIReader:       fakeClient,
-			Log:             testLogger,
-			GetOwnerCluster: util.GetOwnerCluster,
+			Client:       fakeClient,
+			InfraCluster: infraClusterMock,
+			APIReader:    fakeClient,
+			Log:          testLogger,
 		}
 	}
 
