@@ -956,6 +956,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).Times(1)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1056,6 +1057,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1112,6 +1114,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(true, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)

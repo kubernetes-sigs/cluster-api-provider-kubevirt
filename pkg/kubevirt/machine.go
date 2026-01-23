@@ -232,6 +232,20 @@ func (m *Machine) Address() string {
 	return ""
 }
 
+// Addresses returns all IP addresses of the VM (for dual-stack support).
+// It collects IPs from all network interfaces, supporting both IPv4 and IPv6.
+func (m *Machine) Addresses() []string {
+	if m.vmiInstance == nil {
+		return nil
+	}
+
+	var addresses []string
+	for _, iface := range m.vmiInstance.Status.Interfaces {
+		addresses = append(addresses, iface.IPs...)
+	}
+	return addresses
+}
+
 // IsReady checks if the VM is ready
 func (m *Machine) IsReady() bool {
 	return m.hasReadyCondition()
