@@ -29,6 +29,8 @@ type MachineInterface interface {
 	IsLiveMigratable() (bool, string, string, error)
 	// Address returns the IP address of the VM.
 	Address() string
+	// Addresses returns all IP addresses of the VM (for dual-stack support).
+	Addresses() []string
 	// SupportsCheckingIsBootstrapped checks if we have a method of checking
 	// that this bootstrapper has completed.
 	SupportsCheckingIsBootstrapped() bool
