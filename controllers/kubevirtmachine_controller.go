@@ -325,24 +325,35 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.Logger.Info("Underlying VM has boostrapped.")
 	}
 
-	ctx.KubevirtMachine.Status.Addresses = []clusterv1.MachineAddress{
+	// Build the machine addresses list with all IPs for dual-stack support
+	machineAddresses := []clusterv1.MachineAddress{
 		{
 			Type:    clusterv1.MachineHostName,
 			Address: ctx.KubevirtMachine.Name,
 		},
-		{
-			Type:    clusterv1.MachineInternalIP,
-			Address: ipAddress,
-		},
-		{
-			Type:    clusterv1.MachineExternalIP,
-			Address: ipAddress,
-		},
-		{
-			Type:    clusterv1.MachineInternalDNS,
-			Address: ctx.KubevirtMachine.Name,
-		},
 	}
+
+	// Add all IP addresses from the VMI interfaces (supports dual-stack IPv4/IPv6)
+	allAddresses := externalMachine.Addresses()
+	for _, addr := range allAddresses {
+		machineAddresses = append(machineAddresses,
+			clusterv1.MachineAddress{
+				Type:    clusterv1.MachineInternalIP,
+				Address: addr,
+			},
+			clusterv1.MachineAddress{
+				Type:    clusterv1.MachineExternalIP,
+				Address: addr,
+			},
+		)
+	}
+
+	machineAddresses = append(machineAddresses, clusterv1.MachineAddress{
+		Type:    clusterv1.MachineInternalDNS,
+		Address: ctx.KubevirtMachine.Name,
+	})
+
+	ctx.KubevirtMachine.Status.Addresses = machineAddresses
 
 	if ctx.KubevirtMachine.Spec.ProviderID == nil || *ctx.KubevirtMachine.Spec.ProviderID == "" {
 		providerID, err := externalMachine.GenerateProviderID()
