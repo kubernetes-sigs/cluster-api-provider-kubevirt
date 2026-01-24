@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"flag"
 	"math/rand"
 	"os"
@@ -161,21 +160,11 @@ func main() {
 		}
 	}
 
-	webhookOptions := webhook.Options{
-		Port:    webhookPort,
-		CertDir: webhookCertDir,
-		TLSOpts: []func(*tls.Config){
-			func(t *tls.Config) {
-				t.MinVersion = tls.VersionTLS12
-			},
-		},
-	}
-
 	restConfig := ctrl.GetConfigOrDie()
 	restConfig.QPS = restConfigQPS
 	restConfig.Burst = restConfigBurst
 
-	_, metricsOptions, err := flags.GetManagerOptions(managerOptions)
+	tlsOptions, metricsOptions, err := flags.GetManagerOptions(managerOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager: invalid flags")
 		os.Exit(1)
@@ -194,7 +183,11 @@ func main() {
 			DefaultNamespaces: defaultNamespaces,
 		},
 		HealthProbeBindAddress: healthAddr,
-		WebhookServer:          webhook.NewServer(webhookOptions),
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port:    webhookPort,
+			CertDir: webhookCertDir,
+			TLSOpts: tlsOptions,
+		}),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
