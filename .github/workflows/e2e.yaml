@@ -4,7 +4,7 @@ on:
   push: {}
 name: e2e
 jobs:
-  integration:
+  integration-tests:
     runs-on: ubuntu-latest
     if: (github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt') && contains(github.event.pull_request.labels.*.name, 'ok-to-test')
     strategy:
@@ -29,3 +29,16 @@ jobs:
       - name: Test
         run: |
           $GITHUB_WORKSPACE/project-infra/hack/mkpj.sh --job ${{ matrix.prowjobname }} --pull-number ${{github.event.number}} --kubeconfig $GITHUB_WORKSPACE/project-infra/.kubeconfig --trigger-job --fail-with-job
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'
+    steps:
+      - name: Check integration status
+        run: |
+          if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "Integration tests failed or were skipped"
+            exit 1
+          fi
+          echo "All integration tests passed"
