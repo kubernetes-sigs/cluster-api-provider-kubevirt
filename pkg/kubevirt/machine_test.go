@@ -118,6 +118,12 @@ var _ = Describe("Without KubeVirt VM running", func() {
 		Expect(externalMachine.Address()).To(Equal(""))
 	})
 
+	It("Addresses should return empty slice when VMI is nil", func() {
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.Addresses()).To(BeEmpty())
+	})
+
 	It("IsReady should return false", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte{})
 		Expect(err).NotTo(HaveOccurred())
@@ -260,6 +266,37 @@ var _ = Describe("With KubeVirt VM running", func() {
 		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(externalMachine.Address()).To(Equal(virtualMachineInstance.Status.Interfaces[0].IP))
+	})
+
+	It("Addresses should return all IPs from interfaces", func() {
+		// Set up dual-stack IPs on the interface
+		virtualMachineInstance.Status.Interfaces[0].IPs = []string{"1.1.1.1", "2001:db8::1"}
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithRuntimeObjects(cluster, kubevirtMachine, virtualMachine, virtualMachineInstance, bootstrapDataSecret).Build()
+
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		Expect(err).NotTo(HaveOccurred())
+		addresses := externalMachine.Addresses()
+		Expect(addresses).To(HaveLen(2))
+		Expect(addresses).To(ContainElement("1.1.1.1"))
+		Expect(addresses).To(ContainElement("2001:db8::1"))
+	})
+
+	It("Addresses should return IPs from multiple interfaces", func() {
+		// Set up multiple interfaces with IPs
+		virtualMachineInstance.Status.Interfaces = []kubevirtv1.VirtualMachineInstanceNetworkInterface{
+			{IP: "1.1.1.1", IPs: []string{"1.1.1.1", "2001:db8::1"}},
+			{IP: "10.0.0.1", IPs: []string{"10.0.0.1", "2001:db8::2"}},
+		}
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithRuntimeObjects(cluster, kubevirtMachine, virtualMachine, virtualMachineInstance, bootstrapDataSecret).Build()
+
+		externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+		Expect(err).NotTo(HaveOccurred())
+		addresses := externalMachine.Addresses()
+		Expect(addresses).To(HaveLen(4))
+		Expect(addresses).To(ContainElement("1.1.1.1"))
+		Expect(addresses).To(ContainElement("2001:db8::1"))
+		Expect(addresses).To(ContainElement("10.0.0.1"))
+		Expect(addresses).To(ContainElement("2001:db8::2"))
 	})
 
 	It("IsReady should return true", func() {
@@ -465,7 +502,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 				}
 
 				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
-				cl := k8sfake.NewSimpleClientset(node)
+				cl := k8sfake.NewClientset(node)
 
 				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
 
@@ -503,7 +540,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 				}
 
 				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
-				cl := k8sfake.NewSimpleClientset(node)
+				cl := k8sfake.NewClientset(node)
 
 				fakeErr := errors.New("fake error: can't get node")
 				cl.PrependReactor("get", "nodes", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {

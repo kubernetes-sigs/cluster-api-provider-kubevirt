@@ -16,7 +16,7 @@
 
 # Build the manager binary
 # Run this with docker build --build-arg builder_image=<golang:x.y.z>
-ARG builder_image=docker.io/golang:1.23
+ARG builder_image=docker.io/golang:1.24
 FROM ${builder_image} as builder
 WORKDIR /workspace
 

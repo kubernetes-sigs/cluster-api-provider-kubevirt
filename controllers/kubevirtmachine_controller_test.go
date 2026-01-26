@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,8 +34,8 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/util/conditions"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"         //nolint SA1019
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -322,7 +322,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 	setupClientWithInterceptors := func(machineFactory kubevirt.MachineFactory, objects []client.Object, interceptorFuncs interceptor.Funcs) {
 		machineContext = &context.MachineContext{
-			Context:         gocontext.Background(),
+			Context:         logr.NewContext(gocontext.Background(), GinkgoLogr),
 			Cluster:         cluster,
 			KubevirtCluster: kubevirtCluster,
 			Machine:         machine,
@@ -423,7 +423,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		out, err = kubevirtMachineReconciler.reconcileDelete(machineContext)
 		Expect(err).ShouldNot(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 0}))
 
 		// Check bootstrapData secret is deleted
 		machineBootstrapSecretReferenceName := machineContext.Machine.Spec.Bootstrap.DataSecretName
@@ -455,7 +455,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 
 		out, err := kubevirtMachineReconciler.reconcileDelete(machineContext)
 		Expect(err).ShouldNot(HaveOccurred())
-		Expect(out).To(Equal(ctrl.Result{Requeue: false, RequeueAfter: 0}))
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 0}))
 
 		// Check finalizer is removed from machine
 		Expect(machineContext.Machine.ObjectMeta.Finalizers).To(BeEmpty())
@@ -781,7 +781,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			Expect(err).ShouldNot(HaveOccurred())
 
 			newKubevirtMachine := &infrav1.KubevirtMachine{}
-			err = kubevirtMachineReconciler.Client.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
+			err = kubevirtMachineReconciler.Get(machineContext, kubevirtMachineKey, newKubevirtMachine)
 			Expect(
 				err,
 			).To(Succeed())
@@ -823,7 +823,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Context("reconcileNormal", func() {
 			It("adds a failed VMProvisionedCondition with reason WaitingForControlPlaneAvailableReason when the control plane is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
+				delete(machine.Labels, clusterv1.MachineControlPlaneNameLabel)
 				conditions.MarkFalse(cluster, clusterv1.ControlPlaneInitializedCondition, "nonce", clusterv1.ConditionSeverityInfo, "")
 
 				objects := []client.Object{
@@ -848,7 +848,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 			})
 			It("adds a failed VMProvisionedCondition with reason WaitingForBootstrapDataReason when bootstrap data is not yet available", func() {
 				machine.Spec.Bootstrap.DataSecretName = nil
-				delete(machine.ObjectMeta.Labels, clusterv1.MachineControlPlaneNameLabel)
+				delete(machine.Labels, clusterv1.MachineControlPlaneNameLabel)
 				conditions.MarkTrue(cluster, clusterv1.ControlPlaneInitializedCondition)
 
 				objects := []client.Object{
@@ -892,7 +892,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(conditions[0].Reason).To(Equal(infrav1.WaitingForBootstrapDataReason))
 			})
 
-			It("adds a failed VMProvisionedCondition with reason VMCreateFailed when failng to create VM", func() {
+			It("adds a failed VMProvisionedCondition with reason VMCreateFailed when failing to create VM", func() {
 				objects := []client.Object{
 					cluster,
 					kubevirtCluster,
@@ -956,6 +956,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).Times(1)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1056,6 +1057,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1112,6 +1114,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
+				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(true, "", "", nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)

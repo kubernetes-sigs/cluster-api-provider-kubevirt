@@ -20,15 +20,13 @@ import (
 	"errors"
 	"net/http"
 
-	"k8s.io/apimachinery/pkg/runtime/serializer"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -67,7 +65,7 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			Entry("should return error if there is a change", &v1alpha1.KubevirtMachineTemplate{
 				Spec: v1alpha1.KubevirtMachineTemplateSpec{
 					Template: v1alpha1.KubevirtMachineTemplateResource{
-						Spec: v1alpha1.KubevirtMachineSpec{ProviderID: pointer.String("testing")},
+						Spec: v1alpha1.KubevirtMachineSpec{ProviderID: ptr.To("testing")},
 					},
 				},
 			}, errors.New(immutableWarning)),
@@ -150,7 +148,7 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			}
 
 			newTemplate := oldTemplate.DeepCopy()
-			newTemplate.Spec.Template.Spec.ProviderID = pointer.String("testing")
+			newTemplate.Spec.Template.Spec.ProviderID = ptr.To("testing")
 
 			req := newRequest(admissionv1.Update, oldTemplate, newTemplate, v1alpha1Codec)
 

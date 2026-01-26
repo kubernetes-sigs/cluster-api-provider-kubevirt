@@ -7,11 +7,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
 	. "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 var (
@@ -133,7 +133,7 @@ var _ = Describe("InfraCluster", func() {
 
 		fakeInfraClient := fake.NewClientBuilder().Build()
 		infraCluster := NewWithFactory(fakeClient, nil,
-			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
+			func(config *rest.Config, options client.Options) (client.Client, error) {
 				return fakeInfraClient, nil
 			},
 		)
@@ -164,7 +164,7 @@ var _ = Describe("InfraCluster", func() {
 
 		fakeInfraClient := fake.NewClientBuilder().Build()
 		infraCluster := NewWithFactory(fakeClient, nil,
-			func(config *rest.Config, options k8sclient.Options) (k8sclient.Client, error) {
+			func(config *rest.Config, options client.Options) (client.Client, error) {
 				return fakeInfraClient, nil
 			},
 		)

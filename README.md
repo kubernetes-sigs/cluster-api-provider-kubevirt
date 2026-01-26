@@ -33,7 +33,7 @@ We also encourage ALL active community participants to act as if they are mainta
 
 ### Other ways to communicate with the maintainers
 
-Please check in with us in the [#cluster-api-kubevirt](https://sigs.k8s.io/cluster-api-provider-kubevirt). You can also join our [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
+Please check in with us in the [#cluster-api-kubevirt](https://kubernetes.slack.com/archives/C02EBC8984E). You can also join our [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
 
 ## Github Issues
 

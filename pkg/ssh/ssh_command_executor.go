@@ -72,7 +72,12 @@ func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ssh: failed to create session, error: %s", err.Error())
 	}
-	defer session.Close()
+	defer func(session *ssh.Session) {
+		err := session.Close()
+		if err != nil {
+			fmt.Printf("ssh: failed to close session, error: %s", err.Error())
+		}
+	}(session)
 
 	var b bytes.Buffer
 	session.Stdout = &b

@@ -10,11 +10,12 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
+
 	context0 "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	kubevirt "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	ssh "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	workloadcluster "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
-	client "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MockMachineInterface is a mock of MachineInterface interface.
@@ -52,6 +53,20 @@ func (m *MockMachineInterface) Address() string {
 func (mr *MockMachineInterfaceMockRecorder) Address() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address", reflect.TypeOf((*MockMachineInterface)(nil).Address))
+}
+
+// Addresses mocks base method.
+func (m *MockMachineInterface) Addresses() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Addresses")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// Addresses indicates an expected call of Addresses.
+func (mr *MockMachineInterfaceMockRecorder) Addresses() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Addresses", reflect.TypeOf((*MockMachineInterface)(nil).Addresses))
 }
 
 // Create mocks base method.

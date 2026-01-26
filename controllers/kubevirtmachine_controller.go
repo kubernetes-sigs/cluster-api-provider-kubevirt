@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
@@ -29,12 +30,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	capierrors "sigs.k8s.io/cluster-api/errors"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
+	capierrors "sigs.k8s.io/cluster-api/errors"          //nolint SA1019
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
-	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
+	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"      //nolint SA1019
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -44,10 +45,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
-	kubevirthandler "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/ssh"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/workloadcluster"
 )
@@ -71,10 +72,11 @@ type KubevirtMachineReconciler struct {
 // Reconcile handles KubevirtMachine events.
 func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.Request) (_ ctrl.Result, rerr error) {
 	log := ctrl.LoggerFrom(goctx)
+	log.Info("Reconciling KubevirtMachine")
 
 	// Fetch the KubevirtMachine instance.
 	kubevirtMachine := &infrav1.KubevirtMachine{}
-	if err := r.Client.Get(goctx, req.NamespacedName, kubevirtMachine); err != nil {
+	if err := r.Get(goctx, req.NamespacedName, kubevirtMachine); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -82,7 +84,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Machine.
-	machine, err := util.GetOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
+	machine, err := capiv1beta1.GetOwnerMachine(goctx, r.Client, kubevirtMachine.ObjectMeta)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -94,7 +96,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	log = log.WithValues("machine", machine.Name)
 
 	// Handle deleted machines
-	if !kubevirtMachine.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !kubevirtMachine.DeletionTimestamp.IsZero() {
 		// Create the machine context for this request.
 		// Deletion shouldn't require the presence of a
 		// cluster or kubevirtcluster object as those objects
@@ -109,7 +111,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 	}
 
 	// Fetch the Cluster.
-	cluster, err := util.GetClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
+	cluster, err := capiv1beta1.GetClusterFromMetadata(goctx, r.Client, machine.ObjectMeta)
 	if err != nil {
 		log.Info("KubevirtMachine owner Machine is missing cluster label or cluster does not exist")
 		return ctrl.Result{}, err
@@ -127,7 +129,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 		Namespace: kubevirtMachine.Namespace,
 		Name:      cluster.Spec.InfrastructureRef.Name,
 	}
-	if err := r.Client.Get(goctx, kubevirtClusterName, kubevirtCluster); err != nil {
+	if err := r.Get(goctx, kubevirtClusterName, kubevirtCluster); err != nil {
 		log.Info("KubevirtCluster is not available yet")
 		return ctrl.Result{}, nil
 	}
@@ -189,7 +191,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	// Make sure bootstrap data is available and populated.
 	if ctx.Machine.Spec.Bootstrap.DataSecretName == nil {
-		if !util.IsControlPlaneMachine(ctx.Machine) && !conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
+		if !capiv1beta1.IsControlPlaneMachine(ctx.Machine) && !conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
 			ctx.Logger.Info("Waiting for the control plane to be initialized...")
 			conditions.MarkFalse(ctx.KubevirtMachine, infrav1.VMProvisionedCondition, clusterv1.WaitingForControlPlaneAvailableReason, clusterv1.ConditionSeverityInfo, "")
 			return ctrl.Result{}, nil
@@ -323,24 +325,35 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		ctx.Logger.Info("Underlying VM has boostrapped.")
 	}
 
-	ctx.KubevirtMachine.Status.Addresses = []clusterv1.MachineAddress{
+	// Build the machine addresses list with all IPs for dual-stack support
+	machineAddresses := []clusterv1.MachineAddress{
 		{
 			Type:    clusterv1.MachineHostName,
 			Address: ctx.KubevirtMachine.Name,
 		},
-		{
-			Type:    clusterv1.MachineInternalIP,
-			Address: ipAddress,
-		},
-		{
-			Type:    clusterv1.MachineExternalIP,
-			Address: ipAddress,
-		},
-		{
-			Type:    clusterv1.MachineInternalDNS,
-			Address: ctx.KubevirtMachine.Name,
-		},
 	}
+
+	// Add all IP addresses from the VMI interfaces (supports dual-stack IPv4/IPv6)
+	allAddresses := externalMachine.Addresses()
+	for _, addr := range allAddresses {
+		machineAddresses = append(machineAddresses,
+			clusterv1.MachineAddress{
+				Type:    clusterv1.MachineInternalIP,
+				Address: addr,
+			},
+			clusterv1.MachineAddress{
+				Type:    clusterv1.MachineExternalIP,
+				Address: addr,
+			},
+		)
+	}
+
+	machineAddresses = append(machineAddresses, clusterv1.MachineAddress{
+		Type:    clusterv1.MachineInternalDNS,
+		Address: ctx.KubevirtMachine.Name,
+	})
+
+	ctx.KubevirtMachine.Status.Addresses = machineAddresses
 
 	if ctx.KubevirtMachine.Spec.ProviderID == nil || *ctx.KubevirtMachine.Spec.ProviderID == "" {
 		providerID, err := externalMachine.GenerateProviderID()
@@ -465,7 +478,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	}
 
 	ctx.Logger.Info("Deleting VM...")
-	externalMachine, err := kubevirthandler.NewMachine(ctx, infraClusterClient, vmNamespace, nil)
+	externalMachine, err := kubevirt.NewMachine(ctx, infraClusterClient, vmNamespace, nil)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to create helper for externalMachine access")
 	}
@@ -492,7 +505,7 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 }
 
 // SetupWithManager will add watches for this controller.
-func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mgr ctrl.Manager, options controller.Options) error {
+func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mgr ctrl.Manager, options controller.Options, logger logr.Logger) error {
 	clusterToKubevirtMachines, err := util.ClusterToTypedObjectsMapper(mgr.GetClient(), &infrav1.KubevirtMachineList{}, mgr.GetScheme())
 	if err != nil {
 		return err
@@ -513,7 +526,7 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
-			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureReady(r.Scheme(), ctrl.LoggerFrom(goctx))),
+			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
 		).
 		Complete(r)
 }
@@ -527,7 +540,7 @@ func (r *KubevirtMachineReconciler) KubevirtClusterToKubevirtMachines(ctx gocont
 		panic(fmt.Sprintf("Expected a KubevirtCluster but got a %T", o))
 	}
 
-	cluster, err := util.GetOwnerCluster(ctx, r.Client, c.ObjectMeta)
+	cluster, err := capiv1beta1.GetOwnerCluster(ctx, r.Client, c.ObjectMeta)
 	switch {
 	case apierrors.IsNotFound(err) || cluster == nil:
 		return result
@@ -537,7 +550,7 @@ func (r *KubevirtMachineReconciler) KubevirtClusterToKubevirtMachines(ctx gocont
 
 	labels := map[string]string{clusterv1.ClusterNameLabel: cluster.Name}
 	machineList := &clusterv1.MachineList{}
-	if err := r.Client.List(ctx, machineList, client.InNamespace(c.Namespace), client.MatchingLabels(labels)); err != nil {
+	if err := r.List(ctx, machineList, client.InNamespace(c.Namespace), client.MatchingLabels(labels)); err != nil {
 		return nil
 	}
 	for _, m := range machineList.Items {
@@ -559,7 +572,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	s := &corev1.Secret{}
 	key := client.ObjectKey{Namespace: ctx.Machine.GetNamespace(), Name: *ctx.Machine.Spec.Bootstrap.DataSecretName}
-	if err := r.Client.Get(ctx, key, s); err != nil {
+	if err := r.Get(ctx, key, s); err != nil {
 		return errors.Wrapf(err, "failed to retrieve bootstrap data secret for KubevirtMachine %s/%s", ctx.Machine.GetNamespace(), ctx.Machine.GetName())
 	}
 
@@ -570,11 +583,8 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	if sshKeys != nil {
 		var err error
-		var modified bool
-		if value, modified, err = addCapkUserToCloudInitConfig(value, sshKeys.PublicKey); err != nil {
+		if value, _, err = addCapkUserToCloudInitConfig(value, sshKeys.PublicKey); err != nil {
 			return errors.Wrapf(err, "failed to add capk user to KubevirtMachine %s/%s userdata", ctx.Machine.GetNamespace(), ctx.Machine.GetName())
-		} else if modified {
-			ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
 		}
 	}
 
@@ -587,7 +597,7 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	}
 	ctx.BootstrapDataSecret = newBootstrapDataSecret
 
-	_, err := controllerutil.CreateOrUpdate(ctx, infraClusterClient, newBootstrapDataSecret, func() error {
+	res, err := controllerutil.CreateOrUpdate(ctx, infraClusterClient, newBootstrapDataSecret, func() error {
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
@@ -598,6 +608,13 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	if err != nil {
 		return errors.Wrapf(err, "failed to create kubevirt bootstrap secret for cluster")
+	}
+
+	switch res {
+	case controllerutil.OperationResultCreated:
+		ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
+	case controllerutil.OperationResultUpdated:
+		ctx.Logger.Info("Updated capk user with ssh config to bootstrap userdata")
 	}
 
 	return nil
