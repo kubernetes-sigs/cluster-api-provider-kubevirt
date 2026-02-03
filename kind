@@ -1,0 +1,415 @@
+#!/bin/bash
+
+set -e
+
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.33}
+export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.34.1}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2509250927-f5abd488}
+export KUBEVIRT_DEPLOY_PROMETHEUS=false
+export KUBEVIRT_DEPLOY_CDI=false
+export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
+export KUBEVIRT_MEMORY_SIZE=${KUBEVIRT_MEMORY_SIZE:-15360M}
+export KUBEVIRT_DEPLOY_CDI="true"
+export METALLB_VERSION="v0.15.2"
+export CAPK_RELEASE_VERSION="v0.1.10"
+export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm-localnet.yaml}
+export CLUSTERCTL_VERSION="$(curl https://api.github.com/repos/kubernetes-sigs/cluster-api/releases/latest | jq -r .name)"
+export CALICO_VERSION="v3.29.1"
+export KUBEVIRT_VERSION="v1.6.1"
+export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2404-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
+export KUBEVIRT_FLANNEL=true
+
+KUBEVIRTCI_REPO='https://github.com/kubevirt/kubevirtci.git'
+KUBEVIRTCI_PATH="${PWD}/.kubevirtci/"
+
+_default_bin_path=./hack/tools/bin
+_default_tmp_path=./hack/tools/bin/tmp
+_default_clusterctl_path=./hack/tools/bin/clusterctl
+_default_virtctl_path=./hack/tools/bin/virtctl
+
+export CLUSTERCTL_PATH=${CLUSTERCTL_PATH:-${_default_clusterctl_path}}
+export TENANT_CLUSTER_NAME=${TENANT_CLUSTER_NAME:-kvcluster}
+export TENANT_CLUSTER_NAMESPACE=${TENANT_CLUSTER_NAMESPACE:-kvcluster}
+
+#_kubectl=${KUBEVIRTCI_PATH}/cluster-up/kubectl.sh
+_kubectl=kubectl
+#_ssh_infra=${KUBEVIRTCI_PATH}/cluster-up/ssh.sh
+_ssh_infra=ssh
+
+_action=$1
+shift
+
+
+function kind::usage() {
+	echo "Usage:
+
+	./kubevirtci <cammand>
+
+	Commands:
+
+	  up                                Start a cluster with kubevirt, cert-manager and capi
+	  sync                              Build and deploy current capk from source (must be executed from within capk source tree)
+	  down                              Destroy the cluster
+	  refresh                           Build current capk and trigger creating new capk pods
+	  clean-cache                       Removes all files cached by kubevirtci
+
+	  kubeconfig                        Return the kubeconfig of the cluster
+	  kubectl <kubectl options>         Interact with the cluster
+	  kubectl-tenant <kubectl options>  Interact with the tenant cluster
+	  virtctl <virtctl options>         Run virtctl commands against the cluster
+	  clusterctl <clusterctl options>   Run clusterctl commands against the cluster
+
+	  install-capk                      Installs capk from published release manifests
+	  install-metallb                   Installs metallb into the infra cluster
+	  install-calico                    Installs calico cni into tenant cluster
+	  curl-lb <lb name> [lb namespace]  Curls lb service within infra cluster
+
+	  ssh-infra <node name>             SSH into one of the infra nodes (like node01)
+	  ssh-tenant <vmi> [vmi namespace]  SSH into one of the guest nodes
+	  create-cluster                    Create new kubernetes tenant cluster
+	  create-external-cluster           Create new kubernetes tenant cluster simulated as running on external infra
+	  destroy-cluster                   Destroy the tenant cluster and resources
+	  help                              Print usage
+	"
+}
+
+function kind::kubeconfig() {
+	${KUBEVIRTCI_PATH}/cluster-up/kubeconfig.sh
+}
+
+function kind::_get_repo() {
+	git --git-dir "${KUBEVIRTCI_PATH}/.git" remote get-url origin
+}
+
+function kind::_get_tag() {
+	git -C ${KUBEVIRTCI_PATH} describe --tags
+}
+
+function kind::ensure() {
+	kind::ensure_tools
+}
+
+
+function kind::ensure_tools() {
+	mkdir -p ./hack/tools/bin/
+	if [ ! -f "${_default_clusterctl_path}" ]; then
+		echo >&2 "Downloading clusterctl version ${CLUSTERCTL_VERSION}..."
+		curl -L https://github.com/kubernetes-sigs/cluster-api/releases/download/${CLUSTERCTL_VERSION}/clusterctl-linux-amd64 -o ${_default_clusterctl_path}
+		chmod u+x ${_default_clusterctl_path}
+	fi
+	if [ ! -f "${_default_virtctl_path}" ]; then
+		echo >&2 "Downloading virtctl ..."
+		curl -L https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-amd64 -o ${_default_virtctl_path}
+		chmod u+x ${_default_virtctl_path}
+	fi
+}
+
+function kind::setup() {
+	echo "installing capi..."
+	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
+---
+cert-manager:
+  url: "https://github.com/cert-manager/cert-manager/releases/v1.16.2/cert-manager.yaml"
+EOF
+	$CLUSTERCTL_PATH init -v 4 --config=${_default_bin_path}/clusterctl_config.yaml
+}
+
+function kind::down() {
+	"${KUBEVIRTCI_PATH}/cluster-up/down.sh"
+}
+
+function kind::build() {
+	make REGISTRY=localhost:5000 docker-build docker-push
+}
+
+function kind::ssh_tenant() {
+	vmi_name=$1
+	vmi_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	mkdir -p $_default_tmp_path
+
+	echo "vmi $vmi_name namespace $vmi_namespace"
+
+	${_kubectl} get secret -n $TENANT_CLUSTER_NAMESPACE kvcluster-ssh-keys -o jsonpath='{.data}' | grep key | awk -F '"' '{print $4}' | base64 -d > ${_default_tmp_path}/key.pem
+
+	chmod 600 ${_default_tmp_path}/key.pem
+
+	ssh -o IdentitiesOnly=yes -o "ProxyCommand=$_default_virtctl_path port-forward --stdio=true $vmi_name.$vmi_namespace 22" capk@$vmi_name.$vmi_namespace -i ${_default_tmp_path}/key.pem
+
+	rm ${_default_tmp_path}/key.pem
+}
+
+function kind::refresh() {
+	${_kubectl} delete pods --all -n capk-system
+}
+
+function kind::install() {
+	export MANIFEST_IMG="localhost:5000/capk-manager-amd64"
+	export MANIFEST_TAG="dev"
+	make generate-manifests
+	${_kubectl} kustomize config/default| ${_kubectl} delete -f - || true
+	${_kubectl} kustomize config/default| ${_kubectl} apply -f -
+	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
+}
+
+function kind::generate_kubeconfig() {
+        make clusterkubevirtadm-linux
+        bin/clusterkubevirtadm-linux-amd64 apply credentials --namespace ${TENANT_CLUSTER_NAMESPACE} 
+        bin/clusterkubevirtadm-linux-amd64 get kubeconfig --namespace=${TENANT_CLUSTER_NAMESPACE} --output-kubeconfig=kubeconfig-e2e
+        sed -i -r 's/127.0.0.1:[0-9]+/192.168.66.101:6443/g' kubeconfig-e2e
+}
+
+function kind::destroy_cluster() {
+	${_kubectl} delete cluster -n ${TENANT_CLUSTER_NAMESPACE} ${TENANT_CLUSTER_NAME} --ignore-not-found
+}
+
+
+function kind::create_cluster() {
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+	template=templates/${CAPK_TEMPLATE}
+
+	if [ ! -f $template ]; then
+		template="https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/blob/main/templates/cluster-template.yaml"
+	fi
+
+	echo "Using cluster template $template"
+
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from $template | ${_kubectl} apply -f -
+
+	echo "Wait for tenant cluster to be ready"
+	${_kubectl} wait cluster -n kvcluster kvcluster --for=condition=Ready --timeout=5m
+
+	echo "Wait for tenant cluster kubernetes apiserver up"
+	kind::retry_until_success kind::kubectl_tenant get pods -n kube-system
+
+	echo "Waiting for worker VM in tenant cluster namespace"
+	kind::retry_until_success kind::vm_matches "${TENANT_CLUSTER_NAME}-md-"
+}
+
+
+function kind::create_external_cluster() {
+	export CRI_PATH="/var/run/containerd/containerd.sock"
+
+	${_kubectl} delete secret external-infra-kubeconfig -n capk-system --ignore-not-found
+	${_kubectl} create secret generic external-infra-kubeconfig -n capk-system --from-file=kubeconfig=kubeconfig-e2e --from-literal=namespace=${TENANT_CLUSTER_NAMESPACE}
+	$CLUSTERCTL_PATH generate cluster ${TENANT_CLUSTER_NAME} --target-namespace ${TENANT_CLUSTER_NAMESPACE} --kubernetes-version ${TENANT_CLUSTER_KUBERNETES_VERSION} --control-plane-machine-count=1 --worker-machine-count=1 --from templates/cluster-template-ext-infra-kccm.yaml | ${_kubectl} apply -f -
+}
+
+function kind::create_tenant_namespace {
+	${_kubectl} apply -f - <<EOF
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TENANT_CLUSTER_NAMESPACE}
+EOF
+}
+
+function kind::install_capk_release {
+	${_kubectl} apply -f https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/releases/download/${CAPK_RELEASE_VERSION}/infrastructure-components.yaml
+
+	${_kubectl} wait -n capk-system --for=condition=Available=true deployment/capk-controller-manager --timeout=10m
+
+	echo "capk release $CAPK_RELEASE_VERSION installed!"
+}
+
+
+function kind::install_calico {
+	kind::kubectl_tenant apply -f https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml
+	echo "Waiting for calico pods rollout"
+	kind::kubectl_tenant rollout status ds/calico-node -n kube-system --timeout=2m
+
+}
+
+function kind::install_metallb {
+	${_kubectl} apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/config/manifests/metallb-native.yaml
+
+	echo "waiting for metallb to come online"
+	${_kubectl} -n metallb-system wait deployment controller --for condition=Available --timeout=5m
+
+	${_kubectl} apply -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  addresses:
+  - 192.168.111.30-192.168.111.50
+EOF
+
+	${_kubectl} create -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: l2advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+   - metallb
+EOF
+
+	echo "metallb installed!"
+}
+
+function kind::curl_lb {
+	mkdir -p ${_default_tmp_path}
+	job_yaml=${_default_tmp_path}/curl-test-pod.yaml
+	if [ -f ${job_yaml} ]; then
+		${_kubectl} delete -f ${job_yaml} --ignore-not-found
+	fi
+
+	lb_name=$1
+	lb_namespace=${2:-$TENANT_CLUSTER_NAMESPACE}
+
+	$_kubectl get service $lb_name -n $lb_namespace
+
+	lb_ip=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "ip:" | awk '{print $3}')
+	lb_port=$($_kubectl get service $lb_name -n $lb_namespace -o yaml | grep "port:" | awk '{print $2}')
+
+
+	cat << EOF > $job_yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: curl-test-job
+  namespace: ${lb_namespace}
+spec:
+  template:
+    spec:
+      containers:
+      - name: fedora
+        image: fedora:35
+        command:
+          - curl
+          - "${lb_ip}:${lb_port}"
+      restartPolicy: Never
+  backoffLimit: 4
+EOF
+
+	${_kubectl} create -f $job_yaml
+	echo "-----------Waiting for curl job to complete"
+	${_kubectl} wait job curl-test-job -n ${lb_namespace} --for condition=Complete --timeout=5m
+
+	pod_name=$($_kubectl get pods -n ${lb_namespace} --selector=job-name=curl-test-job --output=jsonpath='{.items[*].metadata.name}')
+
+	echo "-----------CURL LOG FOR POD $pod_name"
+	$_kubectl logs -n ${lb_namespace} $pod_name 2>/dev/null
+
+	${_kubectl} delete -f ${job_yaml} --ignore-not-found > /dev/null 2>&1
+}
+
+
+function kind::kubectl_tenant {
+    vms_list=$(${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name")
+    for vm in $vms_list
+    do
+	if [[ "$vm" == ${TENANT_CLUSTER_NAME}-control-plane* ]]; then
+            control_plane_vm_name=$vm
+	fi
+    done
+    if [ -n "${control_plane_vm_name}" ]; then
+  	echo "Found control plane VM: ${control_plane_vm_name} in namespace ${TENANT_CLUSTER_NAMESPACE}"
+    else
+  	echo "control-plane vm is not found in namespace ${TENANT_CLUSTER_NAMESPACE} (looking for regex ${TENANT_CLUSTER_NAME}-control-plane*)"
+	exit 1
+    fi
+    ${_default_virtctl_path} port-forward -n ${TENANT_CLUSTER_NAMESPACE} vm/${control_plane_vm_name} 64443:6443 > /dev/null 2>&1 &
+    trap 'kill $(jobs -p) > /dev/null 2>&1' EXIT
+    rm -f .${TENANT_CLUSTER_NAME}-kubeconfig
+    $CLUSTERCTL_PATH get kubeconfig ${TENANT_CLUSTER_NAME} -n ${TENANT_CLUSTER_NAMESPACE} > .${TENANT_CLUSTER_NAME}-kubeconfig
+    sleep 0.1
+    kubectl --kubeconfig .${TENANT_CLUSTER_NAME}-kubeconfig --insecure-skip-tls-verify --server https://localhost:64443 "$@"
+}
+
+function kind::retry_until_success {
+    local timeout=30
+    local interval=1
+    until $@; do
+        ((timeout--)) && ((timeout==0)) && echo "condition not met" && exit 1
+        echo "waiting for \"$@\""
+        sleep $interval 
+    done
+}
+
+function kind::vm_matches {
+    local vm_name=$1
+    ${_kubectl} get vm -n ${TENANT_CLUSTER_NAMESPACE} --no-headers -o custom-columns=":metadata.name" | grep -q $vm_name
+}
+
+kind::ensure
+
+case ${_action} in
+"setup")
+	kind::setup
+	;;
+"refresh")
+	kind::build
+	kind::refresh
+	;;
+"sync")
+	kind::build
+	kind::install
+	;;
+"install-capk")
+	kind::install_capk_release
+	;;
+"install-metallb")
+	kind::install_metallb
+	;;
+"install-calico")
+	kind::install_calico
+	;;
+"curl-lb")
+	kind::curl_lb "$@"
+	;;
+"kubeconfig")
+	kind::kubeconfig
+	;;
+"kubectl")
+	${_kubectl} "$@"
+	;;
+"kubectl-tenant")
+	kind::kubectl_tenant "$@"
+	;;
+"virtctl")
+	${_default_virtctl_path} "$@"
+	;;
+"ssh-infra")
+	$_ssh_infra "$@"
+	;;
+"ssh-tenant")
+	kind::ssh_tenant "$@"
+	;;
+"clusterctl")
+	$CLUSTERCTL_PATH "$@"
+	;;
+"create-cluster")
+	kind::create_tenant_namespace
+	kind::create_cluster
+	;;
+"create-external-cluster")
+	kind::create_tenant_namespace
+	kind::generate_kubeconfig
+	kind::create_external_cluster
+	;;
+"destroy-cluster")
+	kind::destroy_cluster
+	;;
+
+"clean-cache")
+	rm ${_default_clusterctl_path}
+	rm ${_default_virtctl_path}
+	rm -rf ${_default_tmp_path}
+	;;
+"help")
+	kind::usage
+	;;
+*)
+	echo "Error: Unknown kubevirtci command"
+	echo ""
+	kind::usage
+	exit 1
+	;;
+esac
