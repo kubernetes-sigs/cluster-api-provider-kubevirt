@@ -54,6 +54,20 @@ func (mr *MockMachineInterfaceMockRecorder) Address() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address", reflect.TypeOf((*MockMachineInterface)(nil).Address))
 }
 
+// Addresses mocks base method.
+func (m *MockMachineInterface) Addresses() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Addresses")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// Addresses indicates an expected call of Addresses.
+func (mr *MockMachineInterfaceMockRecorder) Addresses() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Addresses", reflect.TypeOf((*MockMachineInterface)(nil).Addresses))
+}
+
 // Create mocks base method.
 func (m *MockMachineInterface) Create(ctx context.Context) error {
 	m.ctrl.T.Helper()
