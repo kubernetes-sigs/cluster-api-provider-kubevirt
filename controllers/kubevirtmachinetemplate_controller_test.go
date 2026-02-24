@@ -51,13 +51,13 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
-		It("should update status.capacity based on the VM template", func() {
-			_, err := reconciler.Reconcile(context.TODO(), req)
+		It("should update status.capacity based on the VM template", func(ctx context.Context) {
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Read the object back and assert status.capacity was updated
 			updated := &infrav1.KubevirtMachineTemplate{}
-			Expect(fakeClient.Get(context.TODO(), types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
 			expected := corev1.ResourceList{corev1.ResourceCPU: *resource.NewQuantity(2, resource.DecimalSI)}
 			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))
@@ -79,12 +79,12 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
-		It("should not error and should leave status.capacity empty", func() {
-			_, err := reconciler.Reconcile(context.TODO(), req)
+		It("should not error and should leave status.capacity empty", func(ctx context.Context) {
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &infrav1.KubevirtMachineTemplate{}
-			Expect(fakeClient.Get(context.TODO(), types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 			Expect(updated.Status.Capacity).To(BeEmpty())
 		})
 	})
@@ -103,12 +103,12 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
-		It("should derive capacity from requests", func() {
-			_, err := reconciler.Reconcile(context.TODO(), req)
+		It("should derive capacity from requests", func(ctx context.Context) {
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &infrav1.KubevirtMachineTemplate{}
-			Expect(fakeClient.Get(context.TODO(), types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
 			expected := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("4Gi")}
 			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))
@@ -130,13 +130,13 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
-		It("should be idempotent and leave status unchanged", func() {
+		It("should be idempotent and leave status unchanged", func(ctx context.Context) {
 			// Run reconcile; it should succeed and not change the capacity (remains equal)
-			_, err := reconciler.Reconcile(context.TODO(), req)
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &infrav1.KubevirtMachineTemplate{}
-			Expect(fakeClient.Get(context.TODO(), types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 			Expect(updated.Status.Capacity).To(HaveLen(1))
 			av, ok := updated.Status.Capacity[corev1.ResourceCPU]
 			Expect(ok).To(BeTrue())
@@ -159,12 +159,12 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
-		It("should derive capacity from limits as a final fallback", func() {
-			_, err := reconciler.Reconcile(context.TODO(), req)
+		It("should derive capacity from limits as a final fallback", func(ctx context.Context) {
+			_, err := reconciler.Reconcile(ctx, req)
 			Expect(err).NotTo(HaveOccurred())
 
 			updated := &infrav1.KubevirtMachineTemplate{}
-			Expect(fakeClient.Get(context.TODO(), types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
 			expected := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourceMemory: resource.MustParse("6Gi")}
 			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))

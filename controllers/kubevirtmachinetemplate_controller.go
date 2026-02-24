@@ -46,11 +46,14 @@ type KubevirtMachineTemplateReconciler struct {
 // Reconcile handles KubevirtMachineTemplate events and updates the status.capacity field
 // based on the VM template's resource specifications.
 func (r *KubevirtMachineTemplateReconciler) Reconcile(ctx gocontext.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("kubevirtmachinetemplate", req.NamespacedName)
+	log := ctrl.LoggerFrom(ctx).WithValues("kubevirtmachinetemplate", req.NamespacedName)
 
 	// Fetch the KubevirtMachineTemplate instance
 	var machineTemplate infrav1.KubevirtMachineTemplate
 	if err := r.Get(ctx, req.NamespacedName, &machineTemplate); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		log.Error(err, "unable to fetch KubevirtMachineTemplate")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -61,11 +64,7 @@ func (r *KubevirtMachineTemplateReconciler) Reconcile(ctx gocontext.Context, req
 	}
 
 	// Extract capacity information from the VM template
-	capacity, err := r.extractCapacity(machineTemplate)
-	if err != nil {
-		log.Error(err, "Failed to extract capacity information")
-		return ctrl.Result{}, err
-	}
+	capacity := r.extractCapacity(machineTemplate)
 
 	// Check if the status needs to be updated. Use our capacityEqual to correctly compare Quantity.
 	if !reflect.DeepEqual(machineTemplate.Status.Capacity, capacity) {
@@ -87,18 +86,29 @@ func (r *KubevirtMachineTemplateReconciler) Reconcile(ctx gocontext.Context, req
 // 1. spec.template.spec.virtualMachineTemplate.spec.template.spec.domain.cpu (cores * sockets * threads) (priority for CPU)
 // 2. spec.template.spec.virtualMachineTemplate.spec.template.spec.domain.resources.requests (memory, cpu fallback)
 // 3. spec.template.spec.virtualMachineTemplate.spec.template.spec.domain.memory.guest (if memory not in resources)
-func (r *KubevirtMachineTemplateReconciler) extractCapacity(mt infrav1.KubevirtMachineTemplate) (corev1.ResourceList, error) {
+func (r *KubevirtMachineTemplateReconciler) extractCapacity(mt infrav1.KubevirtMachineTemplate) corev1.ResourceList {
+	vmTemplate := mt.Spec.Template.Spec.VirtualMachineTemplate
 	capacity := make(corev1.ResourceList)
 
-	vmTemplate := mt.Spec.Template.Spec.VirtualMachineTemplate
-	if vmTemplate.Spec.Template == nil {
-		return capacity, nil
+	if cpu := r.extractCPUCapacity(vmTemplate); cpu != nil {
+		capacity[corev1.ResourceCPU] = *cpu
 	}
 
+	if mem := r.extractMemoryCapacity(vmTemplate); mem != nil {
+		capacity[corev1.ResourceMemory] = *mem
+	}
+
+	return capacity
+}
+
+func (r *KubevirtMachineTemplateReconciler) extractCPUCapacity(vmTemplate infrav1.VirtualMachineTemplateSpec) *resource.Quantity {
+	if vmTemplate.Spec.Template == nil {
+		return nil
+	}
 	domain := vmTemplate.Spec.Template.Spec.Domain
 
 	// Extract CPU capacity
-	// Priority: domain.cpu (cores * sockets * threads) > domain.resources.requests.cpu
+	// Priority: domain.cpu (cores * sockets * threads) > domain.resources.requests.cpu > domain.resources.limits.cpu
 	if domain.CPU != nil {
 		cores := uint32(1)
 		if domain.CPU.Cores > 0 {
@@ -113,47 +123,49 @@ func (r *KubevirtMachineTemplateReconciler) extractCapacity(mt infrav1.KubevirtM
 			threads = domain.CPU.Threads
 		}
 		vcpus := cores * sockets * threads
-		capacity[corev1.ResourceCPU] = *resource.NewQuantity(int64(vcpus), resource.DecimalSI)
+		return resource.NewQuantity(int64(vcpus), resource.DecimalSI)
 	}
 
-	// If CPU not found in cpu struct, try to derive from resources.requests.cpu
-	if _, ok := capacity[corev1.ResourceCPU]; !ok {
-		if domain.Resources.Requests != nil {
-			if cpu, ok := domain.Resources.Requests[corev1.ResourceCPU]; ok {
-				capacity[corev1.ResourceCPU] = cpu
-			}
+	if domain.Resources.Requests != nil {
+		if cpu, ok := domain.Resources.Requests[corev1.ResourceCPU]; ok {
+			return &cpu
 		}
 	}
+
+	if domain.Resources.Limits != nil {
+		if cpu, ok := domain.Resources.Limits[corev1.ResourceCPU]; ok {
+			return &cpu
+		}
+	}
+
+	return nil
+}
+
+func (r *KubevirtMachineTemplateReconciler) extractMemoryCapacity(vmTemplate infrav1.VirtualMachineTemplateSpec) *resource.Quantity {
+	if vmTemplate.Spec.Template == nil {
+		return nil
+	}
+	domain := vmTemplate.Spec.Template.Spec.Domain
 
 	// Extract Memory capacity
-	// Priority: domain.resources.requests.memory > domain.memory.guest
+	// Priority: domain.resources.requests.memory > domain.memory.guest > domain.resources.limits.memory
 	if domain.Resources.Requests != nil {
 		if mem, ok := domain.Resources.Requests[corev1.ResourceMemory]; ok {
-			capacity[corev1.ResourceMemory] = mem
-		}
-	}
-	// If memory not found in resources, try to derive from domain.memory.guest
-	if _, ok := capacity[corev1.ResourceMemory]; !ok {
-		if domain.Memory != nil && domain.Memory.Guest != nil {
-			capacity[corev1.ResourceMemory] = *domain.Memory.Guest
+			return &mem
 		}
 	}
 
-	// Final fallback: try to extract CPU and Memory from limits if not defined in requests or domain struct
+	if domain.Memory != nil && domain.Memory.Guest != nil {
+		return domain.Memory.Guest
+	}
+
 	if domain.Resources.Limits != nil {
-		if _, ok := capacity[corev1.ResourceCPU]; !ok {
-			if cpu, ok := domain.Resources.Limits[corev1.ResourceCPU]; ok {
-				capacity[corev1.ResourceCPU] = cpu
-			}
-		}
-		if _, ok := capacity[corev1.ResourceMemory]; !ok {
-			if mem, ok := domain.Resources.Limits[corev1.ResourceMemory]; ok {
-				capacity[corev1.ResourceMemory] = mem
-			}
+		if mem, ok := domain.Resources.Limits[corev1.ResourceMemory]; ok {
+			return &mem
 		}
 	}
 
-	return capacity, nil
+	return nil
 }
 
 // SetupWithManager will add watches for this controller.
