@@ -148,15 +148,15 @@ func (r *KubevirtMachineTemplateReconciler) extractMemoryCapacity(vmTemplate inf
 	domain := vmTemplate.Spec.Template.Spec.Domain
 
 	// Extract Memory capacity
-	// Priority: domain.resources.requests.memory > domain.memory.guest > domain.resources.limits.memory
+	// Priority: domain.memory.guest > domain.resources.requests.memory > domain.resources.limits.memory
+	if domain.Memory != nil && domain.Memory.Guest != nil {
+		return domain.Memory.Guest
+	}
+
 	if domain.Resources.Requests != nil {
 		if mem, ok := domain.Resources.Requests[corev1.ResourceMemory]; ok {
 			return &mem
 		}
-	}
-
-	if domain.Memory != nil && domain.Memory.Guest != nil {
-		return domain.Memory.Guest
 	}
 
 	if domain.Resources.Limits != nil {
