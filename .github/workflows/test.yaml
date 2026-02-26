@@ -36,6 +36,7 @@ jobs:
         mkdir -p coverprofiles
         make test
     - name: Push to coveralls.io
+      continue-on-error: true
       env:
         COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |-

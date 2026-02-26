@@ -795,6 +795,9 @@ var _ = Describe("CreateCluster", func() {
 		By("wait for a VMI to be marked for deletion")
 		waitForVMIDraining(ctx, k8sclient, vmiName, namespace)
 
+		By("Verify the guest node was cordoned (drained) before VMI deletion")
+		waitForNodeCordoned(ctx, clientSet, vmiName)
+
 		By("remove the test finalizer")
 		removeFinalizerFromVMI(ctx, k8sclient, recreatedVMI)
 
@@ -871,6 +874,18 @@ func waitForVMIDraining(ctx context.Context, k8sclient client.Client, vmiName, n
 
 		g.Expect(vmi.Status.EvacuationNodeName).ShouldNot(BeEmpty())
 		g.Expect(vmi.DeletionTimestamp).ShouldNot(BeNil())
+	}).WithOffset(1).
+		WithTimeout(time.Minute * 5).
+		WithPolling(time.Second * 5).
+		Should(Succeed())
+}
+
+func waitForNodeCordoned(ctx context.Context, cl *kubernetes.Clientset, nodeName string) {
+	By("wait for guest node to be cordoned")
+	Eventually(func(g Gomega) {
+		node, err := cl.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(node.Spec.Unschedulable).To(BeTrueBecause("expected guest node %q to be cordoned (unschedulable)", nodeName))
 	}).WithOffset(1).
 		WithTimeout(time.Minute * 5).
 		WithPolling(time.Second * 5).
