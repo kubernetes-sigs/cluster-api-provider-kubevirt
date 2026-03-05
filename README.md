@@ -10,13 +10,13 @@ The [Cluster API](https://github.com/kubernetes-sigs/cluster-api) brings declara
 
 ## Quick Start
 
-Checkout our [Cluster API Quick Start](https://cluster-api.sigs.k8s.io/user/quick-start.html) to create your first Kubernetes cluster.
+Check out our [Cluster API Quick Start](https://cluster-api.sigs.k8s.io/user/quick-start.html) to create your first Kubernetes cluster.
 
 ## Getting Involved and Contributing
 
 Are you interested in contributing to cluster-api-provider-kubevirt? We, the maintainers and the community, would love your suggestions, support and contributions! The maintainers of the project can be contacted anytime to learn about how to get involved.
 
-In the interest of getting new people involved have issues marked as [`good-first-issues`](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/labels/good%20first%20issue). Although the issues have a smaller scope but are very helpful in getting accquintated with the codebase. For more see the [issue tracker](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues?q=is%3Aissue+is%3Aopen). If you're unsure where to start, feel free to reach out to discuss.
+In the interest of getting new people involved, we have issues marked as [`good-first-issues`](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/labels/good%20first%20issue). Although the issues have a smaller scope, they are very helpful in getting acquainted with the codebase. For more see the [issue tracker](https://github.com/kubernetes-sigs/cluster-api-provider-kubevirt/issues?q=is%3Aissue+is%3Aopen). If you're unsure where to start, feel free to reach out to discuss.
 
 See also: Our own [contributor guide](CONTRIBUTING.md) and the Kubernetes [community page](https://kubernetes.io/community).
 
@@ -24,7 +24,7 @@ We also encourage ALL active community participants to act as if they are mainta
 
 ### Office hours
 
-- Join the [SIG Cluster Lifecycle](https://groups.google.com/g/kubernetes-sig-cluster-lifecycle) Google Group to documents and calendar.
+- Join the [SIG Cluster Lifecycle](https://groups.google.com/g/kubernetes-sig-cluster-lifecycle) Google Group for documents and calendar.
 - Participate in the conversations on [Kubernetes Discuss](https://discuss.kubernetes.io/c/contributors/cluster-api/23)
 
 - **Meetings:**
@@ -47,7 +47,7 @@ If you think you have found a bug please follow the instruction below.
 - Remember users might be searching the issue in the future, so please make sure to give it a meaningful title to help others.
 - Feel free to reach out to the community on slack.
 
-### Tracking new feature
+### Tracking new features
 
 We also have an issue tracker to track features. If you think you have a feature idea, that could make Cluster API provider Kubevirt become even more awesome, then follow these steps.
 
