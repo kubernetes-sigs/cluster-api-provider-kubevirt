@@ -192,7 +192,7 @@ spec:
     spec:
       joinConfiguration:
         nodeRegistration:
-          kubeletExtraArgs: {}
+          criSocket: /var/run/containerd/containerd.sock
       files: []
       format: ignition
       ignition:
