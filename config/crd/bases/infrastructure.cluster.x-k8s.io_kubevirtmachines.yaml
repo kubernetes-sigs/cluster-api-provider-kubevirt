@@ -286,7 +286,7 @@ spec:
                                     resources:
                                       description: |-
                                         resources represents the minimum resources the volume should have.
-                                        If RecoverVolumeExpansionFailure feature is enabled users are allowed to specify resource requirements
+                                        Users are allowed to specify resource requirements
                                         that are lower than previous value but must still be higher than capacity recorded in the
                                         status field of the claim.
                                         More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
@@ -880,6 +880,12 @@ spec:
                         description: |-
                           Running state indicates the requested running state of the VirtualMachineInstance
                           mutually exclusive with Running
+                          Following are allowed values:
+                          - "Always": VMI should always be running.
+                          - "Halted": VMI should never be running.
+                          - "Manual": VMI can be started/stopped using API endpoints.
+                          - "RerunOnFailure": VMI will initially be running and restarted if a failure occurs, but will not be restarted upon successful completion.
+                          - "Once": VMI will run once and not be restarted upon completion regardless if the completion is of phase Failure or Success.
                         type: string
                       running:
                         description: |-
@@ -3787,9 +3793,10 @@ spec:
                                     operator:
                                       description: |-
                                         Operator represents a key's relationship to the value.
-                                        Valid operators are Exists and Equal. Defaults to Equal.
+                                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                                         Exists is equivalent to wildcard for value, so that a pod can
                                         tolerate all taints of a particular category.
+                                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                                       type: string
                                     tolerationSeconds:
                                       description: |-
