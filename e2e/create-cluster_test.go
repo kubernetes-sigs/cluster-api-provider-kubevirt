@@ -33,7 +33,7 @@ import (
 
 const (
 	testFinalizer      = "infrastructure.cluster.x-k8s.io/holdForTestFinalizer"
-	calicoManifestsUrl = "https://raw.githubusercontent.com/projectcalico/calico/v3.26.3/manifests/calico.yaml"
+	calicoManifestsUrl = "https://raw.githubusercontent.com/projectcalico/calico/v3.31.4/manifests/calico.yaml"
 
 	externalSecretName      = "external-infra-kubeconfig"
 	externalSecretNamespace = "capk-system"

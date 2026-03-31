@@ -1050,6 +1050,9 @@ func (e FakeVMCommandExecutor) ExecuteCommand(command string) (string, error) {
 func defaultTestMachine(ctx *context.MachineContext, namespace string, client client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
 
 	machine, err := NewMachine(ctx, client, namespace, &ssh.ClusterNodeSshKeys{PublicKey: sshPubKey})
+	if err != nil {
+		return nil, err
+	}
 
 	machine.getCommandExecutor = func(fake string, fakeKeys *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor {
 		return vmExecutor

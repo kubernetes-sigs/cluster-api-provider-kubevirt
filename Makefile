@@ -341,7 +341,7 @@ goimports:
 
 GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0)
+	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.2)
 
 .PHONY: linter
 linter: golangci-lint
