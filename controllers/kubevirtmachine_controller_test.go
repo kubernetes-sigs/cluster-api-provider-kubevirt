@@ -34,7 +34,8 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"         //nolint SA1019
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"                //nolint SA1019
+	capierrors "sigs.k8s.io/cluster-api/errors"                          //nolint SA1019
 	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -757,6 +758,58 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(machineContext.KubevirtMachine.Status.FailureReason).ToNot(BeNil())
 		Expect(machineContext.KubevirtMachine.Status.FailureMessage).ToNot(BeNil())
 		Expect(*machineContext.KubevirtMachine.Status.FailureMessage).To(Equal("VMI has reached a permanent finalized state"))
+	})
+
+	It("When VM recovers from terminal state it should clear FailureReason and FailureMessage", func() {
+		// Simulate a KubevirtMachine that previously had a terminal failure
+		// (e.g., VM was stopped with RunStrategyHalted, then started back with RunStrategyAlways)
+		failureErr := capierrors.UpdateMachineError
+		failureMsg := "VMI has reached a permanent finalized state"
+		kubevirtMachine.Status.FailureReason = &failureErr
+		kubevirtMachine.Status.FailureMessage = &failureMsg
+
+		vmi.Status.Conditions = []kubevirtv1.VirtualMachineInstanceCondition{
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceReady,
+				Status: corev1.ConditionTrue,
+			},
+			{
+				Type:   kubevirtv1.VirtualMachineInstanceIsMigratable,
+				Status: corev1.ConditionTrue,
+			},
+		}
+		vmi.Status.Interfaces = []kubevirtv1.VirtualMachineInstanceNetworkInterface{
+			{
+				IP: "10.200.36.200",
+			},
+		}
+		vmi.Status.Phase = kubevirtv1.Running
+
+		// VM now has RunStrategyAlways (recovered)
+		runStrategy := kubevirtv1.RunStrategyAlways
+		vm.Spec.RunStrategy = &runStrategy
+
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+			bootstrapUserDataSecret,
+			vm,
+			vmi,
+		}
+
+		setupClient(kubevirt.DefaultMachineFactory{}, objects)
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+		_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(machineContext.KubevirtMachine.Status.FailureReason).To(BeNil())
+		Expect(machineContext.KubevirtMachine.Status.FailureMessage).To(BeNil())
+		Expect(machineContext.KubevirtMachine.Status.Ready).To(BeTrue())
 	})
 
 	Context("update kubevirt machine conditions correctly", func() {
