@@ -3,13 +3,14 @@ package capiv1beta1
 import (
 	context "context"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	clusterv1v1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
 
 func MapV1beta1MachineToKVMachine(ctx context.Context, object client.Object) []reconcile.Request {

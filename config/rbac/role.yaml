@@ -67,10 +67,19 @@ rules:
   resources:
   - kubevirtclusters/status
   - kubevirtmachines/status
+  - kubevirtmachinetemplates/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - kubevirtmachinetemplates
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - kubevirt.io
   resources:
