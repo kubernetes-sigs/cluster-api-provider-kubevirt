@@ -546,7 +546,7 @@ func (m *Machine) drainNode(wrkldClstr workloadcluster.WorkloadCluster) (time.Du
 		return 0, fmt.Errorf("failed to get client to remote cluster; %w", err)
 	}
 
-	nodeName := m.vmiInstance.Status.EvacuationNodeName
+	nodeName := m.machineContext.KubevirtMachine.Name
 	node, err := kubeClient.CoreV1().Nodes().Get(m.machineContext, nodeName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {

@@ -36,6 +36,7 @@ jobs:
         mkdir -p coverprofiles
         make test
     - name: Push to coveralls.io
+      continue-on-error: true
       env:
         COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |-
@@ -55,7 +56,7 @@ jobs:
       uses: golangci/golangci-lint-action@v7
       with:
         args: --timeout=5m -v
-        version: v2.7.2
+        version: v2.11.2
 
   check-gen:
     if: github.repository == 'kubernetes-sigs/cluster-api-provider-kubevirt'

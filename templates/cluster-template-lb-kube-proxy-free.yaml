@@ -140,7 +140,7 @@ spec:
     spec:
       joinConfiguration:
         nodeRegistration:
-          kubeletExtraArgs: {}
+          criSocket: "${CRI_PATH}"
 ---
 apiVersion: cluster.x-k8s.io/v1beta1
 kind: MachineDeployment

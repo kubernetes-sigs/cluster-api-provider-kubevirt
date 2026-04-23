@@ -358,7 +358,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 	})
 
 	Context("test DrainNodeIfNeeded", func() {
-		const nodeName = "control-plane1"
+		const hostNodeName = "host-node-1"
 
 		var (
 			wlCluster *mock.MockWorkloadCluster
@@ -368,7 +368,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			virtualMachineInstance = testing.NewVirtualMachineInstance(kubevirtMachine)
 			strategy := kubevirtv1.EvictionStrategyExternal
 			virtualMachineInstance.Spec.EvictionStrategy = &strategy
-			virtualMachineInstance.Status.EvacuationNodeName = nodeName
+			virtualMachineInstance.Status.EvacuationNodeName = hostNodeName
 
 			if kubevirtMachine.Annotations == nil {
 				kubevirtMachine.Annotations = make(map[string]string)
@@ -497,7 +497,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			It("Should drain the node", func() {
 				node := &corev1.Node{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: nodeName,
+						Name: kubevirtMachineName,
 					},
 				}
 
@@ -535,7 +535,7 @@ var _ = Describe("With KubeVirt VM running", func() {
 			It("Should not drain the node", func() {
 				node := &corev1.Node{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: nodeName,
+						Name: kubevirtMachineName,
 					},
 				}
 
@@ -1050,6 +1050,9 @@ func (e FakeVMCommandExecutor) ExecuteCommand(command string) (string, error) {
 func defaultTestMachine(ctx *context.MachineContext, namespace string, client client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
 
 	machine, err := NewMachine(ctx, client, namespace, &ssh.ClusterNodeSshKeys{PublicKey: sshPubKey})
+	if err != nil {
+		return nil, err
+	}
 
 	machine.getCommandExecutor = func(fake string, fakeKeys *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor {
 		return vmExecutor

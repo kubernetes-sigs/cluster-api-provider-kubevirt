@@ -2,9 +2,9 @@
 
 set -e
 
-export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.34}
+export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.35}
 export TENANT_CLUSTER_KUBERNETES_VERSION=${TENANT_CLUSTER_KUBERNETES_VERSION:-v1.34.1}
-export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2512231026-f475291f}
+export KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-2603261733-5efa6c07}
 export KUBEVIRT_DEPLOY_PROMETHEUS=false
 export KUBEVIRT_DEPLOY_CDI=false
 export KUBEVIRT_NUM_NODES=${KUBEVIRT_NUM_NODES:-1}
@@ -14,8 +14,8 @@ export METALLB_VERSION="v0.15.2"
 export CAPK_RELEASE_VERSION="v0.1.10"
 export CAPK_TEMPLATE=${CAPK_TEMPLATE:-cluster-template-kccm.yaml}
 export CLUSTERCTL_VERSION=${CLUSTERCTL_VERSION:-$(go list -m -f '{{.Version}}' sigs.k8s.io/cluster-api)}
-export CALICO_VERSION="v3.29.1"
-export KUBEVIRT_VERSION="v1.7.0"
+export CALICO_VERSION="v3.31.4"
+export KUBEVIRT_VERSION="v1.8.0"
 export NODE_VM_IMAGE_TEMPLATE=${NODE_VM_IMAGE_TEMPLATE:-quay.io/capk/ubuntu-2404-container-disk:${TENANT_CLUSTER_KUBERNETES_VERSION}}
 export KUBEVIRT_FLANNEL=true
 
@@ -130,7 +130,7 @@ function kubevirtci::up() {
 	cat << EOF > ${_default_bin_path}/clusterctl_config.yaml
 ---
 cert-manager:
-  url: "https://github.com/cert-manager/cert-manager/releases/v1.16.2/cert-manager.yaml"
+  url: "https://github.com/cert-manager/cert-manager/releases/v1.20.1/cert-manager.yaml"
 EOF
 	$CLUSTERCTL_PATH init -v 4 \
 	--core="cluster-api:${CLUSTERCTL_VERSION}" \
@@ -144,7 +144,7 @@ EOF
 		${_ssh_infra} ${node} -- sudo sysctl -w fs.file-max=9223372036854775807
 	done
 	echo "waiting for kubevirt to become ready, this can take a few minutes. You can safely abort this step, the cluster is ready ..."
-	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=5m
+	${_kubectl} -n kubevirt wait kv kubevirt --for condition=Available --timeout=10m
 }
 
 function kubevirtci::down() {
