@@ -34,8 +34,8 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"                //nolint SA1019
-	capierrors "sigs.k8s.io/cluster-api/errors"                          //nolint SA1019
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"         //nolint SA1019
+	capierrors "sigs.k8s.io/cluster-api/errors"                  //nolint SA1019
 	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -503,6 +503,58 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		).To(Succeed())
 
 		Expect(bootstrapUserDataSecret.Data["userdata"]).To(Equal([]byte("shell-script")))
+	})
+
+	It("should set ownerReference on bootstrap Secret linking it to the VM", func() {
+		objects := []client.Object{
+			cluster,
+			kubevirtCluster,
+			machine,
+			kubevirtMachine,
+			sshKeySecret,
+			bootstrapSecret,
+		}
+
+		setupClient(kubevirt.DefaultMachineFactory{}, objects)
+
+		infraClusterMock.EXPECT().GenerateInfraClusterClient(
+			kubevirtMachine.Spec.InfraClusterSecretRef,
+			kubevirtMachine.Namespace,
+			machineContext.Context,
+		).Return(fakeClient, kubevirtMachine.Namespace, nil).Times(2)
+
+		// First reconcile: creates both VM and bootstrap userdata Secret.
+		// The Secret is created before the VM, so the ownerReference cannot
+		// be set yet.
+		out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(out).To(Equal(ctrl.Result{RequeueAfter: 20 * time.Second}))
+
+		createdVM := &kubevirtv1.VirtualMachine{}
+		vmKey := client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}
+		Expect(fakeClient.Get(gocontext.Background(), vmKey, createdVM)).To(Succeed())
+
+		secretKey := client.ObjectKey{
+			Namespace: kubevirtMachine.Namespace,
+			Name:      *machine.Spec.Bootstrap.DataSecretName + "-userdata",
+		}
+		bootstrapDataSecret := &corev1.Secret{}
+		Expect(fakeClient.Get(gocontext.Background(), secretKey, bootstrapDataSecret)).To(Succeed())
+		Expect(bootstrapDataSecret.OwnerReferences).To(BeEmpty(),
+			"ownerReference should not be set on first reconcile because VM did not exist when Secret was created")
+
+		// Second reconcile: the VM now exists, so the Secret should be
+		// updated with an ownerReference to the VM.
+		_, err = kubevirtMachineReconciler.reconcileNormal(machineContext)
+		Expect(err).ShouldNot(HaveOccurred())
+
+		Expect(fakeClient.Get(gocontext.Background(), secretKey, bootstrapDataSecret)).To(Succeed())
+		Expect(bootstrapDataSecret.OwnerReferences).To(HaveLen(1))
+		ownerRef := bootstrapDataSecret.OwnerReferences[0]
+		Expect(ownerRef.Kind).To(Equal("VirtualMachine"))
+		Expect(ownerRef.Name).To(Equal(kubevirtMachine.Name))
+		Expect(ownerRef.UID).To(Equal(createdVM.UID))
+		Expect(ownerRef.APIVersion).To(Equal(kubevirtv1.SchemeGroupVersion.String()))
 	})
 
 	It("should be able to delete KubeVirt VM even when cluster objects don't exist", func() {

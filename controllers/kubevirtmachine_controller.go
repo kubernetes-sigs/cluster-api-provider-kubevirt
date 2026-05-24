@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	kubevirtv1 "kubevirt.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
 	capierrors "sigs.k8s.io/cluster-api/errors"          //nolint SA1019
 	"sigs.k8s.io/cluster-api/util"
@@ -591,6 +592,14 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		}
 	}
 
+	// Fetch the VM if it already exists so we can wire an ownerReference from
+	// the bootstrap Secret to the VM.  On the first reconcile the VM will not
+	// exist yet (the Secret is created before the VM); the ownerReference is
+	// added on a subsequent reconcile once the VM is present.
+	vm := &kubevirtv1.VirtualMachine{}
+	vmKey := client.ObjectKey{Namespace: vmNamespace, Name: ctx.KubevirtMachine.Name}
+	vmFound := infraClusterClient.Get(ctx, vmKey, vm) == nil
+
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
@@ -604,6 +613,17 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
+		}
+
+		if vmFound {
+			newBootstrapDataSecret.SetOwnerReferences(util.EnsureOwnerRef(
+				newBootstrapDataSecret.OwnerReferences,
+				metav1.OwnerReference{
+					APIVersion: kubevirtv1.SchemeGroupVersion.String(),
+					Kind:       "VirtualMachine",
+					Name:       vm.Name,
+					UID:        vm.UID,
+				}))
 		}
 
 		return nil
