@@ -28,6 +28,11 @@ import (
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
+// NetworkDataAnnotation, when present on the VirtualMachineTemplate metadata of a
+// KubevirtMachine, provides inline cloud-init network data (e.g. netplan v2) that is
+// attached to the generated cloud-init NoCloud volume alongside the bootstrap userdata.
+const NetworkDataAnnotation = "capk.cluster.x-k8s.io/cloud-init-network-data"
+
 type CommandExecutor interface {
 	ExecuteCommand(command string) (string, error)
 }
@@ -139,14 +144,18 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
 	cloudInitVolumeName := "cloudinitvolume"
+	cloudInitNoCloud := &kubevirtv1.CloudInitNoCloudSource{
+		UserDataSecretRef: &corev1.LocalObjectReference{
+			Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
+		},
+	}
+	if networkData := ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations[NetworkDataAnnotation]; networkData != "" {
+		cloudInitNoCloud.NetworkData = networkData
+	}
 	cloudInitVolume := kubevirtv1.Volume{
 		Name: cloudInitVolumeName,
 		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
-				UserDataSecretRef: &corev1.LocalObjectReference{
-					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
-				},
-			},
+			CloudInitNoCloud: cloudInitNoCloud,
 		},
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)

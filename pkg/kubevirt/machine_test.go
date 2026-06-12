@@ -647,6 +647,72 @@ var _ = Describe("util functions", func() {
 		Expect(newVM.Spec.DataVolumeTemplates[0].ObjectMeta.Name).To(Equal(kubevirtMachineName + "-dv1"))
 		Expect(newVM.Spec.Template.Spec.Volumes[0].VolumeSource.DataVolume.Name).To(Equal(kubevirtMachineName + "-dv1"))
 	})
+
+	Context("buildVirtualMachineInstanceTemplate cloud-init volume", func() {
+		findCloudInitVolumes := func(template *kubevirtv1.VirtualMachineInstanceTemplateSpec) []kubevirtv1.Volume {
+			var cloudInitVolumes []kubevirtv1.Volume
+			for _, volume := range template.Spec.Volumes {
+				if volume.CloudInitNoCloud != nil || volume.CloudInitConfigDrive != nil {
+					cloudInitVolumes = append(cloudInitVolumes, volume)
+				}
+			}
+			return cloudInitVolumes
+		}
+
+		It("without network-data annotation, should add a single NoCloud volume with userDataSecretRef and no networkData", func() {
+			template := buildVirtualMachineInstanceTemplate(machineContext)
+
+			cloudInitVolumes := findCloudInitVolumes(template)
+			Expect(cloudInitVolumes).To(HaveLen(1))
+			Expect(cloudInitVolumes[0].Name).To(Equal("cloudinitvolume"))
+			Expect(cloudInitVolumes[0].CloudInitConfigDrive).To(BeNil())
+			Expect(cloudInitVolumes[0].CloudInitNoCloud).ToNot(BeNil())
+			Expect(cloudInitVolumes[0].CloudInitNoCloud.UserDataSecretRef.Name).To(Equal("fakeDataSecretName-userdata"))
+			Expect(cloudInitVolumes[0].CloudInitNoCloud.NetworkData).To(BeEmpty())
+		})
+
+		It("with network-data annotation, should populate networkData alongside userDataSecretRef", func() {
+			networkData := "version: 2\nethernets:\n  eth0:\n    dhcp4: true"
+			machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations = map[string]string{
+				NetworkDataAnnotation: networkData,
+			}
+
+			template := buildVirtualMachineInstanceTemplate(machineContext)
+
+			cloudInitVolumes := findCloudInitVolumes(template)
+			Expect(cloudInitVolumes).To(HaveLen(1))
+			Expect(cloudInitVolumes[0].CloudInitNoCloud).ToNot(BeNil())
+			Expect(cloudInitVolumes[0].CloudInitNoCloud.UserDataSecretRef.Name).To(Equal("fakeDataSecretName-userdata"))
+			Expect(cloudInitVolumes[0].CloudInitNoCloud.NetworkData).To(Equal(networkData))
+		})
+
+		It("with empty network-data annotation, should not set networkData", func() {
+			machineContext.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations = map[string]string{
+				NetworkDataAnnotation: "",
+			}
+
+			template := buildVirtualMachineInstanceTemplate(machineContext)
+
+			cloudInitVolumes := findCloudInitVolumes(template)
+			Expect(cloudInitVolumes).To(HaveLen(1))
+			Expect(cloudInitVolumes[0].CloudInitNoCloud).ToNot(BeNil())
+			Expect(cloudInitVolumes[0].CloudInitNoCloud.NetworkData).To(BeEmpty())
+		})
+
+		It("should add a matching virtio disk for the cloud-init volume", func() {
+			template := buildVirtualMachineInstanceTemplate(machineContext)
+
+			var cloudInitDisks []kubevirtv1.Disk
+			for _, disk := range template.Spec.Domain.Devices.Disks {
+				if disk.Name == "cloudinitvolume" {
+					cloudInitDisks = append(cloudInitDisks, disk)
+				}
+			}
+			Expect(cloudInitDisks).To(HaveLen(1))
+			Expect(cloudInitDisks[0].Disk).ToNot(BeNil())
+			Expect(cloudInitDisks[0].Disk.Bus).To(Equal(kubevirtv1.DiskBusVirtio))
+		})
+	})
 })
 
 var _ = Describe("With KubeVirt VM running externally", func() {
