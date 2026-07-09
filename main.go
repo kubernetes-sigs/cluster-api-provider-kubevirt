@@ -252,7 +252,6 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 
 	if err := (&controllers.KubevirtMachineTemplateReconciler{
 		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("KubevirtMachineTemplate"),
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {

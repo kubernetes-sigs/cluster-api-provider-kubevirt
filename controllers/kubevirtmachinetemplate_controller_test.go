@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,7 +46,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 		BeforeEach(func() {
 			mt = newMachineTemplate(nil, &kubevirtv1.CPU{Cores: 2}, nil)
 			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
-			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient, Log: ctrl.Log.WithName("test")}
+			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient}
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
@@ -59,13 +58,8 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			updated := &infrav1.KubevirtMachineTemplate{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
-			expected := corev1.ResourceList{corev1.ResourceCPU: *resource.NewQuantity(2, resource.DecimalSI)}
-			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))
-			for k, ev := range expected {
-				av, ok := updated.Status.Capacity[k]
-				Expect(ok).To(BeTrue())
-				Expect(ev.Equal(av)).To(BeTrue(), fmt.Sprintf("expected %v for %s, got %v", ev, k, av))
-			}
+			expected := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+			Expect(updated.Status.Capacity).To(Equal(expected))
 		})
 	})
 
@@ -75,7 +69,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			// make the inner virtualMachineTemplate template pointer nil to exercise early return
 			mt.Spec.Template.Spec.VirtualMachineTemplate.Spec.Template = nil
 			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
-			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient, Log: ctrl.Log.WithName("test-nil")}
+			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient}
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
@@ -99,7 +93,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			}
 			mt = newMachineTemplate(resources, nil, nil)
 			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
-			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient, Log: ctrl.Log.WithName("test-requests")}
+			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient}
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
@@ -111,12 +105,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
 			expected := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("4Gi")}
-			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))
-			for k, ev := range expected {
-				av, ok := updated.Status.Capacity[k]
-				Expect(ok).To(BeTrue())
-				Expect(ev.Equal(av)).To(BeTrue(), fmt.Sprintf("expected %v for %s, got %v", ev, k, av))
-			}
+			Expect(updated.Status.Capacity).To(Equal(expected))
 		})
 	})
 
@@ -126,7 +115,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			mt = newMachineTemplate(nil, &kubevirtv1.CPU{Cores: 2}, nil)
 			mt.Status.Capacity = corev1.ResourceList{corev1.ResourceCPU: *resource.NewQuantity(2, resource.DecimalSI)}
 			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
-			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient, Log: ctrl.Log.WithName("test-noop")}
+			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient}
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
@@ -139,8 +128,8 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 			Expect(updated.Status.Capacity).To(HaveLen(1))
 			av, ok := updated.Status.Capacity[corev1.ResourceCPU]
-			Expect(ok).To(BeTrue())
-			Expect(av.Equal(*resource.NewQuantity(2, resource.DecimalSI))).To(BeTrue())
+			Expect(ok).To(BeTrueBecause("expected CPU key to be present in capacity"))
+			Expect(av.Equal(*resource.NewQuantity(2, resource.DecimalSI))).To(BeTrueBecause("expected 2 CPU, got %v", av))
 		})
 	})
 
@@ -155,7 +144,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			}
 			mt = newMachineTemplate(resources, nil, nil)
 			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
-			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient, Log: ctrl.Log.WithName("test-limits")}
+			reconciler = &KubevirtMachineTemplateReconciler{Client: fakeClient}
 			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
 		})
 
@@ -167,12 +156,7 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 
 			expected := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourceMemory: resource.MustParse("6Gi")}
-			Expect(updated.Status.Capacity).To(HaveLen(len(expected)))
-			for k, ev := range expected {
-				av, ok := updated.Status.Capacity[k]
-				Expect(ok).To(BeTrue())
-				Expect(ev.Equal(av)).To(BeTrue(), fmt.Sprintf("expected %v for %s, got %v", ev, k, av))
-			}
+			Expect(updated.Status.Capacity).To(Equal(expected))
 		})
 	})
 })

@@ -24,7 +24,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/cluster-api/util/patch"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,7 +36,6 @@ import (
 // KubevirtMachineTemplateReconciler reconciles a KubevirtMachineTemplate object.
 type KubevirtMachineTemplateReconciler struct {
 	client.Client
-	Log logr.Logger
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=get;list;watch
@@ -55,7 +53,7 @@ func (r *KubevirtMachineTemplateReconciler) Reconcile(ctx gocontext.Context, req
 			return ctrl.Result{}, nil
 		}
 		log.Error(err, "unable to fetch KubevirtMachineTemplate")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, err
 	}
 
 	helper, err := patch.NewHelper(&machineTemplate, r.Client)
