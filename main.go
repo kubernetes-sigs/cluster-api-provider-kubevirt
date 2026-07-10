@@ -249,6 +249,15 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
 		os.Exit(1)
 	}
+
+	if err := (&controllers.KubevirtMachineTemplateReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(ctx, mgr, controller.Options{
+		MaxConcurrentReconciles: concurrency,
+	}); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KubevirtMachineTemplate")
+		os.Exit(1)
+	}
 }
 
 func setupWebhooks(mgr ctrl.Manager) {
