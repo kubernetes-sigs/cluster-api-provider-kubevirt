@@ -433,6 +433,17 @@ func (m *Machine) DrainNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) 
 				return 100 * time.Millisecond, err
 			}
 		}
+
+		// Only uncordon when the VMI is back and not being deleted. If the VMI
+		// is nil (not yet recreated) or still has a DeletionTimestamp, the
+		// eviction cycle is not complete and the node must stay cordoned.
+		if m.vmiInstance != nil && m.vmiInstance.DeletionTimestamp == nil {
+			if err := m.uncordonNodeIfNeeded(wrkldClstr); err != nil {
+				m.machineContext.Logger.Error(err, "failed to uncordon guest node")
+				return 100 * time.Millisecond, nil
+			}
+		}
+
 		return 0, nil
 	}
 
@@ -478,6 +489,72 @@ func (m *Machine) removeGracePeriodAnnotation() error {
 	}
 
 	return nil
+}
+
+func (m *Machine) setNodeCordonedAnnotation() error {
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "true"}}}`, infrav1.NodeCordonedByCapk)
+	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
+
+	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+		return fmt.Errorf("failed to set the %s annotation on KubeVirtMachine %s; %w", infrav1.NodeCordonedByCapk, m.machineContext.KubevirtMachine.Name, err)
+	}
+
+	return nil
+}
+
+const removeNodeCordonedAnnotationPatch = `[{"op": "remove", "path": "/metadata/annotations/` + infrav1.NodeCordonedByCapkEscape + `"}]`
+
+func (m *Machine) removeNodeCordonedAnnotation() error {
+	patch := client.RawPatch(types.JSONPatchType, []byte(removeNodeCordonedAnnotationPatch))
+
+	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
+		return fmt.Errorf("failed to remove the %s annotation from KubeVirtMachine %s; %w", infrav1.NodeCordonedByCapk, m.machineContext.KubevirtMachine.Name, err)
+	}
+
+	return nil
+}
+
+func (m *Machine) uncordonNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) error {
+	if _, exists := m.machineContext.KubevirtMachine.Annotations[infrav1.NodeCordonedByCapk]; !exists {
+		return nil
+	}
+
+	if wrkldClstr == nil {
+		m.machineContext.Logger.Info("Workload cluster client is nil, skipping uncordon")
+		return nil
+	}
+
+	kubeClient, err := wrkldClstr.GenerateWorkloadClusterK8sClient(m.machineContext)
+	if err != nil {
+		return fmt.Errorf("failed to get client to remote cluster for uncordon; %w", err)
+	}
+
+	nodeName := m.machineContext.KubevirtMachine.Name
+	node, err := kubeClient.CoreV1().Nodes().Get(m.machineContext, nodeName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			m.machineContext.Logger.Info("Node not found during uncordon, removing annotation", "node", nodeName)
+			return m.removeNodeCordonedAnnotation()
+		}
+		return fmt.Errorf("unable to get node %q for uncordon: %w", nodeName, err)
+	}
+
+	if !node.Spec.Unschedulable {
+		m.machineContext.Logger.Info("Node is already schedulable, removing stale cordon annotation", "node", nodeName)
+		return m.removeNodeCordonedAnnotation()
+	}
+
+	drainer := &kubedrain.Helper{
+		Client: kubeClient,
+		Ctx:    m.machineContext,
+	}
+
+	m.machineContext.Logger.Info("Uncordoning guest node after VMI restart", "node", nodeName)
+	if err = kubedrain.RunCordonOrUncordon(drainer, node, false); err != nil {
+		return fmt.Errorf("unable to uncordon node %s: %w", nodeName, err)
+	}
+
+	return m.removeNodeCordonedAnnotation()
 }
 
 func (m *Machine) shouldGracefulDeleteVMI() bool {
@@ -590,6 +667,11 @@ func (m *Machine) drainNode(wrkldClstr workloadcluster.WorkloadCluster) (time.Du
 		// Machine will be re-reconciled after a cordon failure.
 		m.machineContext.Logger.Error(err, "Cordon failed")
 		return 0, errors.Errorf("unable to cordon node %s: %v", nodeName, err)
+	}
+
+	if err = m.setNodeCordonedAnnotation(); err != nil {
+		m.machineContext.Logger.Error(err, "Failed to set node-cordoned annotation after cordon")
+		return 100 * time.Millisecond, nil
 	}
 
 	if err = kubedrain.RunNodeDrain(drainer, node.Name); err != nil {

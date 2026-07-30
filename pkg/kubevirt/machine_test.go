@@ -523,6 +523,9 @@ var _ = Describe("With KubeVirt VM running", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(machine).ToNot(BeNil())
 				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+
+				By("The node-cordoned annotation should be set after cordon")
+				Expect(machine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
 			})
 		})
 
@@ -598,6 +601,245 @@ var _ = Describe("With KubeVirt VM running", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(machine).ToNot(BeNil())
 				Expect(machine.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+			})
+		})
+
+		When("VMI was recreated after eviction and guest node is still cordoned", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should uncordon the guest node and remove the annotation", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: kubevirtMachineName,
+					},
+					Spec: corev1.NodeSpec{
+						Unschedulable: true,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewClientset(node)
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				By("Guest node should be uncordoned")
+				updatedNode, err := cl.CoreV1().Nodes().Get(gocontext.Background(), kubevirtMachineName, metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(updatedNode.Spec.Unschedulable).To(BeFalse())
+
+				By("The node-cordoned annotation should be removed")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).ToNot(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("VMI was recreated but guest node is already schedulable", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should just remove the stale annotation", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: kubevirtMachineName,
+					},
+					Spec: corev1.NodeSpec{
+						Unschedulable: false,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewClientset(node)
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				By("The node-cordoned annotation should be removed")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).ToNot(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("No cordon annotation exists and no eviction in progress", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+			})
+
+			It("Should not attempt to uncordon", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+			})
+		})
+
+		When("VMI still has DeletionTimestamp with cordon annotation present", func() {
+			BeforeEach(func() {
+				deletionTimeStamp := metav1.NewTime(time.Now().UTC().Add(-5 * time.Second))
+				virtualMachineInstance.DeletionTimestamp = &deletionTimeStamp
+				virtualMachineInstance.Finalizers = []string{"fake/finalizer"}
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should not uncordon while VMI is still being deleted", func() {
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				By("The node-cordoned annotation should still be present")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("VMI was recreated and guest node is not found", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should remove the annotation when node is not found", func() {
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewClientset()
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				By("The node-cordoned annotation should be removed")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).ToNot(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("Cordon annotation present but workload cluster is nil", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should skip uncordon without error and keep annotation", func() {
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).Should(BeZero())
+
+				By("The node-cordoned annotation should still be present")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("Cordon annotation present but workload cluster client fails", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should requeue with 100ms on client error", func() {
+				fakeErr := errors.New("fake error: can't create workload cluster client")
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(nil, fakeErr).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).To(Equal(100 * time.Millisecond))
+
+				By("The node-cordoned annotation should still be present")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("Cordon annotation present but node get fails with non-NotFound error", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Spec.EvictionStrategy = nil
+				virtualMachineInstance.Status.EvacuationNodeName = ""
+				kubevirtMachine.Annotations[v1alpha1.NodeCordonedByCapk] = "true"
+			})
+
+			It("Should requeue with 100ms on node get error", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: kubevirtMachineName,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewClientset(node)
+
+				fakeErr := errors.New("fake error: can't get node")
+				cl.PrependReactor("get", "nodes", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+					return true, nil, fakeErr
+				})
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+
+				requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(requeueDuration).To(Equal(100 * time.Millisecond))
+
+				By("The node-cordoned annotation should still be present")
+				kvMachine := &v1alpha1.KubevirtMachine{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: kubevirtMachine.Name}, kvMachine)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(kvMachine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
 			})
 		})
 	})
