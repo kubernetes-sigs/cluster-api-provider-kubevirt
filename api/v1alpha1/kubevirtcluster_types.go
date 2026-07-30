@@ -38,6 +38,12 @@ const ( // labels
 const ( // annotations
 	VmiDeletionGraceTime       = "capk.cluster.x-k8s.io/vmi-deletion-grace-time"
 	VmiDeletionGraceTimeEscape = "capk.cluster.x-k8s.io~1vmi-deletion-grace-time"
+
+	// NodeCordonedByCapk is set on KubevirtMachine when CAPK cordons the
+	// guest node during an eviction drain. It is used to uncordon the node
+	// after the VMI is recreated on a different host.
+	NodeCordonedByCapk       = "capk.cluster.x-k8s.io/node-cordoned"
+	NodeCordonedByCapkEscape = "capk.cluster.x-k8s.io~1node-cordoned"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.
