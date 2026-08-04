@@ -44,6 +44,14 @@ const ( // annotations
 	// after the VMI is recreated on a different host.
 	NodeCordonedByCapk       = "capk.cluster.x-k8s.io/node-cordoned"
 	NodeCordonedByCapkEscape = "capk.cluster.x-k8s.io~1node-cordoned"
+
+	// VmiMigrationSubmitted is set on KubevirtMachine when CAPK creates a
+	// VirtualMachineInstanceMigration for a migratable VMI. It prevents
+	// duplicate migration creates and decouples the grace period timer from
+	// migration submission -- the timer only starts when the migration is
+	// actively in progress.
+	VmiMigrationSubmitted       = "capk.cluster.x-k8s.io/migration-submitted"
+	VmiMigrationSubmittedEscape = "capk.cluster.x-k8s.io~1migration-submitted"
 )
 
 // KubevirtClusterSpec defines the desired state of KubevirtCluster.

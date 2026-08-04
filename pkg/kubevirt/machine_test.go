@@ -604,6 +604,233 @@ var _ = Describe("With KubeVirt VM running", func() {
 			})
 		})
 
+		Context("migration-first eviction for migratable VMIs", func() {
+			BeforeEach(func() {
+				virtualMachineInstance.Status.NodeName = hostNodeName
+				virtualMachineInstance.Status.Conditions = append(
+					virtualMachineInstance.Status.Conditions,
+					kubevirtv1.VirtualMachineInstanceCondition{
+						Type:   kubevirtv1.VirtualMachineInstanceIsMigratable,
+						Status: corev1.ConditionTrue,
+					},
+				)
+			})
+
+			When("no migration exists yet", func() {
+				It("Should create a VirtualMachineInstanceMigration and requeue", func() {
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("VMI should still exist (not drained+deleted)")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).ToNot(HaveOccurred())
+
+					By("A VirtualMachineInstanceMigration should have been created")
+					migrationList := &kubevirtv1.VirtualMachineInstanceMigrationList{}
+					err = fakeClient.List(gocontext.Background(), migrationList, client.InNamespace(virtualMachineInstance.Namespace))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(migrationList.Items).To(HaveLen(1))
+					Expect(migrationList.Items[0].Spec.VMIName).To(Equal(virtualMachineInstance.Name))
+
+					By("Migration should have SystemCritical priority")
+					Expect(migrationList.Items[0].Spec.Priority).ToNot(BeNil())
+					Expect(*migrationList.Items[0].Spec.Priority).To(Equal(kubevirtv1.PrioritySystemCritical))
+
+					By("Migration-submitted annotation should be set, but NOT the grace period timer")
+					updatedKM := &v1alpha1.KubevirtMachine{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(kubevirtMachine), updatedKM)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(updatedKM.Annotations).To(HaveKey(v1alpha1.VmiMigrationSubmitted))
+					Expect(updatedKM.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+				})
+			})
+
+			When("migration already submitted but not yet started by KubeVirt", func() {
+				BeforeEach(func() {
+					kubevirtMachine.Annotations[v1alpha1.VmiMigrationSubmitted] = "true"
+				})
+
+				It("Should requeue without creating a duplicate migration", func() {
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("No new VirtualMachineInstanceMigration should have been created")
+					migrationList := &kubevirtv1.VirtualMachineInstanceMigrationList{}
+					err = fakeClient.List(gocontext.Background(), migrationList, client.InNamespace(virtualMachineInstance.Namespace))
+					Expect(err).ToNot(HaveOccurred())
+					Expect(migrationList.Items).To(BeEmpty())
+
+					By("Grace period timer should NOT be set yet")
+					updatedKM := &v1alpha1.KubevirtMachine{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(kubevirtMachine), updatedKM)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(updatedKM.Annotations).ToNot(HaveKey(v1alpha1.VmiDeletionGraceTime))
+				})
+			})
+
+			When("migration is in progress", func() {
+				BeforeEach(func() {
+					virtualMachineInstance.Status.MigrationState = &kubevirtv1.VirtualMachineInstanceMigrationState{
+						StartTimestamp: nowTimestamp(),
+					}
+					graceTime := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+					kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+				})
+
+				It("Should requeue and wait for migration", func() {
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("VMI should still exist")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).ToNot(HaveOccurred())
+				})
+			})
+
+			When("migration succeeded (VMI on different node)", func() {
+				BeforeEach(func() {
+					virtualMachineInstance.Status.NodeName = "target-node-2"
+					virtualMachineInstance.Status.MigrationState = &kubevirtv1.VirtualMachineInstanceMigrationState{
+						Completed:  true,
+						SourceNode: hostNodeName,
+						TargetNode: "target-node-2",
+					}
+				})
+
+				It("Should skip drain+delete and return success", func() {
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Times(0)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).Should(BeZero())
+
+					By("VMI should still exist (not deleted)")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).ToNot(HaveOccurred())
+				})
+			})
+
+			When("migration failed", func() {
+				BeforeEach(func() {
+					virtualMachineInstance.Status.MigrationState = &kubevirtv1.VirtualMachineInstanceMigrationState{
+						Failed: true,
+					}
+				})
+
+				It("Should fall through to drain+delete", func() {
+					node := &corev1.Node{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: kubevirtMachineName,
+						},
+					}
+					Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+					cl := k8sfake.NewClientset(node)
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("VMI should be deleted (drain+delete fallback)")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).To(HaveOccurred())
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				})
+			})
+
+			When("migration timed out (grace period exceeded during migration)", func() {
+				BeforeEach(func() {
+					virtualMachineInstance.Status.MigrationState = &kubevirtv1.VirtualMachineInstanceMigrationState{
+						StartTimestamp: nowTimestamp(),
+					}
+					graceTime := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339)
+					kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+				})
+
+				It("Should fall through to drain+delete", func() {
+					node := &corev1.Node{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: kubevirtMachineName,
+						},
+					}
+					Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+					cl := k8sfake.NewClientset(node)
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("VMI should be deleted (drain+delete fallback)")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).To(HaveOccurred())
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				})
+			})
+
+			When("migration creation fails", func() {
+				It("Should fall through to drain+delete gracefully", func() {
+					node := &corev1.Node{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: kubevirtMachineName,
+						},
+					}
+					Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+					cl := k8sfake.NewClientset(node)
+					wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).Times(1)
+
+					externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+					Expect(err).NotTo(HaveOccurred())
+
+					By("Inject a create failure for migrations")
+					origClient := externalMachine.client
+					externalMachine.client = &migrationFailClient{Client: origClient}
+
+					requeueDuration, err := externalMachine.DrainNodeIfNeeded(wlCluster)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeueDuration).To(Equal(10 * time.Second))
+
+					By("VMI should be deleted (drain+delete fallback)")
+					vmi := &kubevirtv1.VirtualMachineInstance{}
+					err = origClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+					Expect(err).To(HaveOccurred())
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				})
+			})
+		})
+
 		When("VMI was recreated after eviction and guest node is still cordoned", func() {
 			BeforeEach(func() {
 				virtualMachineInstance.Spec.EvictionStrategy = nil
@@ -1309,4 +1536,22 @@ func setupRemoteScheme() *runtime.Scheme {
 		panic(err)
 	}
 	return s
+}
+
+func nowTimestamp() *metav1.Time {
+	t := metav1.Now()
+	return &t
+}
+
+// migrationFailClient wraps a controller-runtime client and fails Create
+// calls for VirtualMachineInstanceMigration objects.
+type migrationFailClient struct {
+	client.Client
+}
+
+func (c *migrationFailClient) Create(ctx gocontext.Context, obj client.Object, opts ...client.CreateOption) error {
+	if _, ok := obj.(*kubevirtv1.VirtualMachineInstanceMigration); ok {
+		return fmt.Errorf("fake error: can't create migration")
+	}
+	return c.Client.Create(ctx, obj, opts...)
 }
