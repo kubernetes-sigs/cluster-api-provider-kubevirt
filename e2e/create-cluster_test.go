@@ -187,7 +187,11 @@ var _ = Describe("CreateCluster", func() {
 		}
 		Expect(k8sclient.Update(ctx, kvCluster)).To(Succeed())
 
-		conditions.MarkTrue(kvCluster, infrav1.LoadBalancerAvailableCondition)
+		conditions.Set(kvCluster, metav1.Condition{
+			Type:   infrav1.LoadBalancerAvailableCondition,
+			Status: metav1.ConditionTrue,
+			Reason: "LoadBalancerAvailable",
+		})
 		kvCluster.Status.Ready = true
 
 		Expect(k8sclient.Status().Update(ctx, kvCluster)).To(Succeed())
@@ -349,7 +353,7 @@ var _ = Describe("CreateCluster", func() {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
 			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
-			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition)).To(
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ClusterControlPlaneInitializedCondition)).To(
 				BeTrue(),
 				"still waiting on controlPlaneReady condition to be true",
 			)
@@ -363,7 +367,7 @@ var _ = Describe("CreateCluster", func() {
 			cluster := &clusterv1.Cluster{}
 			key := client.ObjectKey{Namespace: namespace, Name: "kvcluster"}
 			g.Expect(k8sclient.Get(ctx, key, cluster)).To(Succeed())
-			g.Expect(conditions.IsTrue(cluster, clusterv1.ControlPlaneReadyCondition)).To(
+			g.Expect(conditions.IsTrue(cluster, clusterv1.ClusterControlPlaneAvailableCondition)).To(
 				BeTrue(),
 				"still waiting on controlPlaneInitialized condition to be true",
 			)
@@ -448,6 +452,8 @@ var _ = Describe("CreateCluster", func() {
 
 	postDefaultMHC := func(ctx context.Context, clusterName string) {
 		maxUnhealthy := intstr.FromString("100%")
+		nodeStartupTimeout := int32(600)
+		unhealthyTimeout := int32(300)
 		mhc := &clusterv1.MachineHealthCheck{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "testmhc",
@@ -460,26 +466,25 @@ var _ = Describe("CreateCluster", func() {
 						"cluster.x-k8s.io/cluster-name": clusterName,
 					},
 				},
-				MaxUnhealthy: &maxUnhealthy,
-
-				UnhealthyConditions: []clusterv1.UnhealthyCondition{
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionFalse,
-						Timeout: metav1.Duration{
-							Duration: 5 * time.Minute,
+				Checks: clusterv1.MachineHealthCheckChecks{
+					NodeStartupTimeoutSeconds: &nodeStartupTimeout,
+					UnhealthyNodeConditions: []clusterv1.UnhealthyNodeCondition{
+						{
+							Type:           corev1.NodeReady,
+							Status:         corev1.ConditionFalse,
+							TimeoutSeconds: &unhealthyTimeout,
 						},
-					},
-					{
-						Type:   corev1.NodeReady,
-						Status: corev1.ConditionUnknown,
-						Timeout: metav1.Duration{
-							Duration: 5 * time.Minute,
+						{
+							Type:           corev1.NodeReady,
+							Status:         corev1.ConditionUnknown,
+							TimeoutSeconds: &unhealthyTimeout,
 						},
 					},
 				},
-				NodeStartupTimeout: &metav1.Duration{
-					Duration: 10 * time.Minute,
+				Remediation: clusterv1.MachineHealthCheckRemediation{
+					TriggerIf: clusterv1.MachineHealthCheckRemediationTriggerIf{
+						UnhealthyLessThanOrEqualTo: &maxUnhealthy,
+					},
 				},
 			},
 		}
@@ -763,6 +768,9 @@ var _ = Describe("CreateCluster", func() {
 
 		By("Expecting both KubevirtMachines stabilize to a ready=true again.")
 		waitForMachineReadiness(ctx, 2, 0)
+
+		By("Re-establishing port-forward after VMI restart")
+		Expect(tenantAccessor.stopForwardingTenantAPI()).To(Succeed())
 
 		By("Waiting for getting access to the tenant cluster")
 		clientSet := waitForTenantAccess(ctx, 2)
