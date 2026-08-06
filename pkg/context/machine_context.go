@@ -24,9 +24,9 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"         //nolint SA1019
-	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/conditions" //nolint SA1019
-	"sigs.k8s.io/cluster-api/util/deprecated/v1beta1/patch"      //nolint SA1019
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
+	"sigs.k8s.io/cluster-api/util/patch"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
@@ -60,19 +60,22 @@ func (c *MachineContext) String() string {
 // PatchKubevirtMachine patches the KubevirtMachine object and status.
 func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 	// Always update the readyCondition by summarizing the state of other conditions.
-	// A step counter is added to represent progress during the provisioning process (instead we are hiding the step counter during the deletion process).
-	conditions.SetSummary(c.KubevirtMachine,
-		conditions.WithConditions(
+	// BootstrapExecSucceeded is always set: True when bootstrap check passes or is
+	// not supported, False while waiting. This prevents premature Ready=True.
+	if err := conditions.SetSummaryCondition(c.KubevirtMachine, c.KubevirtMachine, clusterv1.ReadyCondition,
+		conditions.ForConditionTypes{
 			infrav1.VMProvisionedCondition,
 			infrav1.BootstrapExecSucceededCondition,
-		),
-	)
+		},
+	); err != nil {
+		return err
+	}
 
 	// Patch the object, ignoring conflicts on the conditions owned by this controller.
 	return patchHelper.Patch(
 		c.Context,
 		c.KubevirtMachine,
-		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
+		patch.WithOwnedConditions{Conditions: []string{
 			clusterv1.ReadyCondition,
 			infrav1.VMProvisionedCondition,
 			infrav1.BootstrapExecSucceededCondition,
