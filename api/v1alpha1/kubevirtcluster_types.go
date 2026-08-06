@@ -19,7 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1" //nolint SA1019
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const (
@@ -72,19 +72,30 @@ type KubevirtClusterSpec struct {
 	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
 }
 
+// KubevirtClusterInitializationStatus contains CAPI v1beta2 contract fields.
+type KubevirtClusterInitializationStatus struct {
+	// Provisioned indicates the infrastructure has been provisioned.
+	// +optional
+	Provisioned *bool `json:"provisioned,omitempty"`
+}
+
 // KubevirtClusterStatus defines the observed state of KubevirtCluster.
 type KubevirtClusterStatus struct {
 	// Ready denotes that the infrastructure is ready.
 	// +kubebuilder:default:=false
 	Ready bool `json:"ready"`
 
-	// FailureDomains don't mean much in CAPD since it's all local, but we can see how the rest of cluster API
+	// Initialization tracks CAPI v1beta2 contract initialization fields.
+	// +optional
+	Initialization *KubevirtClusterInitializationStatus `json:"initialization,omitempty"`
+
+	// FailureDomains don't mean much in CAPK since it's all local, but we can see how the rest of cluster API
 	// will use this if we populate it.
-	FailureDomains clusterv1.FailureDomains `json:"failureDomains,omitempty"`
+	FailureDomains []clusterv1.FailureDomain `json:"failureDomains,omitempty"`
 
 	// Conditions defines current service state of the KubevirtCluster.
 	// +optional
-	Conditions []clusterv1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // APIEndpoint represents a reachable Kubernetes API endpoint.
@@ -146,11 +157,11 @@ type KubevirtCluster struct {
 	Status KubevirtClusterStatus `json:"status,omitempty"`
 }
 
-func (c *KubevirtCluster) GetConditions() clusterv1.Conditions {
+func (c *KubevirtCluster) GetConditions() []metav1.Condition {
 	return c.Status.Conditions
 }
 
-func (c *KubevirtCluster) SetConditions(conditions clusterv1.Conditions) {
+func (c *KubevirtCluster) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
@@ -163,6 +174,3 @@ type KubevirtClusterList struct {
 	Items           []KubevirtCluster `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&KubevirtCluster{}, &KubevirtClusterList{})
-}
