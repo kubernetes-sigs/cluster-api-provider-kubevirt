@@ -24,6 +24,7 @@ import (
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 
+	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
@@ -142,15 +143,32 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
 	cloudInitVolumeName := "cloudinitvolume"
+	cloudInitSecretName := *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"
+	userDataSecretRef := &corev1.LocalObjectReference{Name: cloudInitSecretName}
+
+	// The network data is copied into the same secret as the user data. KubeVirt mounts each
+	// reference into its own pod volume, so pointing both references at one secret is safe.
+	var networkDataSecretRef *corev1.LocalObjectReference
+	if ctx.KubevirtMachine.Spec.CloudInit.GetNetworkDataSecretRef() != nil {
+		networkDataSecretRef = &corev1.LocalObjectReference{Name: cloudInitSecretName}
+	}
+
+	var cloudInitVolumeSource kubevirtv1.VolumeSource
+	if ctx.KubevirtMachine.Spec.CloudInit.GetDataSource() == infrav1.CloudInitDataSourceNoCloud {
+		cloudInitVolumeSource.CloudInitNoCloud = &kubevirtv1.CloudInitNoCloudSource{
+			UserDataSecretRef:    userDataSecretRef,
+			NetworkDataSecretRef: networkDataSecretRef,
+		}
+	} else {
+		cloudInitVolumeSource.CloudInitConfigDrive = &kubevirtv1.CloudInitConfigDriveSource{
+			UserDataSecretRef:    userDataSecretRef,
+			NetworkDataSecretRef: networkDataSecretRef,
+		}
+	}
+
 	cloudInitVolume := kubevirtv1.Volume{
-		Name: cloudInitVolumeName,
-		VolumeSource: kubevirtv1.VolumeSource{
-			CloudInitConfigDrive: &kubevirtv1.CloudInitConfigDriveSource{
-				UserDataSecretRef: &corev1.LocalObjectReference{
-					Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata",
-				},
-			},
-		},
+		Name:         cloudInitVolumeName,
+		VolumeSource: cloudInitVolumeSource,
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, cloudInitVolume)
 

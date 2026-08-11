@@ -49,6 +49,47 @@ spec:
           spec:
             description: KubevirtMachineSpec defines the desired state of KubevirtMachine.
             properties:
+              cloudInit:
+                description: |-
+                  CloudInit configures the cloud-init data source attached to the virtual machine.
+                  When nil, a config drive data source carrying only the bootstrap user data is attached.
+                properties:
+                  dataSource:
+                    default: configDrive
+                    description: |-
+                      DataSource selects the type of cloud-init data source attached to the virtual machine.
+                      This choice determines the format expected for the network configuration document, because
+                      cloud-init parses it differently per data source: "configDrive" expects the OpenStack
+                      network_data.json format, while "noCloud" expects the cloud-init network configuration
+                      format, version 1 or 2.
+                      Defaults to "configDrive".
+                    enum:
+                    - configDrive
+                    - noCloud
+                    type: string
+                  networkDataSecretRef:
+                    description: |-
+                      NetworkDataSecretRef is a reference to a secret in the KubevirtMachine's namespace, holding a
+                      network configuration document under a "networkdata" or "networkData" key, in the format
+                      expected by DataSource.
+                      When set, the content is copied to the infra cluster and attached to the cloud-init data
+                      source of the virtual machine, allowing the guest to configure its network without relying
+                      on DHCP. This is intended for setups where addresses are managed externally, for example on
+                      secondary interfaces attached through Multus.
+                      When nil, the guest is expected to obtain its network configuration by other means, such as DHCP.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
               infraClusterSecretRef:
                 description: |-
                   InfraClusterSecretRef is a reference to a secret with a kubeconfig for external cluster used for infra.
