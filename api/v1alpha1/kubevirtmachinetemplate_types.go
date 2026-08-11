@@ -58,9 +58,6 @@ type KubevirtMachineTemplateList struct {
 	Items           []KubevirtMachineTemplate `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&KubevirtMachineTemplate{}, &KubevirtMachineTemplateList{})
-}
 
 // KubevirtMachineTemplateResource describes the data needed to create a KubevirtMachine from a template.
 type KubevirtMachineTemplateResource struct {

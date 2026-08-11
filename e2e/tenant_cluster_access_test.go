@@ -168,18 +168,23 @@ func (t *tenantClusterAccess) stopForwardingTenantAPI() error {
 }
 
 func (t *tenantClusterAccess) waitForConnection() {
-	conn, err := t.listener.Accept()
-	if err != nil {
-		klog.Errorln("error accepting connection:", err)
-		return
-	}
+	for {
+		conn, err := t.listener.Accept()
+		if err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				klog.Errorln("error accepting connection:", err)
+			}
+			return
+		}
 
-	proxy, err := net.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(t.tenantApiPort)))
-	if err != nil {
-		klog.Errorf("unable to connect to local port-forward: %v", err)
-		return
+		proxy, err := net.Dial("tcp", net.JoinHostPort("localhost", strconv.Itoa(t.tenantApiPort)))
+		if err != nil {
+			klog.Errorf("unable to connect to local port-forward: %v", err)
+			_ = conn.Close()
+			continue
+		}
+		go t.handleConnection(conn, proxy)
 	}
-	go t.handleConnection(conn, proxy)
 }
 
 // handleConnection copies data between the local connection and the stream to
