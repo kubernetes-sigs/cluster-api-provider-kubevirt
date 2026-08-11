@@ -61,6 +61,14 @@ type KubevirtMachineReconciler struct {
 	MachineFactory  kubevirt.MachineFactory
 }
 
+type networkDataError struct {
+	err error
+}
+
+func (e *networkDataError) Error() string { return e.err.Error() }
+
+func (e *networkDataError) Unwrap() error { return e.err }
+
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
@@ -259,10 +267,16 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 
 	if err := r.reconcileKubevirtBootstrapSecret(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys); err != nil {
+		reason := infrav1.WaitingForBootstrapDataReason
+		var networkErr *networkDataError
+		if errors.As(err, &networkErr) {
+			reason = infrav1.WaitingForNetworkDataReason
+		}
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:   infrav1.VMProvisionedCondition,
-			Status: metav1.ConditionFalse,
-			Reason: infrav1.WaitingForBootstrapDataReason,
+			Type:    infrav1.VMProvisionedCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  reason,
+			Message: err.Error(),
 		})
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to fetch kubevirt bootstrap secret")
 	}
@@ -594,11 +608,39 @@ func (r *KubevirtMachineReconciler) SetupWithManager(goctx gocontext.Context, mg
 			handler.EnqueueRequestsFromMapFunc(r.KubevirtClusterToKubevirtMachines),
 		).
 		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.SecretToKubevirtMachines),
+		).
+		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToKubevirtMachines),
 			builder.WithPredicates(predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(r.Scheme(), ctrl.LoggerFrom(goctx))),
 		).
 		Complete(r)
+}
+
+// SecretToKubevirtMachines enqueues machines that reference the changed network data secret.
+func (r *KubevirtMachineReconciler) SecretToKubevirtMachines(ctx gocontext.Context, o client.Object) []ctrl.Request {
+	secret, ok := o.(*corev1.Secret)
+	if !ok {
+		panic(fmt.Sprintf("Expected a Secret but got a %T", o))
+	}
+
+	machineList := &infrav1.KubevirtMachineList{}
+	if err := r.List(ctx, machineList, client.InNamespace(secret.Namespace)); err != nil {
+		return nil
+	}
+
+	var requests []ctrl.Request
+	for i := range machineList.Items {
+		machine := &machineList.Items[i]
+		ref := machine.Spec.CloudInit.GetNetworkDataSecretRef()
+		if ref != nil && ref.Name == secret.Name {
+			requests = append(requests, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(machine)})
+		}
+	}
+
+	return requests
 }
 
 // KubevirtClusterToKubevirtMachines is a handler.ToRequestsFunc to be used to enqueue
@@ -658,6 +700,11 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		}
 	}
 
+	networkData, err := r.getNetworkData(ctx)
+	if err != nil {
+		return err
+	}
+
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
@@ -672,6 +719,9 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
 		}
+		if len(networkData) > 0 {
+			newBootstrapDataSecret.Data["networkdata"] = networkData
+		}
 
 		return nil
 	})
@@ -682,12 +732,46 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 
 	switch res {
 	case controllerutil.OperationResultCreated:
-		ctx.Logger.Info("Add capk user with ssh config to bootstrap userdata")
+		ctx.Logger.Info("Created KubeVirt cloud-init data secret")
 	case controllerutil.OperationResultUpdated:
-		ctx.Logger.Info("Updated capk user with ssh config to bootstrap userdata")
+		ctx.Logger.Info("Updated KubeVirt cloud-init data secret")
 	}
 
 	return nil
+}
+
+// getNetworkData returns the cloud-init network configuration referenced by the KubevirtMachine's
+// networkDataSecretRef. It returns nil when no reference is set.
+func (r *KubevirtMachineReconciler) getNetworkData(ctx *context.MachineContext) ([]byte, error) {
+	if data := ctx.KubevirtMachine.Spec.CloudInit.GetNetworkData(); data != nil {
+		if len(*data) == 0 {
+			return nil, &networkDataError{err: errors.New("error retrieving network data: inline networkData is empty")}
+		}
+		return []byte(*data), nil
+	}
+
+	ref := ctx.KubevirtMachine.Spec.CloudInit.GetNetworkDataSecretRef()
+	if ref == nil {
+		return nil, nil
+	}
+
+	key := client.ObjectKey{Namespace: ctx.KubevirtMachine.GetNamespace(), Name: ref.Name}
+	s := &corev1.Secret{}
+	if err := r.Get(ctx, key, s); err != nil {
+		return nil, &networkDataError{err: errors.Wrapf(err, "failed to retrieve network data secret %s for KubevirtMachine %s/%s", key, ctx.KubevirtMachine.GetNamespace(), ctx.KubevirtMachine.GetName())}
+	}
+
+	// Both spellings are accepted, matching the keys KubeVirt itself looks up in a network data secret.
+	for _, dataKey := range []string{"networkdata", "networkData"} {
+		if networkData, ok := s.Data[dataKey]; ok {
+			if len(networkData) == 0 {
+				return nil, &networkDataError{err: errors.Errorf("error retrieving network data: secret %s has an empty %s value", key, dataKey)}
+			}
+			return networkData, nil
+		}
+	}
+
+	return nil, &networkDataError{err: errors.Errorf("error retrieving network data: secret %s is missing the networkdata key", key)}
 }
 
 // deleteKubevirtBootstrapSecret deletes bootstrap cloud-init secret for KubeVirt virtual machines
