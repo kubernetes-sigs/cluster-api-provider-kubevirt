@@ -422,6 +422,11 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	// Ready should reflect if the VMI is ready or not
 	if externalMachine.IsReady() {
 		ctx.KubevirtMachine.Status.Ready = true
+		if ctx.KubevirtMachine.Status.Initialization == nil {
+			ctx.KubevirtMachine.Status.Initialization = &infrav1.KubevirtMachineInitializationStatus{}
+		}
+		provisioned := true
+		ctx.KubevirtMachine.Status.Initialization.Provisioned = &provisioned
 	} else {
 		ctx.KubevirtMachine.Status.Ready = false
 	}

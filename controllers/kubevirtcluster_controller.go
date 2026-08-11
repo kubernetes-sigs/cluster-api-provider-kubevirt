@@ -248,6 +248,11 @@ func (r *KubevirtClusterReconciler) reconcileNormal(ctx *context.ClusterContext,
 
 	// Mark the KubevirtCluster ready
 	ctx.KubevirtCluster.Status.Ready = true
+	if ctx.KubevirtCluster.Status.Initialization == nil {
+		ctx.KubevirtCluster.Status.Initialization = &infrav1.KubevirtClusterInitializationStatus{}
+	}
+	provisioned := true
+	ctx.KubevirtCluster.Status.Initialization.Provisioned = &provisioned
 
 	return ctrl.Result{}, nil
 }
