@@ -93,6 +93,9 @@ func newVirtualMachineFromKubevirtMachine(ctx *context.MachineContext, namespace
 	if ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations != nil {
 		virtualMachine.Annotations = mapCopy(ctx.KubevirtMachine.Spec.VirtualMachineTemplate.ObjectMeta.Annotations)
 	}
+	if virtualMachine.Annotations == nil {
+		virtualMachine.Annotations = map[string]string{}
+	}
 
 	virtualMachine.Labels["kubevirt.io/vm"] = ctx.KubevirtMachine.Name
 	virtualMachine.Labels["name"] = ctx.KubevirtMachine.Name
@@ -155,7 +158,7 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 		Name: cloudInitVolumeName,
 		DiskDevice: kubevirtv1.DiskDevice{
 			Disk: &kubevirtv1.DiskTarget{
-				Bus: "virtio",
+				Bus: kubevirtv1.DiskBusVirtio,
 			},
 		},
 	}
