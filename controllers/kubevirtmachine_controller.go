@@ -657,6 +657,11 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		}
 	}
 
+	networkData, err := r.getNetworkData(ctx)
+	if err != nil {
+		return err
+	}
+
 	newBootstrapDataSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.Name + "-userdata",
@@ -670,6 +675,9 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 		newBootstrapDataSecret.Type = clusterv1.ClusterSecretType
 		newBootstrapDataSecret.Data = map[string][]byte{
 			"userdata": value,
+		}
+		if len(networkData) > 0 {
+			newBootstrapDataSecret.Data["networkdata"] = networkData
 		}
 
 		return nil
@@ -687,6 +695,30 @@ func (r *KubevirtMachineReconciler) reconcileKubevirtBootstrapSecret(ctx *contex
 	}
 
 	return nil
+}
+
+// getNetworkData returns the cloud-init network configuration referenced by the KubevirtMachine's
+// networkDataSecretRef. It returns nil when no reference is set.
+func (r *KubevirtMachineReconciler) getNetworkData(ctx *context.MachineContext) ([]byte, error) {
+	ref := ctx.KubevirtMachine.Spec.CloudInit.GetNetworkDataSecretRef()
+	if ref == nil {
+		return nil, nil
+	}
+
+	key := client.ObjectKey{Namespace: ctx.KubevirtMachine.GetNamespace(), Name: ref.Name}
+	s := &corev1.Secret{}
+	if err := r.Get(ctx, key, s); err != nil {
+		return nil, errors.Wrapf(err, "failed to retrieve network data secret %s for KubevirtMachine %s/%s", key, ctx.KubevirtMachine.GetNamespace(), ctx.KubevirtMachine.GetName())
+	}
+
+	// Both spellings are accepted, matching the keys KubeVirt itself looks up in a network data secret.
+	for _, dataKey := range []string{"networkdata", "networkData"} {
+		if networkData, ok := s.Data[dataKey]; ok {
+			return networkData, nil
+		}
+	}
+
+	return nil, errors.Errorf("error retrieving network data: secret %s is missing the networkdata key", key)
 }
 
 // deleteKubevirtBootstrapSecret deletes bootstrap cloud-init secret for KubeVirt virtual machines

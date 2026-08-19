@@ -55,6 +55,69 @@ type KubevirtMachineSpec struct {
 	// When nil, this defaults to the value present in the KubevirtCluster object's spec associated with this machine.
 	// +optional
 	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
+
+	// CloudInit configures the cloud-init data source attached to the virtual machine.
+	// When nil, a config drive data source carrying only the bootstrap user data is attached.
+	// +optional
+	CloudInit *CloudInitSpec `json:"cloudInit,omitempty"`
+}
+
+// CloudInitDataSource describes the type of cloud-init data source attached to the virtual machine.
+type CloudInitDataSource string
+
+const (
+	// CloudInitDataSourceConfigDrive attaches an OpenStack config drive data source. Network
+	// configuration is expected in the OpenStack network_data.json format.
+	CloudInitDataSourceConfigDrive CloudInitDataSource = "configDrive"
+
+	// CloudInitDataSourceNoCloud attaches a NoCloud data source. Network configuration is expected
+	// in the cloud-init network configuration format, version 1 or 2.
+	CloudInitDataSourceNoCloud CloudInitDataSource = "noCloud"
+)
+
+// CloudInitSpec defines the cloud-init data source attached to the virtual machine.
+type CloudInitSpec struct {
+	// DataSource selects the type of cloud-init data source attached to the virtual machine.
+	// This choice determines the format expected for the network configuration document, because
+	// cloud-init parses it differently per data source: "configDrive" expects the OpenStack
+	// network_data.json format, while "noCloud" expects the cloud-init network configuration
+	// format, version 1 or 2.
+	// Defaults to "configDrive".
+	// +optional
+	// +kubebuilder:validation:Enum=configDrive;noCloud
+	// +kubebuilder:default:=configDrive
+	DataSource CloudInitDataSource `json:"dataSource,omitempty"`
+
+	// NetworkDataSecretRef is a reference to a secret in the KubevirtMachine's namespace, holding a
+	// network configuration document under a "networkdata" or "networkData" key, in the format
+	// expected by DataSource.
+	// When set, the content is copied to the infra cluster and attached to the cloud-init data
+	// source of the virtual machine, allowing the guest to configure its network without relying
+	// on DHCP. This is intended for setups where addresses are managed externally, for example on
+	// secondary interfaces attached through Multus.
+	// When nil, the guest is expected to obtain its network configuration by other means, such as DHCP.
+	// +optional
+	NetworkDataSecretRef *corev1.LocalObjectReference `json:"networkDataSecretRef,omitempty"`
+}
+
+// GetDataSource returns the configured cloud-init data source type, defaulting to config drive when
+// the cloud-init configuration or the data source type is unset.
+func (c *CloudInitSpec) GetDataSource() CloudInitDataSource {
+	if c == nil || c.DataSource == "" {
+		return CloudInitDataSourceConfigDrive
+	}
+
+	return c.DataSource
+}
+
+// GetNetworkDataSecretRef returns the configured network data secret reference, or nil when the
+// cloud-init configuration is unset.
+func (c *CloudInitSpec) GetNetworkDataSecretRef() *corev1.LocalObjectReference {
+	if c == nil {
+		return nil
+	}
+
+	return c.NetworkDataSecretRef
 }
 
 // VirtualMachineBootstrapCheckSpec defines how the controller will remotely check CAPI Sentinel file content.
