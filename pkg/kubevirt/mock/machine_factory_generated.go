@@ -245,16 +245,16 @@ func (m *MockMachineFactory) EXPECT() *MockMachineFactoryMockRecorder {
 }
 
 // NewMachine mocks base method.
-func (m *MockMachineFactory) NewMachine(ctx *context0.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (kubevirt.MachineInterface, error) {
+func (m *MockMachineFactory) NewMachine(ctx *context0.MachineContext, infraClient, mgmtClient client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (kubevirt.MachineInterface, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewMachine", ctx, client, namespace, sshKeys)
+	ret := m.ctrl.Call(m, "NewMachine", ctx, infraClient, mgmtClient, namespace, sshKeys)
 	ret0, _ := ret[0].(kubevirt.MachineInterface)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // NewMachine indicates an expected call of NewMachine.
-func (mr *MockMachineFactoryMockRecorder) NewMachine(ctx, client, namespace, sshKeys interface{}) *gomock.Call {
+func (mr *MockMachineFactoryMockRecorder) NewMachine(ctx, infraClient, mgmtClient, namespace, sshKeys interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewMachine", reflect.TypeOf((*MockMachineFactory)(nil).NewMachine), ctx, client, namespace, sshKeys)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewMachine", reflect.TypeOf((*MockMachineFactory)(nil).NewMachine), ctx, infraClient, mgmtClient, namespace, sshKeys)
 }
