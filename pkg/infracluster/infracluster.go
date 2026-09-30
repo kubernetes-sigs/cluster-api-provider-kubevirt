@@ -87,10 +87,18 @@ func (w *infraCluster) GenerateInfraClusterClient(infraClusterSecretRef *corev1.
 		return nil, "", errors.Wrap(err, "failed to create REST config")
 	}
 
+	RestConfigHardening(restConfig)
+
 	infraClusterClient, err := w.ClientFactory(restConfig, k8sclient.Options{Scheme: w.Scheme()})
 	if err != nil {
 		return nil, "", errors.Wrap(err, "failed to create infra cluster client")
 	}
 
 	return infraClusterClient, namespace, nil
+}
+
+func RestConfigHardening(restConfig *rest.Config) {
+	// limit the usage of this configuration: do not allow user to execute commands using this client.
+	restConfig.ExecProvider = nil
+	restConfig.AuthProvider = nil
 }
