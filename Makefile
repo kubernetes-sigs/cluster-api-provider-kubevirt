@@ -90,6 +90,21 @@ ARTIFACTS ?= _artifacts
 test: ## Run tests.
 	go test -v `go list ./... | grep -Ev "e2e|clusterkubevirtadm"` $(TEST_ARGS)
 
+# Both follow go.mod: the setup-envtest release branch of the controller-runtime
+# version, and the Kubernetes minor version of k8s.io/api.
+ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
+ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+SETUP_ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
+.PHONY: setup-envtest
+setup-envtest: ## Download setup-envtest locally if necessary.
+	$(call go-install-tool,$(SETUP_ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION))
+
+.PHONY: test-integration
+test-integration: setup-envtest ## Run the integration tests against a local control plane (envtest).
+	@assets="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(PROJECT_DIR)/bin -p path)" && \
+		[ -n "$$assets" ] || { echo "failed to set up the envtest binaries" >&2; exit 1; }; \
+		KUBEBUILDER_ASSETS="$$assets" go test -v -count=1 -run Integration . $(TEST_ARGS)
+
 .PHONY: test-verbose
 test-verbose: ## Run tests with verbose settings.
 	TEST_ARGS="$(TEST_ARGS) -v" $(MAKE) test

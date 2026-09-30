@@ -40,6 +40,7 @@ mkdir -p "${TEST_WORKING_DIR}"
   -ginkgo.v \
   -test.v \
   -ginkgo.no-color \
+  -ginkgo.timeout=2h \
   --kubectl-path "${KUBECTL_PATH}" \
   --virtctl-path "${VIRTCTL_PATH}" \
   --clusterctl-path "${CLUSTERCTL_PATH}" \

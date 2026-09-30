@@ -29,6 +29,16 @@ patchesStrategicMerge:
   # Inject certificate in the webhook definition.
   - webhookcainjection_patch.yaml
 
+patches:
+  # The KubevirtRemediation controller is opt-in; the e2e tests need it.
+  - target:
+      kind: Deployment
+      name: controller-manager
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "--enable-remediation=true"
+
 vars:
   - name: CERTIFICATE_NAMESPACE # namespace of the certificate CR
     objref:

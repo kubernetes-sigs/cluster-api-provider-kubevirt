@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"math/rand"
 	"os"
 	"time"
@@ -70,6 +71,7 @@ var (
 	webhookPort                 int
 	webhookCertDir              string
 	watchNamespace              string
+	enableRemediation           bool
 
 	managerOptions = flags.ManagerOptions{}
 )
@@ -125,6 +127,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Webhook cert dir, only used when webhook-port is specified.")
 	fs.StringVar(&watchNamespace, "namespace", "",
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
+	fs.BoolVar(&enableRemediation, "enable-remediation", false,
+		"Enable the KubevirtRemediation controller (MachineHealthCheck external remediation). Requires the KubevirtRemediation and KubevirtRemediationTemplate CRDs to be installed.")
 
 	feature.MutableGates.AddFlag(fs)
 
@@ -198,7 +202,10 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	setupChecks(mgr)
-	setupReconcilers(ctx, mgr)
+	if err := setupReconcilers(ctx, mgr); err != nil {
+		setupLog.Error(err, "unable to create controller")
+		os.Exit(1)
+	}
 	setupWebhooks(mgr)
 
 	// +kubebuilder:scaffold:builder
@@ -221,11 +228,10 @@ func setupChecks(mgr ctrl.Manager) {
 	}
 }
 
-func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager) error {
 	noCachedClient, err := k8sclient.New(mgr.GetConfig(), k8sclient.Options{Scheme: mgr.GetClient().Scheme()})
 	if err != nil {
-		setupLog.Error(err, "unable to create controller; failed to generate no-cached client")
-		os.Exit(1)
+		return fmt.Errorf("failed to generate no-cached client: %w", err)
 	}
 
 	controllerNS := resolveControllerNamespace()
@@ -238,8 +244,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "reconciler")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtMachine controller: %w", err)
 	}
 
 	if err := (&controllers.KubevirtClusterReconciler{
@@ -248,8 +253,19 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 		InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
 		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtCluster controller: %w", err)
+	}
+
+	// Opt-in: watching a kind whose CRD is not installed makes the cache sync
+	// time out and stops the whole manager, which would break installations
+	// that upgrade the controller image separately from the CRDs.
+	if enableRemediation {
+		if err := (&controllers.KubevirtRemediationReconciler{
+			Client:       mgr.GetClient(),
+			InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
+		}).SetupWithManager(ctx, mgr); err != nil {
+			return fmt.Errorf("KubevirtRemediation controller: %w", err)
+		}
 	}
 
 	if err := (&controllers.KubevirtMachineTemplateReconciler{
@@ -257,9 +273,10 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "KubevirtMachineTemplate")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtMachineTemplate controller: %w", err)
 	}
+
+	return nil
 }
 
 func setupWebhooks(mgr ctrl.Manager) {
