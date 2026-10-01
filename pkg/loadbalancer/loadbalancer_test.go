@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -39,6 +40,7 @@ var (
 	kubevirtCluster     = testing.NewKubevirtCluster(clusterName, kubevirtClusterName)
 	cluster             = testing.NewCluster(clusterName, kubevirtCluster)
 	loadBalancerService = newLoadBalancerService(clusterContext, kubevirtCluster)
+	nodePortService     = newNodePortService(clusterContext, kubevirtCluster)
 
 	clusterContext = &context.ClusterContext{
 		Logger:          ctrl.LoggerFrom(gocontext.TODO()).WithName("test"),
@@ -70,6 +72,11 @@ var _ = Describe("Load Balancer", func() {
 
 		It("should return false for isFound()", func() {
 			Expect(lb.IsFound()).To(BeFalse())
+		})
+
+		It("should return nodePort as 0 for GetNodePort()", func() {
+			port := lb.GetNodePort()
+			Expect(port).To(Equal(int32(0)))
 		})
 
 		It("should return error for IP()", func() {
@@ -112,6 +119,36 @@ var _ = Describe("Load Balancer", func() {
 			Expect(err).To(HaveOccurred())
 		})
 	})
+
+	Context("when underlying service has been created already (NodePort service)", func() {
+		BeforeEach(func() {
+			objects := []client.Object{
+				cluster,
+				kubevirtCluster,
+				nodePortService,
+			}
+			fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		})
+
+		It("should initialize nodePort service without error", func() {
+			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient, "")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should return true for isFound()", func() {
+			Expect(lb.IsFound()).To(BeTrue())
+		})
+
+		It("should return non-empty nodePort", func() {
+			port := lb.GetNodePort()
+			Expect(port).ToNot(BeZero())
+		})
+
+		It("should NOT create a new load balancer", func() {
+			err = lb.Create(clusterContext)
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })
 
 func newLoadBalancerService(ctx *context.ClusterContext, kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
@@ -129,5 +166,33 @@ func newLoadBalancerService(ctx *context.ClusterContext, kubevirtCluster *infrav
 			},
 		},
 		Spec: corev1.ServiceSpec{ClusterIP: "1.1.1.1"},
+	}
+}
+
+func newNodePortService(ctx *context.ClusterContext, kubevirtCluster *infrav1.KubevirtCluster) *corev1.Service {
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterName + "-lb",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: kubevirtCluster.APIVersion,
+					Kind:       kubevirtCluster.Kind,
+					Name:       kubevirtCluster.Name,
+					UID:        kubevirtCluster.UID,
+				},
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "ssh",
+					Port:       22,
+					NodePort:   30000,
+					Protocol:   corev1.ProtocolTCP,
+					TargetPort: intstr.FromInt(22),
+				},
+			},
+		},
 	}
 }

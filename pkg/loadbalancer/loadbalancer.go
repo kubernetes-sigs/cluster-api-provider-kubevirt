@@ -121,6 +121,20 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 	return nil
 }
 
+func (l *LoadBalancer) GetNodePort() int32 {
+	if !l.IsFound() {
+		return 0
+	}
+
+	for _, port := range l.service.Spec.Ports {
+		if port.Name == "ssh" {
+			return port.NodePort
+		}
+	}
+
+	return 0
+}
+
 // IP returns ip address of the load balancer
 func (l *LoadBalancer) IP(ctx *context.ClusterContext) (string, error) {
 	loadBalancer := &corev1.Service{}
