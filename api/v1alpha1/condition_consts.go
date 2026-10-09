@@ -32,6 +32,9 @@ const (
 	// script to be ready before starting to create the VM that provides the KubevirtMachine infrastructure.
 	WaitingForBootstrapDataReason = "WaitingForBootstrapData"
 
+	// WaitingForNetworkDataReason documents a KubevirtMachine waiting for valid cloud-init network data.
+	WaitingForNetworkDataReason = "WaitingForNetworkData"
+
 	// WaitingForControlPlaneAvailableReason documents a KubevirtMachine waiting for the control plane
 	// to be initialized before proceeding with provisioning.
 	WaitingForControlPlaneAvailableReason = "WaitingForControlPlaneAvailable"
