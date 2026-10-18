@@ -46,21 +46,23 @@ const (
 
 // Machine implement a service for managing the KubeVirt VM hosting a kubernetes node.
 type Machine struct {
-	client         client.Client
-	namespace      string
-	machineContext *context.MachineContext
-	vmiInstance    *kubevirtv1.VirtualMachineInstance
-	vmInstance     *kubevirtv1.VirtualMachine
-	dataVolumes    []*cdiv1.DataVolume
+	client           client.Client
+	managementClient client.Client
+	namespace        string
+	machineContext   *context.MachineContext
+	vmiInstance      *kubevirtv1.VirtualMachineInstance
+	vmInstance       *kubevirtv1.VirtualMachine
+	dataVolumes      []*cdiv1.DataVolume
 
 	sshKeys            *ssh.ClusterNodeSshKeys
 	getCommandExecutor func(string, *ssh.ClusterNodeSshKeys) ssh.VMCommandExecutor
 }
 
 // NewMachine returns a new Machine service for the given context.
-func NewMachine(ctx *context.MachineContext, client client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
+func NewMachine(ctx *context.MachineContext, client client.Client, managementClient client.Client, namespace string, sshKeys *ssh.ClusterNodeSshKeys) (*Machine, error) {
 	machine := &Machine{
 		client:             client,
+		managementClient:   managementClient,
 		namespace:          namespace,
 		machineContext:     ctx,
 		vmiInstance:        nil,
@@ -511,7 +513,7 @@ const cleanupMigrationAnnotationsPatch = `{"metadata":{"annotations":{"` + infra
 func (m *Machine) removeGracePeriodAnnotation() error {
 	patch := client.RawPatch(types.JSONPatchType, []byte(removeGracePeriodAnnotationPatch))
 
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
 		return fmt.Errorf("failed to remove the %s annotation to the KubeVirtMachine %s; %w", infrav1.VmiDeletionGraceTime, m.machineContext.KubevirtMachine.Name, err)
 	}
 
@@ -530,7 +532,7 @@ func (m *Machine) cleanupMigrationAnnotations() error {
 	}
 
 	patchRequest := client.RawPatch(types.MergePatchType, []byte(cleanupMigrationAnnotationsPatch))
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
 		return fmt.Errorf("failed to clean up migration annotations on KubevirtMachine %s: %w", m.machineContext.KubevirtMachine.Name, err)
 	}
 	return nil
@@ -540,7 +542,7 @@ func (m *Machine) setNodeCordonedAnnotation() error {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "true"}}}`, infrav1.NodeCordonedByCapk)
 	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
 
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
 		return fmt.Errorf("failed to set the %s annotation on KubeVirtMachine %s; %w", infrav1.NodeCordonedByCapk, m.machineContext.KubevirtMachine.Name, err)
 	}
 
@@ -552,7 +554,7 @@ const removeNodeCordonedAnnotationPatch = `[{"op": "remove", "path": "/metadata/
 func (m *Machine) removeNodeCordonedAnnotation() error {
 	patch := client.RawPatch(types.JSONPatchType, []byte(removeNodeCordonedAnnotationPatch))
 
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patch); err != nil {
 		return fmt.Errorf("failed to remove the %s annotation from KubeVirtMachine %s; %w", infrav1.NodeCordonedByCapk, m.machineContext.KubevirtMachine.Name, err)
 	}
 
@@ -687,7 +689,7 @@ func (m *Machine) tryMigrateVMI() (migrated bool, requeueAfter time.Duration, er
 func (m *Machine) setMigrationSubmittedAnnotation() error {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "true"}}}`, infrav1.VmiMigrationSubmitted)
 	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
 		return fmt.Errorf("failed to set the %s annotation on KubevirtMachine %s: %w", infrav1.VmiMigrationSubmitted, m.machineContext.KubevirtMachine.Name, err)
 	}
 	return nil
@@ -740,7 +742,7 @@ func (m *Machine) setVmiDeletionGraceTime() error {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{"%s": "%s"}}}`, infrav1.VmiDeletionGraceTime, graceTime)
 	patchRequest := client.RawPatch(types.MergePatchType, []byte(patch))
 
-	if err := m.client.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
+	if err := m.managementClient.Patch(m.machineContext, m.machineContext.KubevirtMachine, patchRequest); err != nil {
 		return fmt.Errorf("failed to add the %s annotation to the KubeVirtMachine %s; %w", infrav1.VmiDeletionGraceTime, m.machineContext.KubevirtMachine.Name, err)
 	}
 

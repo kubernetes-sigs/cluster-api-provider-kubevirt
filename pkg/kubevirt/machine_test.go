@@ -1236,6 +1236,44 @@ var _ = Describe("With KubeVirt VM running externally", func() {
 		Expect(externalMachine.Delete()).To(Succeed())
 		validateVMNotExist(virtualMachine, fakeClient, machineContext)
 	})
+
+	It("routes KubevirtMachine annotations to the management cluster", func() {
+		managementKubevirtMachine := kubevirtMachine.DeepCopy()
+		managementObjects := []client.Object{
+			cluster.DeepCopy(),
+			kubevirtCluster.DeepCopy(),
+			machine.DeepCopy(),
+			managementKubevirtMachine,
+		}
+		managementClient := fake.NewClientBuilder().
+			WithScheme(testing.SetupScheme()).
+			WithObjects(managementObjects...).
+			Build()
+		infraClient := fake.NewClientBuilder().
+			WithScheme(testing.SetupScheme()).
+			WithObjects(virtualMachineInstance.DeepCopy(), virtualMachine.DeepCopy()).
+			Build()
+		machineContext.KubevirtMachine = managementKubevirtMachine
+
+		externalMachine, err := defaultTestMachineWithClients(
+			machineContext,
+			namespace,
+			infraClient,
+			managementClient,
+			fakeVMCommandExecutor,
+			[]byte(sshKey),
+		)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(externalMachine.setVmiDeletionGraceTime()).To(Succeed())
+
+		updatedMachine := &v1alpha1.KubevirtMachine{}
+		key := client.ObjectKey{
+			Namespace: managementKubevirtMachine.Namespace,
+			Name:      managementKubevirtMachine.Name,
+		}
+		Expect(managementClient.Get(gocontext.Background(), key, updatedMachine)).To(Succeed())
+		Expect(updatedMachine.Annotations).To(HaveKey(v1alpha1.VmiDeletionGraceTime))
+	})
 })
 
 var _ = Describe("util functions", func() {
@@ -1517,8 +1555,12 @@ func (e FakeVMCommandExecutor) ExecuteCommand(command string) (string, error) {
 }
 
 func defaultTestMachine(ctx *context.MachineContext, namespace string, client client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
+	return defaultTestMachineWithClients(ctx, namespace, client, client, vmExecutor, sshPubKey)
+}
 
-	machine, err := NewMachine(ctx, client, namespace, &ssh.ClusterNodeSshKeys{PublicKey: sshPubKey})
+func defaultTestMachineWithClients(ctx *context.MachineContext, namespace string, infraClient client.Client, managementClient client.Client, vmExecutor FakeVMCommandExecutor, sshPubKey []byte) (*Machine, error) {
+
+	machine, err := NewMachine(ctx, infraClient, managementClient, namespace, &ssh.ClusterNodeSshKeys{PublicKey: sshPubKey})
 	if err != nil {
 		return nil, err
 	}
