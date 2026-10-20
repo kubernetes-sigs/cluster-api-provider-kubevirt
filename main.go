@@ -64,6 +64,7 @@ var (
 	leaderElectionRenewDeadline time.Duration
 	leaderElectionRetryPeriod   time.Duration
 	syncPeriod                  time.Duration
+	workloadClientTimeout       time.Duration
 	concurrency                 int
 	restConfigQPS               float32
 	restConfigBurst             int
@@ -115,6 +116,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Duration the LeaderElector clients should wait between tries of actions (duration string)")
 	fs.DurationVar(&syncPeriod, "sync-period", 60*time.Second,
 		"The minimum interval at which watched resources are reconciled (e.g. 15m)")
+	fs.DurationVar(&workloadClientTimeout, "workload-cluster-client-timeout", 10*time.Second,
+		"Timeout for each request to a workload cluster's apiserver (duration string)")
 	fs.Float32Var(&restConfigQPS, "kube-api-qps", 20,
 		"Maximum queries per second from the controller client to the Kubernetes API server.")
 	fs.IntVar(&restConfigBurst, "kube-api-burst", 30,
@@ -238,7 +241,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations
 	if err := (&controllers.KubevirtMachineReconciler{
 		Client:              mgr.GetClient(),
 		InfraCluster:        infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
-		WorkloadCluster:     workloadcluster.New(mgr.GetClient()),
+		WorkloadCluster:     workloadcluster.New(mgr.GetClient(), workloadClientTimeout),
 		MachineFactory:      kubevirt.DefaultMachineFactory{},
 		ExcludedAnnotations: excludedAnnotations,
 	}).SetupWithManager(ctx, mgr, controller.Options{
