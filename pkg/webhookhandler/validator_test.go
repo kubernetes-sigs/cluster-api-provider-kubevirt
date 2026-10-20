@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 )
 
 var _ = Describe("Template Validation - ensure immutability in update request", func() {
@@ -44,7 +45,10 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 		}
 		s := scheme.Scheme
 		_ = v1alpha1.AddToScheme(s)
-		wh := &kubevirtMachineTemplateHandler{decoder: admission.NewDecoder(s)}
+		wh := &kubevirtMachineTemplateHandler{
+			decoder:             admission.NewDecoder(s),
+			excludedAnnotations: annotationfilter.New([]string{"example.com/exclude"}),
+		}
 
 		DescribeTable("check validator", func(newTemplate *v1alpha1.KubevirtMachineTemplate, expectError error) {
 			err := wh.validateUpdate(oldTemplate, newTemplate)
@@ -84,7 +88,10 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			Expect(v1alpha1.AddToScheme(s)).To(Succeed())
 			codecFactory := serializer.NewCodecFactory(s)
 			v1alpha1Codec = codecFactory.LegacyCodec(v1alpha1.GroupVersion)
-			wh = &kubevirtMachineTemplateHandler{decoder: admission.NewDecoder(s)}
+			wh = &kubevirtMachineTemplateHandler{
+				decoder:             admission.NewDecoder(s),
+				excludedAnnotations: annotationfilter.New([]string{"example.com/exclude"}),
+			}
 			ctx = context.Background()
 		})
 
@@ -156,6 +163,29 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			Expect(res.Allowed).To(BeFalse())
 			Expect(res.Result.Code).To(Equal(int32(http.StatusForbidden)))
 			Expect(res.Result.Message).To(Equal(immutableWarning))
+		})
+
+		It("should allow template updates carrying an excluded annotation without immutability validation", func() {
+			oldTemplate := &v1alpha1.KubevirtMachineTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						"example.com/exclude": "true",
+					},
+				},
+				Spec: v1alpha1.KubevirtMachineTemplateSpec{
+					Template: v1alpha1.KubevirtMachineTemplateResource{
+						Spec: v1alpha1.KubevirtMachineSpec{},
+					},
+				},
+			}
+
+			newTemplate := oldTemplate.DeepCopy()
+			newTemplate.Spec.Template.Spec.ProviderID = ptr.To("testing")
+
+			req := newRequest(admissionv1.Update, oldTemplate, newTemplate, v1alpha1Codec)
+
+			res := wh.Handle(ctx, req)
+			Expect(res.Allowed).To(BeTrue())
 		})
 	})
 })

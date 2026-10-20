@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
@@ -52,12 +53,10 @@ import (
 // KubevirtClusterReconciler reconciles a KubevirtCluster object.
 type KubevirtClusterReconciler struct {
 	client.Client
-	// APIReader is used to prune the Cloud Controller resources for the given cluster:
-	// this client doesn't locally cache the resources upon a GET/LIST request,
-	// decreasing memory consumption and avoiding granting further RBAC verbs.
-	APIReader    client.Reader
-	InfraCluster infracluster.InfraCluster
-	Log          logr.Logger
+	APIReader           client.Reader
+	InfraCluster        infracluster.InfraCluster
+	Log                 logr.Logger
+	ExcludedAnnotations annotationfilter.Filter
 }
 
 func GetLoadBalancerNamespace(kc *infrav1.KubevirtCluster, infraClusterNamespace string) string {
@@ -92,6 +91,10 @@ func (r *KubevirtClusterReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 
 	if annotations.IsExternallyManaged(kubevirtCluster) {
 		log.V(4).Info(fmt.Sprintf("KubevirtCluster %s/%s is externally managed, will not attempt to reconcile object.", kubevirtCluster.Namespace, kubevirtCluster.Name))
+		return ctrl.Result{}, nil
+	}
+	if r.ExcludedAnnotations.Excludes(kubevirtCluster) {
+		log.V(4).Info(fmt.Sprintf("KubevirtCluster %s/%s carries an excluded annotation, will not attempt to reconcile object.", kubevirtCluster.Namespace, kubevirtCluster.Name))
 		return ctrl.Result{}, nil
 	}
 
@@ -297,7 +300,7 @@ func (r *KubevirtClusterReconciler) reconcileDelete(ctx *context.ClusterContext,
 
 // SetupWithManager will add watches for this controller.
 func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtCluster{}).
 		WithEventFilter(predicates.ResourceNotPaused(r.Scheme(), r.Log)).
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(r.Scheme(), r.Log)).
@@ -310,8 +313,13 @@ func (r *KubevirtClusterReconciler) SetupWithManager(ctx gocontext.Context, mgr 
 				&infrav1.KubevirtCluster{},
 			)),
 			builder.WithPredicates(predicates.ClusterUnpaused(r.Scheme(), r.Log)),
-		).
-		Complete(r)
+		)
+
+	if !r.ExcludedAnnotations.IsEmpty() {
+		controllerBuilder = controllerBuilder.WithEventFilter(r.ExcludedAnnotations.Predicate())
+	}
+
+	return controllerBuilder.Complete(r)
 }
 
 func (r *KubevirtClusterReconciler) deleteExtraGVK(ctx *context.ClusterContext, extraGVK schema.GroupVersionKind) error {

@@ -46,6 +46,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/webhookhandler"
@@ -70,6 +71,7 @@ var (
 	webhookPort                 int
 	webhookCertDir              string
 	watchNamespace              string
+	excludeAnnotations          []string
 
 	managerOptions = flags.ManagerOptions{}
 )
@@ -125,6 +127,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Webhook cert dir, only used when webhook-port is specified.")
 	fs.StringVar(&watchNamespace, "namespace", "",
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
+	fs.StringSliceVar(&excludeAnnotations, "exclude-annotations", nil,
+		"Comma-separated list of annotation names. Objects carrying any of these annotations are excluded from reconciliation and webhook validation.")
 
 	feature.MutableGates.AddFlag(fs)
 
@@ -198,8 +202,9 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	setupChecks(mgr)
-	setupReconcilers(ctx, mgr)
-	setupWebhooks(mgr)
+	excludedAnnotations := annotationfilter.New(excludeAnnotations)
+	setupReconcilers(ctx, mgr, excludedAnnotations)
+	setupWebhooks(mgr, excludedAnnotations)
 
 	// +kubebuilder:scaffold:builder
 	setupLog.Info("starting manager")
@@ -221,7 +226,7 @@ func setupChecks(mgr ctrl.Manager) {
 	}
 }
 
-func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations annotationfilter.Filter) {
 	noCachedClient, err := k8sclient.New(mgr.GetConfig(), k8sclient.Options{Scheme: mgr.GetClient().Scheme()})
 	if err != nil {
 		setupLog.Error(err, "unable to create controller; failed to generate no-cached client")
@@ -231,10 +236,11 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	controllerNS := resolveControllerNamespace()
 
 	if err := (&controllers.KubevirtMachineReconciler{
-		Client:          mgr.GetClient(),
-		InfraCluster:    infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
-		WorkloadCluster: workloadcluster.New(mgr.GetClient()),
-		MachineFactory:  kubevirt.DefaultMachineFactory{},
+		Client:              mgr.GetClient(),
+		InfraCluster:        infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
+		WorkloadCluster:     workloadcluster.New(mgr.GetClient()),
+		MachineFactory:      kubevirt.DefaultMachineFactory{},
+		ExcludedAnnotations: excludedAnnotations,
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {
@@ -243,17 +249,19 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	}
 
 	if err := (&controllers.KubevirtClusterReconciler{
-		Client:       mgr.GetClient(),
-		APIReader:    mgr.GetAPIReader(),
-		InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
-		Log:          ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
+		Client:              mgr.GetClient(),
+		APIReader:           mgr.GetAPIReader(),
+		InfraCluster:        infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
+		Log:                 ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
+		ExcludedAnnotations: excludedAnnotations,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
 		os.Exit(1)
 	}
 
 	if err := (&controllers.KubevirtMachineTemplateReconciler{
-		Client: mgr.GetClient(),
+		Client:              mgr.GetClient(),
+		ExcludedAnnotations: excludedAnnotations,
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
@@ -262,9 +270,9 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager) {
 	}
 }
 
-func setupWebhooks(mgr ctrl.Manager) {
+func setupWebhooks(mgr ctrl.Manager, excludedAnnotations annotationfilter.Filter) {
 	controllerNS := resolveControllerNamespace()
-	if err := webhookhandler.SetupWebhookWithManager(mgr, controllerNS); err != nil {
+	if err := webhookhandler.SetupWebhookWithManager(mgr, controllerNS, excludedAnnotations); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "KubevirtMachineTemplate")
 		os.Exit(1)
 	}

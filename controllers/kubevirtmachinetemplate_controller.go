@@ -31,11 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 )
 
 // KubevirtMachineTemplateReconciler reconciles a KubevirtMachineTemplate object.
 type KubevirtMachineTemplateReconciler struct {
 	client.Client
+	ExcludedAnnotations annotationfilter.Filter
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachinetemplates,verbs=get;list;watch
@@ -54,6 +56,10 @@ func (r *KubevirtMachineTemplateReconciler) Reconcile(ctx gocontext.Context, req
 		}
 		log.Error(err, "unable to fetch KubevirtMachineTemplate")
 		return ctrl.Result{}, err
+	}
+	if r.ExcludedAnnotations.Excludes(&machineTemplate) {
+		log.Info("Skipping KubevirtMachineTemplate with excluded annotation")
+		return ctrl.Result{}, nil
 	}
 
 	helper, err := patch.NewHelper(&machineTemplate, r.Client)
@@ -171,10 +177,15 @@ func (r *KubevirtMachineTemplateReconciler) SetupWithManager(ctx gocontext.Conte
 	log := ctrl.Log.WithName("controllers").WithName("KubevirtMachineTemplate")
 	log.Info("Setting up KubevirtMachineTemplate controller")
 
-	if err := ctrl.NewControllerManagedBy(mgr).
+	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.KubevirtMachineTemplate{}).
-		WithOptions(options).
-		Complete(r); err != nil {
+		WithOptions(options)
+
+	if !r.ExcludedAnnotations.IsEmpty() {
+		controllerBuilder = controllerBuilder.WithEventFilter(r.ExcludedAnnotations.Predicate())
+	}
+
+	if err := controllerBuilder.Complete(r); err != nil {
 		return fmt.Errorf("failed to set up KubevirtMachineTemplate controller: %w", err)
 	}
 
