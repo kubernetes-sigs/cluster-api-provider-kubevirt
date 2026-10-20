@@ -43,6 +43,10 @@ type MachineInterface interface {
 
 	DrainNodeIfNeeded(workloadcluster.WorkloadCluster) (time.Duration, error)
 
+	// ReplaceInsteadOfRestart reports whether a control plane VMI must leave its draining infra node
+	// but cannot live-migrate. A restart would bring it back on a pod IP its etcd member does not advertise.
+	ReplaceInsteadOfRestart() bool
+
 	// GetVMUnscheduledReason returns the reason and message for the condition, if the VM is not ready
 	GetVMNotReadyReason() (string, string)
 }
