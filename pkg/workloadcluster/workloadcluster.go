@@ -1,6 +1,8 @@
 package workloadcluster
 
 import (
+	"time"
+
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	k8sclient "k8s.io/client-go/kubernetes"
@@ -16,15 +18,17 @@ type WorkloadCluster interface {
 	GenerateWorkloadClusterK8sClient(ctx *context.MachineContext) (k8sclient.Interface, error)
 }
 
-func New(client client.Client) WorkloadCluster {
+func New(client client.Client, timeout time.Duration) WorkloadCluster {
 	return &workloadCluster{
-		Client: client,
+		Client:  client,
+		timeout: timeout,
 	}
 }
 
 // KubevirtMachineReconciler is struct provides workloadCluster access info
 type workloadCluster struct {
 	client.Client
+	timeout time.Duration
 }
 
 // GenerateWorkloadClusterClient creates a client for workload cluster.
@@ -40,6 +44,7 @@ func (w *workloadCluster) GenerateWorkloadClusterClient(ctx *context.MachineCont
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create REST config")
 	}
+	restConfig.Timeout = w.timeout
 
 	// create the client
 	workloadClusterClient, err := client.New(restConfig, client.Options{Scheme: w.Scheme()})
@@ -63,6 +68,7 @@ func (w *workloadCluster) GenerateWorkloadClusterK8sClient(ctx *context.MachineC
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create REST config")
 	}
+	restConfig.Timeout = w.timeout
 
 	// create the client
 	workloadClusterClient, err := k8sclient.NewForConfig(restConfig)
