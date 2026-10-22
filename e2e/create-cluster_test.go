@@ -492,46 +492,241 @@ var _ = Describe("CreateCluster", func() {
 		Expect(k8sclient.Create(ctx, mhc)).To(Succeed())
 	}
 
-	It("creates a simple cluster with ephemeral VMs", Label("ephemeralVMs"), func(ctx context.Context) {
-		By("generating cluster manifests from example template")
-		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
-			"--target-namespace", namespace,
-			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
-			"--control-plane-machine-count=1",
-			"--worker-machine-count=1",
-			"--from", "templates/cluster-template.yaml")
-		stdout, stderr := RunCmd(cmd)
-		if len(stderr) > 0 {
-			GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+	validationVMTemplate := func() infrav1.VirtualMachineTemplateSpec {
+		return infrav1.VirtualMachineTemplateSpec{
+			Spec: kubevirtv1.VirtualMachineSpec{
+				Template: &kubevirtv1.VirtualMachineInstanceTemplateSpec{},
+			},
 		}
+	}
 
-		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
+	It("rejects invalid cloud-init network data configuration", Label("apiValidation"), func(ctx context.Context) {
+		machine := &infrav1.KubevirtMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: "cloud-init-validation", Namespace: namespace},
+			Spec: infrav1.KubevirtMachineSpec{
+				VirtualMachineTemplate: validationVMTemplate(),
+				CloudInit: &infrav1.CloudInitSpec{
+					NetworkDataSecretRef: &corev1.LocalObjectReference{},
+				},
+			},
+		}
+		err := k8sclient.Create(ctx, machine)
+		Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected API validation rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("networkDataSecretRef.name must not be empty"))
 
-		By("posting cluster manifests example template")
-		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
-		RunCmd(cmd)
-
-		By("Waiting for control plane")
-		waitForControlPlane(ctx)
-
-		By("Waiting on kubevirt machines to bootstrap")
-		waitForBootstrappedMachines(ctx)
-
-		By("Waiting on kubevirt machines to be ready")
-		waitForMachineReadiness(ctx, 2, 0)
-
-		By("Waiting for getting access to the tenant cluster")
-		waitForTenantAccess(ctx, 2)
-
-		By("posting calico CNI manifests to the guest cluster and waiting for network")
-		installCalicoCNI()
-
-		By("Waiting for node readiness")
-		waitForNodeReadiness(ctx)
-
-		By("waiting all tenant Pods to be Ready")
-		waitForTenantPods(ctx)
+		machine.Spec.CloudInit.NetworkDataSecretRef.Name = "network-data"
+		machine.Spec.CloudInit.NetworkData = ptr.To("version: 2")
+		err = k8sclient.Create(ctx, machine)
+		Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected API validation rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("networkData and networkDataSecretRef are mutually exclusive"))
 	})
+
+	DescribeTable("validates cloud-init immutability through the API", Label("apiValidation"),
+		func(ctx context.Context, initial *infrav1.CloudInitSpec, updated *infrav1.CloudInitSpec, rejected bool) {
+			machine := &infrav1.KubevirtMachine{
+				ObjectMeta: metav1.ObjectMeta{Name: "cloud-init-validation", Namespace: namespace},
+				Spec: infrav1.KubevirtMachineSpec{
+					VirtualMachineTemplate: validationVMTemplate(),
+					CloudInit:              initial.DeepCopy(),
+				},
+			}
+			Expect(k8sclient.Create(ctx, machine)).To(Succeed())
+			original := machine.DeepCopy()
+			machine.Spec.CloudInit = updated.DeepCopy()
+			machine.Spec.ProviderID = ptr.To("kubevirt://updated")
+			machine.Labels = map[string]string{"test": "updated"}
+			err := k8sclient.Update(ctx, machine)
+			if rejected {
+				Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected immutability rejection, got %v", err)
+				Expect(err.Error()).To(ContainSubstring("CloudInit"))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+			persisted := &infrav1.KubevirtMachine{}
+			Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(machine), persisted)).To(Succeed())
+			if rejected {
+				Expect(persisted.Spec).To(Equal(original.Spec))
+			} else {
+				Expect(persisted.Spec).To(Equal(machine.Spec))
+				Expect(persisted.Labels).To(HaveKeyWithValue("test", "updated"))
+			}
+		},
+		Entry("rejects adding cloudInit", nil,
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud}, true),
+		Entry("rejects removing cloudInit",
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud}, nil, true),
+		Entry("rejects changing cloudInit",
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceConfigDrive},
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud}, true),
+		Entry("allows unrelated updates without cloudInit", nil, nil, false),
+		Entry("allows unrelated updates with cloudInit",
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud},
+			&infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud}, false),
+	)
+
+	It("allows topology dry-run cloud-init template changes but rejects persisted changes", Label("apiValidation"), func(ctx context.Context) {
+		template := &infrav1.KubevirtMachineTemplate{
+			ObjectMeta: metav1.ObjectMeta{Name: "cloud-init-template-validation", Namespace: namespace},
+			Spec: infrav1.KubevirtMachineTemplateSpec{
+				Template: infrav1.KubevirtMachineTemplateResource{
+					Spec: infrav1.KubevirtMachineSpec{
+						VirtualMachineTemplate: validationVMTemplate(),
+						CloudInit:              &infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceConfigDrive},
+					},
+				},
+			},
+		}
+		Expect(k8sclient.Create(ctx, template)).To(Succeed())
+		original := template.DeepCopy()
+		updated := template.DeepCopy()
+		updated.Spec.Template.Spec.CloudInit.DataSource = infrav1.CloudInitDataSourceNoCloud
+		updated.Spec.Template.Spec.CloudInit.NetworkData = ptr.To("version: 2")
+		Expect(k8sclient.Update(ctx, updated, client.DryRunAll)).To(Succeed())
+		Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(template), template)).To(Succeed())
+		Expect(template.Spec).To(Equal(original.Spec))
+		err := k8sclient.Update(ctx, updated)
+		Expect(k8serrors.IsForbidden(err)).To(BeTrue(), "expected webhook rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("KubevirtMachineTemplateSpec is immutable"))
+	})
+
+	DescribeTable("creates a simple cluster with ephemeral VMs and cloud-init network data", Label("ephemeralVMs"),
+		func(ctx context.Context, dataSource infrav1.CloudInitDataSource) {
+			By("generating cluster manifests from example template")
+			cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+				"--target-namespace", namespace,
+				"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+				"--control-plane-machine-count=1",
+				"--worker-machine-count=1",
+				"--from", "templates/cluster-template.yaml")
+			stdout, stderr := RunCmd(cmd)
+			if len(stderr) > 0 {
+				GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+			}
+
+			manifests := string(stdout)
+			bootstrapCheck := "      virtualMachineBootstrapCheck:\n"
+			Expect(strings.Count(manifests, bootstrapCheck)).To(Equal(2))
+			const dnsServer = "1.1.1.1"
+			const macAddress = "02:00:00:00:00:01"
+			// Bridge binding gives each guest a distinct, routable pod IP for the tenant CNI.
+			// ConfigDrive identifies the link by MAC; each interface is isolated in its own pod.
+			disks := "                  disks:\n"
+			Expect(strings.Count(manifests, disks)).To(Equal(2))
+			interfaces := "                  interfaces:\n                    - name: default\n                      bridge: {}\n                      macAddress: " + macAddress + "\n"
+			manifests = strings.ReplaceAll(manifests, disks, interfaces+disks)
+			volumes := "              volumes:\n"
+			Expect(strings.Count(manifests, volumes)).To(Equal(2))
+			networks := "              networks:\n                - name: default\n                  pod: {}\n"
+			manifests = strings.ReplaceAll(manifests, volumes, networks+volumes)
+			networkData := "version: 2\nethernets:\n  default:\n    match:\n      name: \"*\"\n    dhcp4: true\n    nameservers:\n      addresses: [" + dnsServer + "]\n"
+			cloudInitConfig := "      cloudInit:\n        dataSource: noCloud\n        networkData: |\n" +
+				"          " + strings.ReplaceAll(strings.TrimSpace(networkData), "\n", "\n          ") + "\n"
+			if dataSource == infrav1.CloudInitDataSourceConfigDrive {
+				By("creating a Secret with OpenStack ConfigDrive network data")
+				// Ubuntu's cloud-init v1-to-netplan renderer only emits DNS for static subnets.
+				// Keep DHCP for IPv4 connectivity and attach DNS to a documentation-only IPv6 address.
+				networkData = fmt.Sprintf(`{
+  "links": [{"id": "default", "type": "phy", "ethernet_mac_address": %q}],
+  "networks": [
+    {"id": "default", "type": "ipv4_dhcp", "link": "default"},
+    {"id": "dns", "type": "ipv6", "link": "default",
+     "ip_address": "2001:db8::10", "netmask": 128,
+     "services": [{"type": "dns", "address": %q}]}
+  ],
+  "services": []
+}`, macAddress, dnsServer)
+				networkSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "cloud-init-network-data", Namespace: namespace},
+					Data:       map[string][]byte{"networkData": []byte(networkData)},
+				}
+				Expect(k8sclient.Create(ctx, networkSecret)).To(Succeed())
+				cloudInitConfig = "      cloudInit:\n        dataSource: configDrive\n        networkDataSecretRef:\n          name: " + networkSecret.Name + "\n"
+			}
+			manifests = strings.ReplaceAll(manifests, bootstrapCheck, cloudInitConfig+bootstrapCheck)
+
+			Expect(os.WriteFile(manifestsFile, []byte(manifests), 0644)).To(Succeed())
+
+			By("posting cluster manifests example template")
+			cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+			RunCmd(cmd)
+
+			By("Waiting for control plane")
+			waitForControlPlane(ctx)
+
+			By("Waiting on kubevirt machines to bootstrap")
+			waitForBootstrappedMachines(ctx)
+
+			By("checking network data shares the bootstrap secret")
+			vmList := &kubevirtv1.VirtualMachineList{}
+			Expect(k8sclient.List(ctx, vmList, client.InNamespace(namespace))).To(Succeed())
+			Expect(vmList.Items).To(HaveLen(2))
+			for i := range vmList.Items {
+				var userDataRef, networkDataRef *corev1.LocalObjectReference
+				for _, volume := range vmList.Items[i].Spec.Template.Spec.Volumes {
+					if dataSource == infrav1.CloudInitDataSourceNoCloud && volume.CloudInitNoCloud != nil {
+						userDataRef = volume.CloudInitNoCloud.UserDataSecretRef
+						networkDataRef = volume.CloudInitNoCloud.NetworkDataSecretRef
+					}
+					if dataSource == infrav1.CloudInitDataSourceConfigDrive && volume.CloudInitConfigDrive != nil {
+						userDataRef = volume.CloudInitConfigDrive.UserDataSecretRef
+						networkDataRef = volume.CloudInitConfigDrive.NetworkDataSecretRef
+					}
+				}
+				Expect(userDataRef).ToNot(BeNil())
+				Expect(networkDataRef).ToNot(BeNil())
+				Expect(networkDataRef.Name).To(Equal(userDataRef.Name))
+
+				cloudInitSecret := &corev1.Secret{}
+				secretKey := client.ObjectKey{Namespace: namespace, Name: userDataRef.Name}
+				Expect(k8sclient.Get(ctx, secretKey, cloudInitSecret)).To(Succeed())
+				Expect(cloudInitSecret.Data["networkdata"]).To(Equal([]byte(networkData)))
+			}
+
+			By("verifying every guest applied the supplied DNS server")
+			kvCluster := &infrav1.KubevirtCluster{}
+			Expect(k8sclient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "kvcluster"}, kvCluster)).To(Succeed())
+			Expect(kvCluster.Spec.SshKeys.DataSecretName).ToNot(BeNil())
+			sshSecret := &corev1.Secret{}
+			Expect(k8sclient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *kvCluster.Spec.SshKeys.DataSecretName}, sshSecret)).To(Succeed())
+			Expect(sshSecret.Data["key"]).ToNot(BeEmpty())
+			identityFile := filepath.Join(tmpDir, "guest-ssh-key")
+			Expect(os.WriteFile(identityFile, sshSecret.Data["key"], 0600)).To(Succeed())
+			for _, vm := range vmList.Items {
+				Eventually(func(g Gomega) {
+					sshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+					defer cancel()
+					cmd := exec.CommandContext(sshCtx, VirtctlPath, "ssh", "-n", namespace,
+						"--identity-file="+identityFile,
+						"--local-ssh-opts=-o StrictHostKeyChecking=no",
+						"--local-ssh-opts=-o UserKnownHostsFile=/dev/null",
+						"--local-ssh-opts=-o BatchMode=yes",
+						"--local-ssh-opts=-o ConnectTimeout=10",
+						"--command=resolvectl dns", "capk@vmi/"+vm.Name)
+					output, err := cmd.CombinedOutput()
+					g.Expect(err).ToNot(HaveOccurred(), "guest %s: %s", vm.Name, output)
+					g.Expect(string(output)).To(MatchRegexp(`(?:^|\s)`+regexp.QuoteMeta(dnsServer)+`(?:\s|$)`),
+						"guest %s did not apply cloud-init DNS configuration", vm.Name)
+				}).WithTimeout(2 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+			}
+
+			By("Waiting on kubevirt machines to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+
+			By("Waiting for getting access to the tenant cluster")
+			waitForTenantAccess(ctx, 2)
+
+			By("posting calico CNI manifests to the guest cluster and waiting for network")
+			installCalicoCNI()
+
+			By("Waiting for node readiness")
+			waitForNodeReadiness(ctx)
+
+			By("waiting all tenant Pods to be Ready")
+			waitForTenantPods(ctx)
+		},
+		Entry("inline NoCloud", infrav1.CloudInitDataSourceNoCloud),
+		Entry("Secret-backed ConfigDrive", infrav1.CloudInitDataSourceConfigDrive),
+	)
 
 	It("should remediate a running VMI marked as being in a terminal state", Label("ephemeralVMs", "terminal"), func(ctx context.Context) {
 		By("generating cluster manifests from example template")

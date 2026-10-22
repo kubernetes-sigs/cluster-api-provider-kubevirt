@@ -55,6 +55,91 @@ type KubevirtMachineSpec struct {
 	// When nil, this defaults to the value present in the KubevirtCluster object's spec associated with this machine.
 	// +optional
 	InfraClusterSecretRef *corev1.ObjectReference `json:"infraClusterSecretRef,omitempty"`
+
+	// CloudInit configures the cloud-init data source attached to the virtual machine.
+	// When nil, a config drive data source carrying only the bootstrap user data is attached.
+	// Cloud-init data is applied during the VM's first boot, so this field's presence and value
+	// are immutable on KubevirtMachine after creation.
+	// +optional
+	CloudInit *CloudInitSpec `json:"cloudInit,omitempty"`
+}
+
+// CloudInitDataSource describes the type of cloud-init data source attached to the virtual machine.
+type CloudInitDataSource string
+
+const (
+	// CloudInitDataSourceConfigDrive attaches an OpenStack config drive data source. Network
+	// configuration is expected in the OpenStack network_data.json format.
+	CloudInitDataSourceConfigDrive CloudInitDataSource = "configDrive"
+
+	// CloudInitDataSourceNoCloud attaches a NoCloud data source. Network configuration is expected
+	// in the cloud-init network configuration format, version 1 or 2.
+	CloudInitDataSourceNoCloud CloudInitDataSource = "noCloud"
+)
+
+// +kubebuilder:validation:XValidation:rule="!(has(self.networkData) && has(self.networkDataSecretRef))", message="networkData and networkDataSecretRef are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.networkDataSecretRef) || size(self.networkDataSecretRef.name) > 0", message="networkDataSecretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.networkData) || size(self.networkData) > 0", message="networkData must not be empty"
+// CloudInitSpec defines the cloud-init data source attached to the virtual machine.
+type CloudInitSpec struct {
+	// DataSource selects the type of cloud-init data source attached to the virtual machine.
+	// This choice determines the format expected for the network configuration document, because
+	// cloud-init parses it differently per data source: "configDrive" expects the OpenStack
+	// network_data.json format, while "noCloud" expects the cloud-init network configuration
+	// format, version 1 or 2. It also determines where the guest reads user data: NoCloud uses
+	// /user-data, while configDrive uses /openstack/latest/user_data.
+	// Defaults to "configDrive".
+	// +optional
+	// +kubebuilder:validation:Enum=configDrive;noCloud
+	// +kubebuilder:default:=configDrive
+	DataSource CloudInitDataSource `json:"dataSource,omitempty"`
+
+	// NetworkDataSecretRef is a reference to a secret in the KubevirtMachine's namespace, holding a
+	// network configuration document under a "networkdata" or "networkData" key, in the format
+	// expected by DataSource.
+	// When set, the content is copied to the infra cluster and attached to the cloud-init data
+	// source of the virtual machine, allowing the guest to configure its network without relying
+	// on DHCP. This is intended for setups where addresses are managed externally, for example on
+	// secondary interfaces attached through Multus.
+	// When nil, the guest is expected to obtain its network configuration by other means, such as DHCP.
+	// +optional
+	NetworkDataSecretRef *corev1.LocalObjectReference `json:"networkDataSecretRef,omitempty"`
+
+	// NetworkData is the network configuration document, in the format expected by DataSource.
+	// For noCloud, cloud-init reads user data from /user-data; for configDrive, it reads from
+	// /openstack/latest/user_data. Network data follows the corresponding data source layout as well.
+	// This field is mutually exclusive with NetworkDataSecretRef.
+	// +optional
+	NetworkData *string `json:"networkData,omitempty"`
+}
+
+// GetDataSource returns the configured cloud-init data source type, defaulting to config drive when
+// the cloud-init configuration or the data source type is unset.
+func (c *CloudInitSpec) GetDataSource() CloudInitDataSource {
+	if c == nil || c.DataSource == "" {
+		return CloudInitDataSourceConfigDrive
+	}
+
+	return c.DataSource
+}
+
+// GetNetworkDataSecretRef returns the configured network data secret reference, or nil when the
+// cloud-init configuration is unset.
+func (c *CloudInitSpec) GetNetworkDataSecretRef() *corev1.LocalObjectReference {
+	if c == nil {
+		return nil
+	}
+
+	return c.NetworkDataSecretRef
+}
+
+// GetNetworkData returns inline network data, or nil when none is configured.
+func (c *CloudInitSpec) GetNetworkData() *string {
+	if c == nil {
+		return nil
+	}
+
+	return c.NetworkData
 }
 
 // VirtualMachineBootstrapCheckSpec defines how the controller will remotely check CAPI Sentinel file content.
@@ -148,6 +233,8 @@ type KubevirtMachineStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready",description="Is machine ready"
+// +kubebuilder:validation:XValidation:rule="(has(self.spec) && has(self.spec.cloudInit)) == (has(oldSelf.spec) && has(oldSelf.spec.cloudInit))",message="CloudInit presence is immutable"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec) || !has(self.spec.cloudInit) || !has(oldSelf.spec) || !has(oldSelf.spec.cloudInit) || self.spec.cloudInit == oldSelf.spec.cloudInit",message="CloudInit is immutable"
 
 // KubevirtMachine is the Schema for the kubevirtmachines API.
 type KubevirtMachine struct {
@@ -174,4 +261,3 @@ type KubevirtMachineList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []KubevirtMachine `json:"items"`
 }
-

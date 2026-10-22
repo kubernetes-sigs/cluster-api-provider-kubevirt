@@ -157,6 +157,32 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			Expect(res.Result.Code).To(Equal(int32(http.StatusForbidden)))
 			Expect(res.Result.Message).To(Equal(immutableWarning))
 		})
+
+		DescribeTable("cloud-init template changes", func(dryRun bool, allowed bool) {
+			oldTemplate := &v1alpha1.KubevirtMachineTemplate{
+				Spec: v1alpha1.KubevirtMachineTemplateSpec{
+					Template: v1alpha1.KubevirtMachineTemplateResource{
+						Spec: v1alpha1.KubevirtMachineSpec{
+							CloudInit: &v1alpha1.CloudInitSpec{DataSource: v1alpha1.CloudInitDataSourceConfigDrive},
+						},
+					},
+				},
+			}
+			newTemplate := oldTemplate.DeepCopy()
+			newTemplate.Spec.Template.Spec.CloudInit.DataSource = v1alpha1.CloudInitDataSourceNoCloud
+			newTemplate.Spec.Template.Spec.CloudInit.NetworkData = ptr.To("version: 2")
+			req := newRequest(admissionv1.Update, oldTemplate, newTemplate, v1alpha1Codec)
+			req.DryRun = ptr.To(dryRun)
+
+			res := wh.Handle(ctx, req)
+			Expect(res.Allowed).To(Equal(allowed))
+			if !allowed {
+				Expect(res.Result.Message).To(Equal(immutableWarning))
+			}
+		},
+			Entry("allows topology dry-run changes", true, true),
+			Entry("rejects persisted changes", false, false),
+		)
 	})
 })
 
