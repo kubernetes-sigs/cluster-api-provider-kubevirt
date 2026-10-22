@@ -33,6 +33,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -526,6 +527,41 @@ var _ = Describe("With KubeVirt VM running", func() {
 
 				By("The node-cordoned annotation should be set after cordon")
 				Expect(machine.Annotations).To(HaveKey(v1alpha1.NodeCordonedByCapk))
+			})
+		})
+
+		When("the evacuated VMI is a control plane node that cannot live-migrate", func() {
+			BeforeEach(func() {
+				graceTime := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+				kubevirtMachine.Annotations[v1alpha1.VmiDeletionGraceTime] = graceTime
+
+				controlPlaneMachine := machine.DeepCopy()
+				controlPlaneMachine.Labels[clusterv1.MachineControlPlaneLabel] = ""
+				machineContext.Machine = controlPlaneMachine
+			})
+
+			It("Should not delete the VMI, which would restart it on a pod IP its etcd member and apiserver do not advertise", func() {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: kubevirtMachineName,
+					},
+				}
+
+				Expect(k8sfake.AddToScheme(setupRemoteScheme())).ToNot(HaveOccurred())
+				cl := k8sfake.NewClientset(node)
+
+				wlCluster.EXPECT().GenerateWorkloadClusterK8sClient(gomock.Any()).Return(cl, nil).AnyTimes()
+
+				externalMachine, err := defaultTestMachine(machineContext, namespace, fakeClient, fakeVMCommandExecutor, []byte(sshKey))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(externalMachine.vmiInstance.IsMigratable()).To(BeFalse())
+
+				_, err = externalMachine.DrainNodeIfNeeded(wlCluster)
+				Expect(err).NotTo(HaveOccurred())
+
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				err = fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: virtualMachineInstance.Namespace, Name: virtualMachineInstance.Name}, vmi)
+				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 

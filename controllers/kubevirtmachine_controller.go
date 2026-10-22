@@ -63,7 +63,8 @@ type KubevirtMachineReconciler struct {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kubevirtmachines/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachines;,verbs=get;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubevirt.io,resources=virtualmachineinstances;,verbs=get;delete
@@ -341,6 +342,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		return ctrl.Result{RequeueAfter: 20 * time.Second}, nil
 	}
 
+	if externalMachine.ReplaceInsteadOfRestart() {
+		return r.requestMachineReplacement(ctx)
+	}
+
 	retryDuration, err := externalMachine.DrainNodeIfNeeded(r.WorkloadCluster)
 	if err != nil {
 		return ctrl.Result{RequeueAfter: retryDuration}, errors.Wrap(err, "failed to drain node")
@@ -510,6 +515,34 @@ func (r *KubevirtMachineReconciler) updateNodeProviderID(ctx *context.MachineCon
 	ctx.KubevirtMachine.Status.NodeUpdated = true
 
 	return ctrl.Result{}, nil
+}
+
+// The owner, through the MachineHealthCheck, removes the etcd member and creates the replacement
+// while quorum holds. KubeVirt refuses the virt-launcher eviction until the VM is gone, so the infra
+// node drain waits for that.
+func (r *KubevirtMachineReconciler) requestMachineReplacement(ctx *context.MachineContext) (ctrl.Result, error) {
+	conditions.Set(ctx.KubevirtMachine, metav1.Condition{
+		Type:    infrav1.VMProvisionedCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  infrav1.VMEvacuationRequiresReplacementReason,
+		Message: "The VM has to leave its draining infra node but cannot live-migrate, the Machine is marked for remediation",
+	})
+
+	if _, ok := ctx.Machine.Annotations[clusterv1.RemediateMachineAnnotation]; ok {
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	base := ctx.Machine.DeepCopy()
+	if ctx.Machine.Annotations == nil {
+		ctx.Machine.Annotations = map[string]string{}
+	}
+	ctx.Machine.Annotations[clusterv1.RemediateMachineAnnotation] = ""
+	if err := r.Client.Patch(ctx, ctx.Machine, client.MergeFrom(base)); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to mark the Machine for remediation")
+	}
+	ctx.Logger.Info("VM cannot live-migrate off its draining infra node, marked the Machine for remediation")
+
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
 func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext) (ctrl.Result, error) {

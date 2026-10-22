@@ -31,6 +31,7 @@ import (
 	cdiv1 "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
+	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -450,6 +451,10 @@ func (m *Machine) DrainNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) 
 		return 0, nil
 	}
 
+	if m.ReplaceInsteadOfRestart() {
+		return 0, nil
+	}
+
 	// For migratable VMIs, attempt live migration before the disruptive
 	// drain+delete path. If migration succeeds, the guest node is untouched.
 	if m.vmiInstance.IsMigratable() {
@@ -693,6 +698,13 @@ func (m *Machine) setMigrationSubmittedAnnotation() error {
 		return fmt.Errorf("failed to set the %s annotation on KubevirtMachine %s: %w", infrav1.VmiMigrationSubmitted, m.machineContext.KubevirtMachine.Name, err)
 	}
 	return nil
+}
+
+func (m *Machine) ReplaceInsteadOfRestart() bool {
+	return m.vmiInstance != nil &&
+		m.shouldGracefulDeleteVMI() &&
+		!m.vmiInstance.IsMigratable() &&
+		util.IsControlPlaneMachine(m.machineContext.Machine)
 }
 
 func (m *Machine) shouldGracefulDeleteVMI() bool {

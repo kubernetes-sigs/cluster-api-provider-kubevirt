@@ -410,6 +410,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).AnyTimes()
 		machineMock.EXPECT().GenerateProviderID().Return("abc", nil).AnyTimes()
 		machineMock.EXPECT().GenerateProviderID().Return("abc", nil).AnyTimes()
+		machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 		machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil).AnyTimes()
 		machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
 
@@ -1022,6 +1023,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(false).Times(1)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
 				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
@@ -1076,6 +1078,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().GenerateProviderID().Return("abc", nil).AnyTimes()
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(false)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1126,6 +1129,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().GenerateProviderID().Return("abc", nil).Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
 				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(false, "", "", nil).Times(1)
@@ -1183,6 +1187,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().GenerateProviderID().Return("abc", nil).Times(1)
 				machineMock.EXPECT().SupportsCheckingIsBootstrapped().Return(true)
 				machineMock.EXPECT().IsBootstrapped().Return(true)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Duration(0), nil)
 				machineMock.EXPECT().Addresses().Return([]string{"1.1.1.1"}).Times(1)
 				machineMock.EXPECT().IsLiveMigratable().Return(true, "", "", nil).Times(1)
@@ -1202,6 +1207,53 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				Expect(conditions[0].Status).To(Equal(metav1.ConditionTrue))
 				Expect(conditions[1].Type).To(Equal(infrav1.VMLiveMigratableCondition))
 				Expect(conditions[1].Status).To(Equal(metav1.ConditionTrue))
+			})
+
+			It("should mark the Machine for remediation instead of draining when the VM has to be replaced", func() {
+				vmi.Status.Conditions = append(vmi.Status.Conditions, kubevirtv1.VirtualMachineInstanceCondition{
+					Type:   kubevirtv1.VirtualMachineInstanceReady,
+					Status: corev1.ConditionTrue,
+				})
+				vmi.Status.Interfaces = []kubevirtv1.VirtualMachineInstanceNetworkInterface{{IP: "1.1.1.1"}}
+				sshKeySecret.Data["pub"] = []byte("shell")
+
+				objects := []client.Object{
+					cluster,
+					kubevirtCluster,
+					machine,
+					kubevirtMachine,
+					bootstrapSecret,
+					bootstrapUserDataSecret,
+					sshKeySecret,
+					vm,
+					vmi,
+				}
+
+				machineMock.EXPECT().IsTerminal().Return(false, "", nil).Times(1)
+				machineMock.EXPECT().Exists().Return(true).Times(1)
+				machineMock.EXPECT().IsReady().Return(true).Times(1)
+				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(true).Times(1)
+				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Times(0)
+
+				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
+
+				setupClient(machineFactoryMock, objects)
+
+				infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil)
+
+				res, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+				Expect(err).ShouldNot(HaveOccurred())
+				Expect(res.RequeueAfter).To(BeNumerically(">", 0))
+
+				capiMachine := &clusterv1.Machine{}
+				Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(machine), capiMachine)).To(Succeed())
+				Expect(capiMachine.Annotations).To(HaveKey(clusterv1.RemediateMachineAnnotation))
+
+				condition := conditions.Get(machineContext.KubevirtMachine, infrav1.VMProvisionedCondition)
+				Expect(condition).ToNot(BeNil())
+				Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+				Expect(condition.Reason).To(Equal(infrav1.VMEvacuationRequiresReplacementReason))
 			})
 
 			It("should requeue on node draining", func() {
@@ -1235,6 +1287,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().IsReady().Return(true).Times(1)
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Second*requeueDurationSeconds, nil).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
@@ -1280,6 +1333,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 				machineMock.EXPECT().Exists().Return(true).Times(1)
 				machineMock.EXPECT().IsReady().Return(true).Times(1)
 				machineMock.EXPECT().Address().Return("1.1.1.1").Times(1)
+				machineMock.EXPECT().ReplaceInsteadOfRestart().Return(false).AnyTimes()
 				machineMock.EXPECT().DrainNodeIfNeeded(gomock.Any()).Return(time.Second*requeueDurationSeconds, fmt.Errorf("mock error")).Times(1)
 
 				machineFactoryMock.EXPECT().NewMachine(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(machineMock, nil).Times(1)
