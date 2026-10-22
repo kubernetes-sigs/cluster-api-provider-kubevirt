@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 )
 
 const (
@@ -36,16 +37,18 @@ const (
 	immutableWarning      = "KubevirtMachineTemplateSpec is immutable"
 )
 
-func SetupWebhookWithManager(mgr ctrl.Manager, controllerNamespace string) error {
+func SetupWebhookWithManager(mgr ctrl.Manager, controllerNamespace string, excludedAnnotations annotationfilter.Filter) error {
 	decoder := admission.NewDecoder(mgr.GetScheme())
 
 	whHandler := &kubevirtMachineTemplateHandler{
-		decoder: decoder,
+		decoder:             decoder,
+		excludedAnnotations: excludedAnnotations,
 	}
 
 	infraRefValidator := &infraSecretRefValidator{
 		decoder:             decoder,
 		controllerNamespace: controllerNamespace,
+		excludedAnnotations: excludedAnnotations,
 	}
 
 	srv := mgr.GetWebhookServer()
@@ -58,7 +61,8 @@ func SetupWebhookWithManager(mgr ctrl.Manager, controllerNamespace string) error
 }
 
 type kubevirtMachineTemplateHandler struct {
-	decoder admission.Decoder
+	decoder             admission.Decoder
+	excludedAnnotations annotationfilter.Filter
 }
 
 func (wh *kubevirtMachineTemplateHandler) Handle(_ context.Context, req admission.Request) admission.Response {
@@ -84,6 +88,9 @@ func (wh *kubevirtMachineTemplateHandler) Handle(_ context.Context, req admissio
 		}
 		if err := wh.decoder.DecodeRaw(req.OldObject, oldKVTmplt); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if wh.excludedAnnotations.Excludes(oldKVTmplt) || wh.excludedAnnotations.Excludes(kvTmplt) {
+			return admission.Allowed("")
 		}
 
 		err = wh.validateUpdate(oldKVTmplt, kvTmplt)

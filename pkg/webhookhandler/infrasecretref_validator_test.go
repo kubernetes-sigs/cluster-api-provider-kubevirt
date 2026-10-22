@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 )
 
 var _ = Describe("InfraClusterSecretRef Validation", func() {
@@ -46,7 +47,11 @@ var _ = Describe("InfraClusterSecretRef Validation", func() {
 		codecFactory := serializer.NewCodecFactory(s)
 		clusterCodec = codecFactory.LegacyCodec(v1alpha1.GroupVersion)
 		machineCodec = codecFactory.LegacyCodec(v1alpha1.GroupVersion)
-		validator = &infraSecretRefValidator{decoder: admission.NewDecoder(s), controllerNamespace: "capk-system"}
+		validator = &infraSecretRefValidator{
+			decoder:             admission.NewDecoder(s),
+			controllerNamespace: "capk-system",
+			excludedAnnotations: annotationfilter.New([]string{"example.com/exclude"}),
+		}
 		ctx = context.Background()
 	})
 
@@ -117,6 +122,27 @@ var _ = Describe("InfraClusterSecretRef Validation", func() {
 			Expect(res.Result.Code).To(Equal(int32(http.StatusForbidden)))
 			Expect(res.Result.Message).To(ContainSubstring("different-ns"))
 			Expect(res.Result.Message).To(ContainSubstring("test-ns"))
+		})
+
+		It("should allow a cluster carrying an excluded annotation without validating the infra secret reference", func() {
+			cluster := &v1alpha1.KubevirtCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						"example.com/exclude": "true",
+					},
+				},
+				Spec: v1alpha1.KubevirtClusterSpec{
+					InfraClusterSecretRef: &corev1.ObjectReference{
+						Name:      "some-secret",
+						Namespace: "different-ns",
+					},
+				},
+			}
+			req := newClusterRequest(admissionv1.Create, cluster, clusterCodec)
+			res := validator.HandleCluster(ctx, req)
+			Expect(res.Allowed).To(BeTrue())
 		})
 
 		It("should reject update with infraClusterSecretRef in different namespace", func() {
@@ -224,6 +250,27 @@ var _ = Describe("InfraClusterSecretRef Validation", func() {
 			Expect(res.Allowed).To(BeFalse())
 			Expect(res.Result.Code).To(Equal(int32(http.StatusForbidden)))
 			Expect(res.Result.Message).To(ContainSubstring("different-ns"))
+		})
+
+		It("should allow a machine carrying an excluded annotation without validating the infra secret reference", func() {
+			machine := &v1alpha1.KubevirtMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-machine",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						"example.com/exclude": "true",
+					},
+				},
+				Spec: v1alpha1.KubevirtMachineSpec{
+					InfraClusterSecretRef: &corev1.ObjectReference{
+						Name:      "some-secret",
+						Namespace: "different-ns",
+					},
+				},
+			}
+			req := newMachineRequest(admissionv1.Create, machine, machineCodec)
+			res := validator.HandleMachine(ctx, req)
+			Expect(res.Allowed).To(BeTrue())
 		})
 
 		It("should reject update with infraClusterSecretRef in different namespace", func() {

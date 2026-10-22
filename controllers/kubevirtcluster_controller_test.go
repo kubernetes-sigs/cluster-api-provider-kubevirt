@@ -15,6 +15,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/controllers"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 	infraclustermock "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/infracluster/mock"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 )
@@ -47,10 +48,11 @@ var _ = Describe("Reconcile", func() {
 			WithStatusSubresource(objects...).
 			Build()
 		kubevirtClusterReconciler = controllers.KubevirtClusterReconciler{
-			Client:       fakeClient,
-			InfraCluster: infraClusterMock,
-			APIReader:    fakeClient,
-			Log:          testLogger,
+			Client:              fakeClient,
+			InfraCluster:        infraClusterMock,
+			APIReader:           fakeClient,
+			Log:                 testLogger,
+			ExcludedAnnotations: annotationfilter.New([]string{"example.com/exclude"}),
 		}
 	}
 
@@ -107,6 +109,26 @@ var _ = Describe("Reconcile", func() {
 			})
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(result.RequeueAfter).To(BeZero())
+		})
+
+		It("should not add a finalizer to a cluster carrying an excluded annotation", func() {
+			kubevirtCluster.Annotations = map[string]string{
+				"example.com/exclude": "true",
+			}
+			setupClient([]ctrlclient.Object{kubevirtCluster})
+
+			result, err := kubevirtClusterReconciler.Reconcile(fakeContext, ctrl.Request{
+				NamespacedName: ctrlclient.ObjectKey{
+					Namespace: kubevirtCluster.Namespace,
+					Name:      kubevirtCluster.Name,
+				},
+			})
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			updated := &infrav1.KubevirtCluster{}
+			Expect(fakeClient.Get(fakeContext, ctrlclient.ObjectKeyFromObject(kubevirtCluster), updated)).To(Succeed())
+			Expect(updated.Finalizers).To(BeEmpty())
 		})
 	})
 

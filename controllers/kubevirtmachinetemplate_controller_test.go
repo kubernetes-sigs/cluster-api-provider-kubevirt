@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 	testutil "sigs.k8s.io/cluster-api-provider-kubevirt/pkg/testing"
 )
 
@@ -80,6 +81,35 @@ var _ = Describe("KubevirtMachineTemplateReconciler - Reconcile", func() {
 			updated := &infrav1.KubevirtMachineTemplate{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
 			Expect(updated.Status.Capacity).To(BeEmpty())
+		})
+	})
+
+	Context("when the template carries an excluded annotation", func() {
+		BeforeEach(func() {
+			mt = newMachineTemplate(nil, &kubevirtv1.CPU{Cores: 2}, nil)
+			mt.Annotations = map[string]string{
+				"example.com/exclude": "true",
+			}
+			mt.Status.Capacity = corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}
+			fakeClient = fake.NewClientBuilder().WithScheme(testutil.SetupScheme()).WithObjects(&mt).WithStatusSubresource(&mt).Build()
+			reconciler = &KubevirtMachineTemplateReconciler{
+				Client:              fakeClient,
+				ExcludedAnnotations: annotationfilter.New([]string{"example.com/exclude"}),
+			}
+			req = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}}
+		})
+
+		It("should not update status.capacity", func(ctx context.Context) {
+			_, err := reconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrav1.KubevirtMachineTemplate{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Namespace: mt.Namespace, Name: mt.Name}, updated)).To(Succeed())
+			Expect(updated.Status.Capacity).To(Equal(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}))
 		})
 	})
 

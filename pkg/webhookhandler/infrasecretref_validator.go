@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
 )
 
 const (
@@ -36,6 +37,7 @@ const (
 type infraSecretRefValidator struct {
 	decoder             admission.Decoder
 	controllerNamespace string
+	excludedAnnotations annotationfilter.Filter
 }
 
 func (v *infraSecretRefValidator) HandleCluster(_ context.Context, req admission.Request) admission.Response {
@@ -45,6 +47,9 @@ func (v *infraSecretRefValidator) HandleCluster(_ context.Context, req admission
 	case admissionv1.Create, admissionv1.Update:
 		if err := v.decoder.Decode(req, cluster); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if v.excludedAnnotations.Excludes(cluster) {
+			return admission.Allowed("")
 		}
 		if err := validateInfraClusterSecretRef(cluster.Spec.InfraClusterSecretRef, cluster.Namespace, v.controllerNamespace); err != nil {
 			return admission.Denied(err.Error())
@@ -65,6 +70,9 @@ func (v *infraSecretRefValidator) HandleMachine(_ context.Context, req admission
 	case admissionv1.Create, admissionv1.Update:
 		if err := v.decoder.Decode(req, machine); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if v.excludedAnnotations.Excludes(machine) {
+			return admission.Allowed("")
 		}
 		if err := validateInfraClusterSecretRef(machine.Spec.InfraClusterSecretRef, machine.Namespace, v.controllerNamespace); err != nil {
 			return admission.Denied(err.Error())
