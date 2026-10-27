@@ -450,6 +450,55 @@ var _ = Describe("CreateCluster", func() {
 			Should(Succeed(), printObjFunc(obj))
 	}
 
+	// createExternalInfraSecret simulates external infrastructure: the
+	// kubeconfig points to the same cluster, which is okay for the sake of
+	// the tests.
+	createExternalInfraSecret := func(ctx context.Context) {
+		GinkgoHelper()
+
+		kubeconfig, err := os.ReadFile(os.Getenv("KUBECONFIG"))
+		Expect(err).ToNot(HaveOccurred())
+		// replace api server url with default server value, so it's routable from CAPK pod
+		kubeconfigStr := string(kubeconfig)
+		m := regexp.MustCompile("(?m:(.*?server:).*$)")
+		kubeconfigStr = m.ReplaceAllString(kubeconfigStr, "${1} https://kubernetes.default")
+		externalInfraSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      externalSecretName,
+				Namespace: externalSecretNamespace,
+			},
+			Data: map[string][]byte{
+				"namespace":  []byte(namespace),
+				"kubeconfig": []byte(kubeconfigStr),
+			},
+		}
+		Expect(k8sclient.Create(ctx, externalInfraSecret)).To(Succeed())
+	}
+
+	createClusterFromTemplate := func(template string, mutators ...func([]byte) []byte) {
+		GinkgoHelper()
+
+		By("generating cluster manifests from " + template)
+		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
+			"--target-namespace", namespace,
+			"--kubernetes-version", os.Getenv("TENANT_CLUSTER_KUBERNETES_VERSION"),
+			"--control-plane-machine-count=1",
+			"--worker-machine-count=1",
+			"--from", template)
+		stdout, stderr := RunCmd(cmd)
+		if len(stderr) > 0 {
+			GinkgoLogr.Info("Warning", "clusterctl's stderr", string(stderr))
+		}
+		for _, mutate := range mutators {
+			stdout = mutate(stdout)
+		}
+		Expect(os.WriteFile(manifestsFile, stdout, 0644)).To(Succeed())
+
+		By("posting cluster manifests")
+		cmd = exec.Command(KubectlPath, "apply", "-f", manifestsFile)
+		RunCmd(cmd)
+	}
+
 	postDefaultMHC := func(ctx context.Context, clusterName string) {
 		maxUnhealthy := intstr.FromString("100%")
 		nodeStartupTimeout := int32(600)
@@ -825,23 +874,7 @@ var _ = Describe("CreateCluster", func() {
 	// 5. verify that tenant cluster control plane came up successfully
 	It("should create a simple tenant cluster on external infrastructure", Label("externallyManaged"), func(ctx context.Context) {
 		By("generating a secret with external infrastructure kubeconfig and namespace")
-		kubeconfig, err := os.ReadFile(os.Getenv("KUBECONFIG"))
-		Expect(err).ToNot(HaveOccurred())
-		// replace api server url with default server value, so it's routable from CAPK pod
-		kubeconfigStr := string(kubeconfig)
-		m := regexp.MustCompile("(?m:(.*?server:).*$)")
-		kubeconfigStr = m.ReplaceAllString(kubeconfigStr, "${1} https://kubernetes.default")
-		externalInfraSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      externalSecretName,
-				Namespace: externalSecretNamespace,
-			},
-			Data: map[string][]byte{
-				"namespace":  []byte(namespace),
-				"kubeconfig": []byte(kubeconfigStr),
-			},
-		}
-		Expect(k8sclient.Create(ctx, externalInfraSecret)).To(Succeed())
+		createExternalInfraSecret(ctx)
 
 		By("generating cluster manifests from example template")
 		cmd := exec.Command(ClusterctlPath, "generate", "cluster", "kvcluster",
@@ -869,6 +902,214 @@ var _ = Describe("CreateCluster", func() {
 
 		By("waiting for control plane")
 		waitForControlPlane(ctx)
+	})
+
+	// The external remediation tests drive the MachineHealthCheck through a
+	// node condition owned by the tests (see faultConditionType), so they
+	// decide when a worker is unhealthy and when it has recovered.
+	Context("with external remediation", Label("remediation"), func() {
+		const (
+			clusterName = "kvcluster"
+
+			// bootWindow has to be short enough to let a test observe its
+			// expiry, and long enough for a test to pause the cluster while
+			// the retry is still pending.
+			bootWindow = 2 * time.Minute
+		)
+
+		// A paused Cluster is never deleted: if a spec fails while its cluster
+		// is paused, the cleanup of the enclosing container would time out and
+		// leak the VMs into the following specs. This runs before it.
+		AfterEach(func(ctx context.Context) {
+			cluster := &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: clusterName}}
+			patch := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"paused":false}}`))
+			if err := k8sclient.Patch(ctx, cluster, patch); err != nil && !k8serrors.IsNotFound(err) {
+				GinkgoLogr.Error(err, "failed to unpause the cluster")
+			}
+		})
+
+		It("should restart an unhealthy node in place and hold back while the cluster is paused", Label("persistentVMs"), func(ctx context.Context) {
+			createClusterFromTemplate("templates/cluster-template-persistent-storage.yaml")
+
+			By("Waiting for control plane")
+			waitForControlPlane(ctx)
+
+			By("Waiting on kubevirt machines to bootstrap")
+			waitForBootstrappedMachines(ctx)
+
+			By("Waiting on kubevirt machines to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+
+			By("Waiting for getting access to the tenant cluster")
+			tenant := waitForTenantAccess(ctx, 2)
+
+			By("posting calico CNI manifests to the guest cluster and waiting for network")
+			installCalicoCNI()
+
+			By("Waiting for node readiness")
+			waitForNodeReadiness(ctx)
+
+			By("Selecting a worker node and recording what has to survive the restart")
+			workerVMI := chooseWorkerVMI(ctx)
+			machine := getMachineForVMI(ctx, workerVMI)
+			identity := captureNodeIdentity(ctx, tenant, machine, workerVMI)
+			bootID := getTenantNode(ctx, tenant, workerVMI.Name).Status.NodeInfo.BootID
+
+			By("creating a MachineHealthCheck that remediates through a KubevirtRemediationTemplate")
+			postRemediationTemplate(ctx, namespace, 2, int32(bootWindow.Seconds()))
+			postRemediationMHC(ctx, namespace, clusterName)
+
+			By("reporting a fault on the worker node")
+			setNodeFault(ctx, tenant, workerVMI.Name, corev1.ConditionTrue)
+
+			By("Waiting for the first restart to be issued")
+			remediation := waitForRemediation(ctx, machine, 5*time.Minute, "first restart issued",
+				func(r *infrav1.KubevirtRemediation) bool {
+					return r.Status.RetryCount == 1 && r.Status.LastRemediated != nil
+				})
+
+			By("pausing the cluster while the retry is pending")
+			setClusterPaused(ctx, namespace, clusterName, true)
+
+			By("Waiting for the VMI to be recreated")
+			restartedVMI := waitForRestartedVMI(ctx, namespace, workerVMI.Name, workerVMI.UID)
+
+			By("Expecting no retry while paused, although the fault persists and the boot window expires")
+			windowEnd := remediation.Status.LastRemediated.Add(bootWindow)
+			Consistently(func(g Gomega) {
+				// A single failed request must not fail the spec: only what
+				// was actually read is asserted.
+				vmi := &kubevirtv1.VirtualMachineInstance{}
+				if err := k8sclient.Get(ctx, client.ObjectKeyFromObject(restartedVMI), vmi); err == nil || k8serrors.IsNotFound(err) {
+					g.Expect(err).ToNot(HaveOccurred(), "the VMI was deleted while the cluster is paused")
+					g.Expect(vmi.UID).To(Equal(restartedVMI.UID), "the VMI was restarted while the cluster is paused")
+				}
+
+				current, err := getRemediation(ctx, machine)
+				if err != nil {
+					return
+				}
+				g.Expect(current).ToNot(BeNil(), "the remediation request was removed while the cluster is paused")
+				g.Expect(current.Status.RetryCount).To(Equal(int32(1)))
+				g.Expect(current.Status.Phase).To(Equal(infrav1.PhaseWaiting))
+			}).WithTimeout(max(time.Until(windowEnd), 0) + time.Minute).
+				WithPolling(10 * time.Second).
+				Should(Succeed())
+
+			By("Waiting for the restarted node to become Ready")
+			waitForNodeReadyAfter(ctx, tenant, workerVMI.Name, restartedVMI.CreationTimestamp)
+
+			By("clearing the fault: the node recovered while the cluster was paused")
+			setNodeFault(ctx, tenant, workerVMI.Name, corev1.ConditionFalse)
+
+			// The MachineHealthCheck controller reconciles an object at most
+			// once every 15 seconds, and needs two passes after the unpause:
+			// one to lift its own pause, one to re-evaluate the Machine. The
+			// node update above costs it a pass as well; let that one go by
+			// now, so the verdict arrives some 15 seconds after the unpause
+			// rather than 30, with the remediation controller holding back
+			// for 60.
+			time.Sleep(20 * time.Second)
+
+			By("resuming the cluster")
+			setClusterPaused(ctx, namespace, clusterName, false)
+
+			By("Expecting the MachineHealthCheck to remove the remediation request")
+			waitForRemoval(ctx, remediation, 600)
+
+			By("Expecting the recovered node not to be restarted again")
+			Expect(getVmiByName(ctx, k8sclient, workerVMI.Name, namespace).UID).To(Equal(restartedVMI.UID))
+
+			By("Expecting the node to be restarted in place: same Machine, VM, disks and Node")
+			expectNodeIdentityPreserved(ctx, tenant, machine, restartedVMI, identity)
+			waitForNodeReadyAfter(ctx, tenant, workerVMI.Name, restartedVMI.CreationTimestamp)
+			Expect(getTenantNode(ctx, tenant, workerVMI.Name).Status.NodeInfo.BootID).ToNot(Equal(bootID), "the node did not reboot")
+		})
+
+		It("should replace the Machine once the restarts are exhausted, on external infrastructure", Label("persistentVMs", "externallyManaged"), func(ctx context.Context) {
+			By("generating a secret with external infrastructure kubeconfig and namespace")
+			createExternalInfraSecret(ctx)
+
+			createClusterFromTemplate("templates/cluster-template-persistent-storage.yaml", useExternalInfra)
+
+			By("Waiting for control plane")
+			waitForControlPlane(ctx)
+
+			By("Waiting on kubevirt machines to bootstrap")
+			waitForBootstrappedMachines(ctx)
+
+			By("Waiting on kubevirt machines to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+
+			By("Waiting for getting access to the tenant cluster")
+			tenant := waitForTenantAccess(ctx, 2)
+
+			workerVMI := chooseWorkerVMI(ctx)
+			machine := getMachineForVMI(ctx, workerVMI)
+
+			// The "external" infrastructure is this very cluster, so make sure
+			// the VM really is reached through the kubeconfig of the secret.
+			kubevirtMachine := &infrav1.KubevirtMachine{}
+			Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(workerVMI), kubevirtMachine)).To(Succeed())
+			Expect(kubevirtMachine.Spec.InfraClusterSecretRef).ToNot(BeNil())
+			Expect(kubevirtMachine.Spec.InfraClusterSecretRef.Name).To(Equal(externalSecretName))
+
+			By("creating a MachineHealthCheck that remediates through a KubevirtRemediationTemplate")
+			postRemediationTemplate(ctx, namespace, 1, 60)
+			postRemediationMHC(ctx, namespace, clusterName)
+
+			By("reporting a fault that a restart does not fix")
+			setNodeFault(ctx, tenant, workerVMI.Name, corev1.ConditionTrue)
+
+			By("Expecting the remediation to give up after the only allowed restart")
+			remediation, restarted := waitForExhaustedRemediation(ctx, machine, workerVMI)
+			Expect(remediation.Status.RetryCount).To(Equal(int32(1)))
+			Expect(restarted).To(BeTrue(), "the VMI was not restarted through the external infrastructure")
+
+			By("Expecting the Machine to be replaced")
+			waitForMachineReplacement(ctx, machine)
+
+			By("Waiting on the new kubevirt machine to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+		})
+
+		It("should replace a Machine without persistent storage right away", Label("ephemeralVMs"), func(ctx context.Context) {
+			createClusterFromTemplate("templates/cluster-template.yaml")
+
+			By("Waiting for control plane")
+			waitForControlPlane(ctx)
+
+			By("Waiting on kubevirt machines to bootstrap")
+			waitForBootstrappedMachines(ctx)
+
+			By("Waiting on kubevirt machines to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+
+			By("Waiting for getting access to the tenant cluster")
+			tenant := waitForTenantAccess(ctx, 2)
+
+			workerVMI := chooseWorkerVMI(ctx)
+			machine := getMachineForVMI(ctx, workerVMI)
+
+			By("creating a MachineHealthCheck that remediates through a KubevirtRemediationTemplate")
+			postRemediationTemplate(ctx, namespace, 2, 60)
+			postRemediationMHC(ctx, namespace, clusterName)
+
+			By("reporting a fault on the worker node")
+			setNodeFault(ctx, tenant, workerVMI.Name, corev1.ConditionTrue)
+
+			By("Expecting the remediation to give up without restarting: the node boots from a containerDisk")
+			remediation := waitForRemediation(ctx, machine, 5*time.Minute, "failed",
+				func(r *infrav1.KubevirtRemediation) bool { return r.Status.Phase == infrav1.PhaseFailed })
+			Expect(remediation.Status.RetryCount).To(BeZero())
+			Expect(remediation.Status.LastRemediated).To(BeNil())
+
+			By("Expecting the Machine to be replaced")
+			waitForMachineReplacement(ctx, machine)
+
+			By("Waiting on the new kubevirt machine to be ready")
+			waitForMachineReadiness(ctx, 2, 0)
+		})
 	})
 })
 
