@@ -18,6 +18,7 @@ package loadbalancer_test
 
 import (
 	gocontext "context"
+	"errors"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
@@ -110,6 +112,36 @@ var _ = Describe("Load Balancer", func() {
 		It("should NOT create a new load balancer", func() {
 			err = lb.Create(clusterContext)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("when the underlying client fails to create the service", func() {
+		boom := errors.New("boom: service create rejected")
+
+		BeforeEach(func() {
+			objects := []client.Object{
+				cluster,
+				kubevirtCluster,
+			}
+			fakeClient = fake.NewClientBuilder().
+				WithScheme(testing.SetupScheme()).
+				WithObjects(objects...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(_ gocontext.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+						return boom
+					},
+				}).
+				Build()
+		})
+
+		It("should surface the underlying error, not a protobuf overflow error", func() {
+			lb, err = loadbalancer.NewLoadBalancer(clusterContext, fakeClient, "")
+			Expect(err).NotTo(HaveOccurred())
+
+			err = lb.Create(clusterContext)
+			Expect(err).To(HaveOccurred())
+			Expect(errors.Is(err, boom)).To(BeTrue())
+			Expect(errors.Is(err, corev1.ErrIntOverflowGenerated)).To(BeFalse())
 		})
 	})
 })
