@@ -182,7 +182,7 @@ func (r *KubevirtMachineReconciler) Reconcile(goctx gocontext.Context, req ctrl.
 			Type:    infrav1.VMProvisionedCondition,
 			Status:  metav1.ConditionFalse,
 			Reason:  infrav1.WaitingForClusterInfrastructureReason,
-			Message: "",
+			Message: "Waiting for the cluster infrastructure to become ready",
 		})
 		return ctrl.Result{}, nil
 	}
@@ -209,7 +209,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 				Type:    infrav1.VMProvisionedCondition,
 				Status:  metav1.ConditionFalse,
 				Reason:  infrav1.WaitingForControlPlaneAvailableReason,
-				Message: "",
+				Message: "Waiting for the control plane to become available",
 			})
 			return ctrl.Result{}, nil
 		}
@@ -219,7 +219,7 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 			Type:    infrav1.VMProvisionedCondition,
 			Status:  metav1.ConditionFalse,
 			Reason:  infrav1.WaitingForBootstrapDataReason,
-			Message: "",
+			Message: "Waiting for bootstrap data to become available",
 		})
 		return ctrl.Result{}, nil
 	}
@@ -266,9 +266,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 
 	if err := r.reconcileKubevirtBootstrapSecret(ctx, infraClusterClient, vmNamespace, clusterNodeSshKeys); err != nil {
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:   infrav1.VMProvisionedCondition,
-			Status: metav1.ConditionFalse,
-			Reason: infrav1.WaitingForBootstrapDataReason,
+			Type:    infrav1.VMProvisionedCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  infrav1.WaitingForBootstrapDataReason,
+			Message: fmt.Sprintf("Failed to fetch bootstrap data: %v", err),
 		})
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, errors.Wrap(err, "failed to fetch kubevirt bootstrap secret")
 	}
@@ -311,9 +312,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	// Checks to see if a VM's active VMI is ready or not
 	if externalMachine.IsReady() {
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:   infrav1.VMProvisionedCondition,
-			Status: metav1.ConditionTrue,
-			Reason: "VMProvisioned",
+			Type:    infrav1.VMProvisionedCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  "VMProvisioned",
+			Message: "Virtual machine is provisioned and running",
 		})
 	} else {
 		reason, message := externalMachine.GetVMNotReadyReason()
@@ -369,9 +371,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 				return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 			}
 			conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-				Type:   infrav1.BootstrapExecSucceededCondition,
-				Status: metav1.ConditionTrue,
-				Reason: "BootstrapExecSucceeded",
+				Type:    infrav1.BootstrapExecSucceededCondition,
+				Status:  metav1.ConditionTrue,
+				Reason:  "BootstrapExecSucceeded",
+				Message: "Virtual machine bootstrap succeeded",
 			})
 			ctx.Logger.Info("Underlying VM has bootstrapped.")
 		}
@@ -379,9 +382,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 		// VM doesn't support bootstrap checking (e.g. RHCOS without CAPK SSH keys).
 		// Mark bootstrap as succeeded so it doesn't block the Ready condition.
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:   infrav1.BootstrapExecSucceededCondition,
-			Status: metav1.ConditionTrue,
-			Reason: "BootstrapCheckingNotSupported",
+			Type:    infrav1.BootstrapExecSucceededCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  "BootstrapCheckingNotSupported",
+			Message: "Bootstrap checking is not supported; treating bootstrap as succeeded",
 		})
 	}
 
@@ -446,9 +450,10 @@ func (r *KubevirtMachineReconciler) reconcileNormal(ctx *context.MachineContext)
 	}
 	if liveMigratable {
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-			Type:   infrav1.VMLiveMigratableCondition,
-			Status: metav1.ConditionTrue,
-			Reason: "VMLiveMigratable",
+			Type:    infrav1.VMLiveMigratableCondition,
+			Status:  metav1.ConditionTrue,
+			Reason:  "VMLiveMigratable",
+			Message: "Virtual machine is live migratable",
 		})
 	} else {
 		conditions.Set(ctx.KubevirtMachine, metav1.Condition{
@@ -567,9 +572,10 @@ func (r *KubevirtMachineReconciler) reconcileDelete(ctx *context.MachineContext)
 	// Set the VMProvisionedCondition reporting delete is started, and attempt to issue a patch in
 	// order to make this visible to the users.
 	conditions.Set(ctx.KubevirtMachine, metav1.Condition{
-		Type:   infrav1.VMProvisionedCondition,
-		Status: metav1.ConditionFalse,
-		Reason: clusterv1.DeletingReason,
+		Type:    infrav1.VMProvisionedCondition,
+		Status:  metav1.ConditionFalse,
+		Reason:  clusterv1.DeletingReason,
+		Message: "KubevirtMachine deletion has started",
 	})
 	if err := ctx.PatchKubevirtMachine(patchHelper); err != nil {
 		if err = utilerrors.FilterOut(err, apierrors.IsNotFound); err != nil {
