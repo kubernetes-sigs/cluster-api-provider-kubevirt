@@ -191,6 +191,20 @@ func (mr *MockMachineInterfaceMockRecorder) IsReady() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReady", reflect.TypeOf((*MockMachineInterface)(nil).IsReady))
 }
 
+// ReplaceInsteadOfRestart mocks base method.
+func (m *MockMachineInterface) ReplaceInsteadOfRestart() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceInsteadOfRestart")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ReplaceInsteadOfRestart indicates an expected call of ReplaceInsteadOfRestart.
+func (mr *MockMachineInterfaceMockRecorder) ReplaceInsteadOfRestart() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceInsteadOfRestart", reflect.TypeOf((*MockMachineInterface)(nil).ReplaceInsteadOfRestart))
+}
+
 // IsTerminal mocks base method.
 func (m *MockMachineInterface) IsTerminal() (bool, string, error) {
 	m.ctrl.T.Helper()

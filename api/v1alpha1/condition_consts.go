@@ -42,6 +42,10 @@ const (
 
 	// VMLiveMigratableCondition documents whether the VM is live-migratable or not
 	VMLiveMigratableCondition = "VMLiveMigratable"
+
+	// VMEvacuationRequiresReplacementReason documents a control plane VM that must leave its draining
+	// infra node but cannot live-migrate, so its Machine is replaced rather than the VM restarted.
+	VMEvacuationRequiresReplacementReason = "VMEvacuationRequiresReplacement"
 )
 
 const (
