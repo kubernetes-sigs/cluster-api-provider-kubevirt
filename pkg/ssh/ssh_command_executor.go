@@ -21,8 +21,16 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	sshPort = "22"
+	// sshDialTimeout bounds how long a reconcile waits for an unreachable VM.
+	// Without it the dial waits for the OS TCP connect timeout (minutes).
+	sshDialTimeout = 10 * time.Second
 )
 
 type VMCommandExecutor interface {
@@ -33,6 +41,7 @@ type vmCommandExecutor struct {
 	IPAddress  string
 	PublicKey  []byte
 	PrivateKey []byte
+	port       string
 }
 
 func NewVMCommandExecutor(address string, keys *ClusterNodeSshKeys) VMCommandExecutor {
@@ -40,7 +49,14 @@ func NewVMCommandExecutor(address string, keys *ClusterNodeSshKeys) VMCommandExe
 		IPAddress:  address,
 		PublicKey:  keys.PublicKey,
 		PrivateKey: keys.PrivateKey,
+		port:       sshPort,
 	}
+}
+
+// address returns the host:port to dial. JoinHostPort brackets IPv6 addresses,
+// e.g. "[fd00::5]:22"; joining with a plain ":" would produce "fd00::5:22".
+func (e vmCommandExecutor) address() string {
+	return net.JoinHostPort(e.IPAddress, e.port)
 }
 
 // ExecuteCommand runs command inside a VM, via SSH, and returns the command output.
@@ -59,14 +75,18 @@ func (e vmCommandExecutor) ExecuteCommand(command string) (string, error) {
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			return nil
 		},
+		Timeout: sshDialTimeout,
 	}
 
-	hostAddress := strings.Join([]string{e.IPAddress, "22"}, ":")
+	hostAddress := e.address()
 
 	connection, err := ssh.Dial("tcp", hostAddress, sshConfig)
 	if err != nil {
 		return "", fmt.Errorf("ssh: failed to dial IP %s, error: %s", hostAddress, err.Error())
 	}
+	defer func() {
+		_ = connection.Close()
+	}()
 
 	session, err := connection.NewSession()
 	if err != nil {
