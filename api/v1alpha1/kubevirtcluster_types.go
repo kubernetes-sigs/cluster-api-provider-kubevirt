@@ -41,7 +41,8 @@ const ( // annotations
 
 	// NodeCordonedByCapk is set on KubevirtMachine when CAPK cordons the
 	// guest node during an eviction drain. It is used to uncordon the node
-	// after the VMI is recreated on a different host.
+	// after the VMI is recreated on a different host and to keep later
+	// reconciles on the drain path once fallback has begun.
 	NodeCordonedByCapk       = "capk.cluster.x-k8s.io/node-cordoned"
 	NodeCordonedByCapkEscape = "capk.cluster.x-k8s.io~1node-cordoned"
 

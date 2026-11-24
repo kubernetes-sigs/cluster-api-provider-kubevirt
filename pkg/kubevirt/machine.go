@@ -452,7 +452,7 @@ func (m *Machine) DrainNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) 
 
 	// For migratable VMIs, attempt live migration before the disruptive
 	// drain+delete path. If migration succeeds, the guest node is untouched.
-	if m.vmiInstance.IsMigratable() {
+	if m.vmiInstance.IsMigratable() && !m.drainFallbackStarted() {
 		migration, err := m.tryMigrateVMI()
 		if err != nil {
 			return 0, err
@@ -507,6 +507,11 @@ func (m *Machine) DrainNodeIfNeeded(wrkldClstr workloadcluster.WorkloadCluster) 
 
 	// requeue to force reading the VMI again
 	return time.Second * 10, nil
+}
+
+func (m *Machine) drainFallbackStarted() bool {
+	_, exists := m.machineContext.KubevirtMachine.Annotations[infrav1.NodeCordonedByCapk]
+	return exists
 }
 
 const removeGracePeriodAnnotationPatch = `[{"op": "remove", "path": "/metadata/annotations/` + infrav1.VmiDeletionGraceTimeEscape + `"}]`
