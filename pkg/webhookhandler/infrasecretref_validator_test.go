@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
@@ -290,6 +291,49 @@ var _ = Describe("InfraClusterSecretRef Validation", func() {
 			res := validator.HandleMachine(ctx, req)
 			Expect(res.Allowed).To(BeFalse())
 			Expect(res.Result.Message).To(ContainSubstring("another-ns"))
+		})
+
+		Context("inline cloud-init network data", func() {
+			machineWith := func(cloudInit *v1alpha1.CloudInitSpec) *v1alpha1.KubevirtMachine {
+				return &v1alpha1.KubevirtMachine{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-machine", Namespace: "test-ns"},
+					Spec:       v1alpha1.KubevirtMachineSpec{CloudInit: cloudInit},
+				}
+			}
+
+			wellFormed := &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceNoCloud,
+				NetworkData: ptr.To("version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"),
+			}
+			// A NoCloud network configuration, on a config drive
+			malformed := &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceConfigDrive,
+				NetworkData: ptr.To("version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"),
+			}
+
+			It("should allow create with well formed network data", func() {
+				res := validator.HandleMachine(ctx, newMachineRequest(admissionv1.Create, machineWith(wellFormed), machineCodec))
+				Expect(res.Allowed).To(BeTrue())
+			})
+
+			It("should reject create with network data that is not well formed for the data source", func() {
+				res := validator.HandleMachine(ctx, newMachineRequest(admissionv1.Create, machineWith(malformed), machineCodec))
+				Expect(res.Allowed).To(BeFalse())
+				Expect(res.Result.Message).To(ContainSubstring("invalid cloudInit.networkData"))
+				Expect(res.Result.Message).To(ContainSubstring("must be a JSON object in the OpenStack network_data.json format"))
+			})
+
+			It("should not refuse an update for the network data a machine was created with", func() {
+				res := validator.HandleMachine(ctx, newMachineRequest(admissionv1.Update, machineWith(malformed), machineCodec))
+				Expect(res.Allowed).To(BeTrue())
+			})
+
+			It("should leave the network data of a machine carrying an excluded annotation alone", func() {
+				machine := machineWith(malformed)
+				machine.Annotations = map[string]string{"example.com/exclude": "true"}
+				res := validator.HandleMachine(ctx, newMachineRequest(admissionv1.Create, machine, machineCodec))
+				Expect(res.Allowed).To(BeTrue())
+			})
 		})
 	})
 

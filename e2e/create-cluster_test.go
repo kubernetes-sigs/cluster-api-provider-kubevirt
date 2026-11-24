@@ -506,6 +506,7 @@ var _ = Describe("CreateCluster", func() {
 			Spec: infrav1.KubevirtMachineSpec{
 				VirtualMachineTemplate: validationVMTemplate(),
 				CloudInit: &infrav1.CloudInitSpec{
+					DataSource:           infrav1.CloudInitDataSourceNoCloud,
 					NetworkDataSecretRef: &corev1.LocalObjectReference{},
 				},
 			},
@@ -519,6 +520,53 @@ var _ = Describe("CreateCluster", func() {
 		err = k8sclient.Create(ctx, machine)
 		Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected API validation rejection, got %v", err)
 		Expect(err.Error()).To(ContainSubstring("networkData and networkDataSecretRef are mutually exclusive"))
+
+		By("requiring an explicit data source as soon as network data is set")
+		for _, cloudInit := range []*infrav1.CloudInitSpec{
+			{NetworkData: ptr.To("version: 2")},
+			{NetworkDataSecretRef: &corev1.LocalObjectReference{Name: "network-data"}},
+		} {
+			machine.Spec.CloudInit = cloudInit
+			err = k8sclient.Create(ctx, machine)
+			Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected API validation rejection, got %v", err)
+			Expect(err.Error()).To(ContainSubstring("dataSource must be set explicitly"))
+		}
+
+		By("limiting the size of inline network data")
+		machine.Spec.CloudInit = &infrav1.CloudInitSpec{
+			DataSource:  infrav1.CloudInitDataSourceNoCloud,
+			NetworkData: ptr.To("version: 2\n# " + strings.Repeat("x", 16384)),
+		}
+		err = k8sclient.Create(ctx, machine)
+		Expect(k8serrors.IsInvalid(err)).To(BeTrue(), "expected API validation rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("networkData"))
+
+		By("rejecting inline network data that is not well formed for its data source")
+		machine.Spec.CloudInit = &infrav1.CloudInitSpec{
+			DataSource:  infrav1.CloudInitDataSourceConfigDrive,
+			NetworkData: ptr.To("version: 2"),
+		}
+		err = k8sclient.Create(ctx, machine)
+		Expect(k8serrors.IsForbidden(err)).To(BeTrue(), "expected webhook rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("must be a JSON object in the OpenStack network_data.json format"))
+
+		template := &infrav1.KubevirtMachineTemplate{
+			ObjectMeta: metav1.ObjectMeta{Name: "cloud-init-validation", Namespace: namespace},
+			Spec: infrav1.KubevirtMachineTemplateSpec{
+				Template: infrav1.KubevirtMachineTemplateResource{
+					Spec: infrav1.KubevirtMachineSpec{
+						VirtualMachineTemplate: validationVMTemplate(),
+						CloudInit: &infrav1.CloudInitSpec{
+							DataSource:  infrav1.CloudInitDataSourceNoCloud,
+							NetworkData: ptr.To("- not\n- a mapping\n"),
+						},
+					},
+				},
+			},
+		}
+		err = k8sclient.Create(ctx, template)
+		Expect(k8serrors.IsForbidden(err)).To(BeTrue(), "expected webhook rejection, got %v", err)
+		Expect(err.Error()).To(ContainSubstring("must be a YAML mapping in the cloud-init network configuration format"))
 	})
 
 	DescribeTable("validates cloud-init immutability through the API", Label("apiValidation"),
@@ -622,7 +670,7 @@ var _ = Describe("CreateCluster", func() {
 			By("Waiting on kubevirt machines to bootstrap")
 			waitForBootstrappedMachines(ctx)
 
-			By("checking network data shares the bootstrap secret")
+			By("checking every machine got a network data secret of its own")
 			vmList := &kubevirtv1.VirtualMachineList{}
 			Expect(k8sclient.List(ctx, vmList, client.InNamespace(namespace))).To(Succeed())
 			Expect(vmList.Items).To(HaveLen(2))
@@ -646,12 +694,25 @@ var _ = Describe("CreateCluster", func() {
 				}
 				Expect(userDataRef).ToNot(BeNil())
 				Expect(networkDataRef).ToNot(BeNil())
-				Expect(networkDataRef.Name).To(Equal(userDataRef.Name))
+				// The VM carries the name of its KubevirtMachine, and so does the network data secret.
+				Expect(networkDataRef.Name).To(Equal(vmList.Items[i].Name + "-networkdata"))
+				Expect(networkDataRef.Name).ToNot(Equal(userDataRef.Name))
 
-				cloudInitSecret := &corev1.Secret{}
-				secretKey := client.ObjectKey{Namespace: namespace, Name: userDataRef.Name}
-				Expect(k8sclient.Get(ctx, secretKey, cloudInitSecret)).To(Succeed())
-				Expect(cloudInitSecret.Data["networkdata"]).To(Equal([]byte(networkDataByMAC[interfaces[0].MacAddress])))
+				userDataSecret := &corev1.Secret{}
+				Expect(k8sclient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: userDataRef.Name}, userDataSecret)).To(Succeed())
+				Expect(userDataSecret.Data).ToNot(HaveKey("networkdata"))
+
+				networkDataSecret := &corev1.Secret{}
+				Expect(k8sclient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: networkDataRef.Name}, networkDataSecret)).To(Succeed())
+				Expect(networkDataSecret.Data["networkdata"]).To(Equal([]byte(networkDataByMAC[interfaces[0].MacAddress])))
+				Expect(networkDataSecret.Immutable).To(HaveValue(BeTrue()))
+			}
+
+			By("checking the referenced network data secrets were labelled for clusterctl move")
+			for _, networkSecret := range networkSecrets {
+				source := &corev1.Secret{}
+				Expect(k8sclient.Get(ctx, client.ObjectKeyFromObject(networkSecret), source)).To(Succeed())
+				Expect(source.Labels).To(HaveKey("clusterctl.cluster.x-k8s.io/move"))
 			}
 
 			By("verifying every guest applied the supplied DNS server")

@@ -241,6 +241,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations
 		WorkloadCluster:     workloadcluster.New(mgr.GetClient()),
 		MachineFactory:      kubevirt.DefaultMachineFactory{},
 		ExcludedAnnotations: excludedAnnotations,
+		Recorder:            mgr.GetEventRecorder("kubevirtmachine-controller"),
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {

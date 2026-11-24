@@ -60,6 +60,13 @@ type KubevirtMachineSpec struct {
 	// When nil, a config drive data source carrying only the bootstrap user data is attached.
 	// Cloud-init data is applied during the VM's first boot, so this field's presence and value
 	// are immutable on KubevirtMachine after creation.
+	//
+	// The same holds for the content of the network data, wherever it comes from: it is copied to
+	// the infra cluster once, when the controller first prepares the machine, and that copy is what
+	// the guest boots with for the lifetime of the machine. Changing a referenced secret afterwards
+	// has no effect on existing machines, not even after a restart or a live migration; it applies
+	// to the machines created from then on. To change the network configuration of running
+	// machines, replace them, for example by rolling out a new KubevirtMachineTemplate.
 	// +optional
 	CloudInit *CloudInitSpec `json:"cloudInit,omitempty"`
 }
@@ -80,6 +87,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="!(has(self.networkData) && has(self.networkDataSecretRef))", message="networkData and networkDataSecretRef are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!has(self.networkDataSecretRef) || size(self.networkDataSecretRef.name) > 0", message="networkDataSecretRef.name must not be empty"
 // +kubebuilder:validation:XValidation:rule="!has(self.networkData) || size(self.networkData) > 0", message="networkData must not be empty"
+// +kubebuilder:validation:XValidation:rule="(!has(self.networkData) && !has(self.networkDataSecretRef)) || has(self.dataSource)", message="dataSource must be set explicitly when networkData or networkDataSecretRef is set, because it decides the format the network data is read in"
 // CloudInitSpec defines the cloud-init data source attached to the virtual machine.
 type CloudInitSpec struct {
 	// DataSource selects the type of cloud-init data source attached to the virtual machine.
@@ -88,10 +96,13 @@ type CloudInitSpec struct {
 	// network_data.json format, while "noCloud" expects the cloud-init network configuration
 	// format, version 1 or 2. It also determines where the guest reads user data: NoCloud uses
 	// /user-data, while configDrive uses /openstack/latest/user_data.
-	// Defaults to "configDrive".
+	//
+	// When omitted, a config drive is attached. The field is deliberately not defaulted in the
+	// API, and it is required as soon as network data is set: a network data document in the
+	// format of the other data source is not an error anywhere, the guest just boots without
+	// network, so the choice has to be a stated one.
 	// +optional
 	// +kubebuilder:validation:Enum=configDrive;noCloud
-	// +kubebuilder:default:=configDrive
 	DataSource CloudInitDataSource `json:"dataSource,omitempty"`
 
 	// NetworkDataSecretRef is a reference to a secret in the KubevirtMachine's namespace, holding a
@@ -102,14 +113,27 @@ type CloudInitSpec struct {
 	// on DHCP. This is intended for setups where addresses are managed externally, for example on
 	// secondary interfaces attached through Multus.
 	// When nil, the guest is expected to obtain its network configuration by other means, such as DHCP.
+	//
+	// The two keys are the ones KubeVirt itself looks up in a network data secret
+	// (readFirstFoundFileFromDir in kubevirt/kubevirt pkg/cloud-init/cloud-init.go), in the same
+	// order. The handling of a bad secret is deliberately stricter than KubeVirt's: KubeVirt
+	// silently ignores a missing key or an empty value and boots the guest without network data,
+	// whereas a KubevirtMachine is not provisioned until the secret holds a well formed document,
+	// and reports why in its VMProvisioned condition and in a Warning event.
+	//
+	// The controller labels the referenced secret with clusterctl.cluster.x-k8s.io/move, so that
+	// "clusterctl move" takes it along with the machines that reference it.
 	// +optional
 	NetworkDataSecretRef *corev1.LocalObjectReference `json:"networkDataSecretRef,omitempty"`
 
-	// NetworkData is the network configuration document, in the format expected by DataSource.
-	// For noCloud, cloud-init reads user data from /user-data; for configDrive, it reads from
-	// /openstack/latest/user_data. Network data follows the corresponding data source layout as well.
-	// This field is mutually exclusive with NetworkDataSecretRef.
+	// NetworkData is the network configuration document, in the format expected by DataSource:
+	// a JSON object for configDrive, a YAML mapping for noCloud. A document that is not well
+	// formed is rejected on admission.
+	// This field is mutually exclusive with NetworkDataSecretRef. It is meant for small documents;
+	// it is stored in the KubevirtMachine object and again in the infra cluster, so anything
+	// larger than its limit belongs in a secret referenced by NetworkDataSecretRef.
 	// +optional
+	// +kubebuilder:validation:MaxLength=16384
 	NetworkData *string `json:"networkData,omitempty"`
 }
 

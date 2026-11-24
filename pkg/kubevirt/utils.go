@@ -26,6 +26,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/capiv1beta1"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/cloudinit"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/context"
 )
 
@@ -143,14 +144,13 @@ func buildVirtualMachineInstanceTemplate(ctx *context.MachineContext) *kubevirtv
 	template.Spec = *ctx.KubevirtMachine.Spec.VirtualMachineTemplate.Spec.Template.Spec.DeepCopy()
 
 	cloudInitVolumeName := "cloudinitvolume"
-	cloudInitSecretName := *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"
-	userDataSecretRef := &corev1.LocalObjectReference{Name: cloudInitSecretName}
+	userDataSecretRef := &corev1.LocalObjectReference{Name: *ctx.Machine.Spec.Bootstrap.DataSecretName + "-userdata"}
 
-	// The network data is copied into the same secret as the user data. KubeVirt mounts each
-	// reference into its own pod volume, so pointing both references at one secret is safe.
+	// The network data is not in the user data secret, which machines can share: the machine
+	// controller copies it into a secret that belongs to this machine alone.
 	var networkDataSecretRef *corev1.LocalObjectReference
 	if ctx.KubevirtMachine.Spec.CloudInit.GetNetworkDataSecretRef() != nil || ctx.KubevirtMachine.Spec.CloudInit.GetNetworkData() != nil {
-		networkDataSecretRef = &corev1.LocalObjectReference{Name: cloudInitSecretName}
+		networkDataSecretRef = &corev1.LocalObjectReference{Name: cloudinit.NetworkDataSecretName(ctx.KubevirtMachine.GetName())}
 	}
 
 	var cloudInitVolumeSource kubevirtv1.VolumeSource
