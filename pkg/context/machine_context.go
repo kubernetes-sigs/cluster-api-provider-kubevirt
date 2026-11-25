@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -30,6 +31,12 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 )
+
+var machineOwnedConditions = []string{
+	clusterv1.ReadyCondition,
+	infrav1.VMProvisionedCondition,
+	infrav1.BootstrapExecSucceededCondition,
+}
 
 // MachineContext is a Go context used with a KubeVirt machine.
 type MachineContext struct {
@@ -79,17 +86,16 @@ func (c *MachineContext) PatchKubevirtMachine(patchHelper *patch.Helper) error {
 	return patchHelper.Patch(
 		c.Context,
 		c.KubevirtMachine,
-		patch.WithOwnedConditions{Conditions: []string{
-			clusterv1.ReadyCondition,
-			infrav1.VMProvisionedCondition,
-			infrav1.BootstrapExecSucceededCondition,
-		}},
+		patch.WithOwnedConditions{Conditions: machineOwnedConditions},
 	)
 }
 
 func ensureNonEmptyConditionMessages(machine *infrav1.KubevirtMachine) {
 	for i := range machine.Status.Conditions {
 		condition := &machine.Status.Conditions[i]
+		if !isMachineOwnedCondition(condition.Type) {
+			continue
+		}
 		if condition.Reason == "" {
 			condition.Reason = "NoReason"
 		}
@@ -97,6 +103,10 @@ func ensureNonEmptyConditionMessages(machine *infrav1.KubevirtMachine) {
 			condition.Message = condition.Reason
 		}
 	}
+}
+
+func isMachineOwnedCondition(conditionType string) bool {
+	return slices.Contains(machineOwnedConditions, conditionType)
 }
 
 func (c *MachineContext) HasInjectedCapkSSHKeys(sshPublicKey []byte) bool {
