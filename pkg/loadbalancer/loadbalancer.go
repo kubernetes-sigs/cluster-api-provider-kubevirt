@@ -115,7 +115,7 @@ func (l *LoadBalancer) Create(ctx *context.ClusterContext) error {
 		return nil
 	}
 	if _, err := ctrlutil.CreateOrUpdate(ctx.Context, l.infraClient, lbService, mutateFn); err != nil {
-		return corev1.ErrIntOverflowGenerated
+		return errors.Wrapf(err, "failed to create load balancer service")
 	}
 
 	return nil
