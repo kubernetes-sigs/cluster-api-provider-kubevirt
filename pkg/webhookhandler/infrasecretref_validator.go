@@ -27,6 +27,7 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/cloudinit"
 )
 
 const (
@@ -76,6 +77,13 @@ func (v *infraSecretRefValidator) HandleMachine(_ context.Context, req admission
 		}
 		if err := validateInfraClusterSecretRef(machine.Spec.InfraClusterSecretRef, machine.Namespace, v.controllerNamespace); err != nil {
 			return admission.Denied(err.Error())
+		}
+		// The cloudInit field is immutable, so its inline network data is checked on creation
+		// only. An update must not be refused for what the machine was created with.
+		if req.Operation == admissionv1.Create {
+			if err := cloudinit.ValidateSpec(machine.Spec.CloudInit); err != nil {
+				return admission.Denied(err.Error())
+			}
 		}
 	case admissionv1.Delete:
 		// no validation needed on delete

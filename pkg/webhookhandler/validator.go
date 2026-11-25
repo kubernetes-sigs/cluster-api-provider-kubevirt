@@ -30,6 +30,7 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1"
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/annotationfilter"
+	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/cloudinit"
 )
 
 const (
@@ -74,6 +75,11 @@ func (wh *kubevirtMachineTemplateHandler) Handle(_ context.Context, req admissio
 	case admissionv1.Create:
 		if err := wh.decoder.Decode(req, kvTmplt); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
+		}
+		// A template is immutable, so its inline network data is checked here, once: a document
+		// that is not well formed would otherwise be handed to every machine made from it.
+		if !wh.excludedAnnotations.Excludes(kvTmplt) {
+			err = cloudinit.ValidateSpec(kvTmplt.Spec.Template.Spec.CloudInit)
 		}
 
 	case admissionv1.Update:

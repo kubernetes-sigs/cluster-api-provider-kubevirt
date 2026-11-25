@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
 	"sigs.k8s.io/cluster-api-provider-kubevirt/pkg/kubevirt"
@@ -87,7 +88,7 @@ var (
 	fakeWorkloadClusterClient client.Client
 )
 
-var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
+var _ = Describe("KubevirtMachine event mapping", func() {
 
 	var ctx gocontext.Context
 
@@ -111,11 +112,15 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			cluster,
 			kubevirtCluster,
 			machine,
+			kubevirtMachine,
 			anotherMachine,
+			anotherKubevirtMachine,
 			// add one more machine without corresponding kubevirt machine, to test that no request is created for it
 			testing.NewMachine(clusterName, "machine-without-corresponding-kubevirt-machine", nil),
 		}
-		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).Build()
+		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).
+			WithIndex(&infrav1.KubevirtMachine{}, networkDataSecretRefIndex, networkDataSecretRefIndexFunc).
+			Build()
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:         fakeClient,
 			MachineFactory: kubevirt.DefaultMachineFactory{},
@@ -134,6 +139,45 @@ var _ = Describe("KubevirtClusterToKubevirtMachines", func() {
 			machineNames[i] = out[i].Name
 		}
 		Expect(machineNames).To(ConsistOf("test-machine", "another-test-machine"))
+	})
+
+	It("should enqueue machines referencing a changed network data secret", func() {
+		kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{
+			DataSource:           infrav1.CloudInitDataSourceNoCloud,
+			NetworkDataSecretRef: &corev1.LocalObjectReference{Name: "network-data"},
+		}
+		Expect(fakeClient.Update(ctx, kubevirtMachine)).To(Succeed())
+
+		// A machine with inline network data references no secret, whatever the secret is called
+		inlineNetworkData := "version: 2"
+		anotherKubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{
+			DataSource:  infrav1.CloudInitDataSourceNoCloud,
+			NetworkData: &inlineNetworkData,
+		}
+		Expect(fakeClient.Update(ctx, anotherKubevirtMachine)).To(Succeed())
+
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: kubevirtMachine.Namespace, Name: "network-data"}}
+		requests := kubevirtMachineReconciler.SecretToKubevirtMachines(ctx, secret)
+		Expect(requests).To(ConsistOf(ctrl.Request{NamespacedName: client.ObjectKeyFromObject(kubevirtMachine)}))
+
+		unrelated := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: kubevirtMachine.Namespace, Name: "unrelated"}}
+		Expect(kubevirtMachineReconciler.SecretToKubevirtMachines(ctx, unrelated)).To(BeEmpty())
+	})
+
+	DescribeTable("should let only the secrets that can hold network data through to the machine lookup",
+		func(data map[string][]byte, expected bool) {
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "some-secret"}, Data: data}
+			Expect(hasNetworkDataKey(secret)).To(Equal(expected))
+		},
+		Entry("the networkdata key", map[string][]byte{"networkdata": []byte("version: 2")}, true),
+		Entry("the networkData key", map[string][]byte{"networkData": []byte("version: 2")}, true),
+		Entry("a network data key with an empty value, which a machine may be waiting on", map[string][]byte{"networkdata": {}}, true),
+		Entry("a bootstrap data secret", map[string][]byte{"value": []byte("shell-script")}, false),
+		Entry("a secret without data", nil, false),
+	)
+
+	It("should not take an object that is not a secret for a network data secret", func() {
+		Expect(hasNetworkDataKey(kubevirtMachine)).To(BeFalse())
 	})
 
 	It("should panic when kubevirt cluster is not specified.", func() {
@@ -279,6 +323,7 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		machineFactoryMock *machinemocks.MockMachineFactory
 		machineMock        *machinemocks.MockMachineInterface
 		machineContext     *context.MachineContext
+		fakeRecorder       *events.FakeRecorder
 		testLogger         = ctrl.Log.WithName("test")
 	)
 
@@ -373,11 +418,13 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		}
 
 		fakeClient = fake.NewClientBuilder().WithScheme(testing.SetupScheme()).WithObjects(objects...).WithStatusSubresource(objects...).WithInterceptorFuncs(interceptorFuncs).Build()
+		fakeRecorder = events.NewFakeRecorder(16)
 		kubevirtMachineReconciler = KubevirtMachineReconciler{
 			Client:          fakeClient,
 			WorkloadCluster: workloadClusterMock,
 			InfraCluster:    infraClusterMock,
 			MachineFactory:  machineFactory,
+			Recorder:        fakeRecorder,
 		}
 	}
 
@@ -429,6 +476,351 @@ var _ = Describe("reconcile a kubevirt machine", func() {
 		Expect(bootstrapDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
 		Expect(bootstrapDataSecret.Labels).To(HaveLen(1))
 		Expect(bootstrapDataSecret.Labels).To(HaveKeyWithValue("hello", "world"))
+
+		// Without a networkDataSecretRef, the config drive must not reference network data
+		Expect(bootstrapDataSecret.Data).ShouldNot(HaveKey("networkdata"))
+		Expect(cloudInitConfigDrive(vm)).ShouldNot(BeNil())
+		Expect(cloudInitConfigDrive(vm).NetworkDataSecretRef).To(BeNil())
+	})
+
+	Context("cloud-init network data", func() {
+		const (
+			configDriveNetworkData = `{"links":[{"id":"eth0","type":"phy","ethernet_mac_address":"52:54:00:00:00:01"}],"networks":[{"id":"net0","type":"ipv4","link":"eth0","ip_address":"192.0.2.10","netmask":"255.255.255.0"}]}`
+			noCloudNetworkData     = "version: 2\nethernets:\n  eth0:\n    addresses: [192.0.2.10/24]\n"
+			networkDataSecretName  = "network-data-secret"
+		)
+
+		var networkDataSecret *corev1.Secret
+
+		// useNetworkDataSecret makes the machine reference a network data secret with the given content.
+		useNetworkDataSecret := func(dataSource infrav1.CloudInitDataSource, data map[string][]byte) {
+			networkDataSecret = &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: networkDataSecretName, Namespace: kubevirtMachine.Namespace},
+				Data:       data,
+			}
+			kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{
+				DataSource:           dataSource,
+				NetworkDataSecretRef: &corev1.LocalObjectReference{Name: networkDataSecretName},
+			}
+		}
+
+		// setup builds the client and the reconciler, with the network data secret if there is one,
+		// and lets reconcileNormal reach the infra cluster as many times as asked.
+		setup := func(reconciliations int) {
+			objects := []client.Object{cluster, kubevirtCluster, machine, kubevirtMachine, sshKeySecret, bootstrapSecret}
+			if networkDataSecret != nil {
+				objects = append(objects, networkDataSecret)
+			}
+			setupClient(kubevirt.DefaultMachineFactory{}, objects)
+			infraClusterMock.EXPECT().GenerateInfraClusterClient(kubevirtMachine.Spec.InfraClusterSecretRef, kubevirtMachine.Namespace, machineContext.Context).Return(fakeClient, kubevirtMachine.Namespace, nil).Times(reconciliations)
+		}
+
+		userDataSecretName := func() string {
+			return *machineContext.Machine.Spec.Bootstrap.DataSecretName + "-userdata"
+		}
+
+		machineNetworkDataSecretKey := func(kvMachine *infrav1.KubevirtMachine) client.ObjectKey {
+			return client.ObjectKey{Namespace: kvMachine.Namespace, Name: kvMachine.Name + "-networkdata"}
+		}
+
+		getVM := func() *kubevirtv1.VirtualMachine {
+			GinkgoHelper()
+			createdVM := &kubevirtv1.VirtualMachine{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(kubevirtMachine), createdVM)).To(Succeed())
+			return createdVM
+		}
+
+		expectNoVM := func() {
+			GinkgoHelper()
+			err := fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(kubevirtMachine), &kubevirtv1.VirtualMachine{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no VM must be created without usable network data")
+		}
+
+		vmProvisionedCondition := func() *metav1.Condition {
+			return conditions.Get(machineContext.KubevirtMachine, infrav1.VMProvisionedCondition)
+		}
+
+		BeforeEach(func() {
+			networkDataSecret = nil
+		})
+
+		It("should copy the network data of a referenced secret into a secret of the machine's own", func() {
+			useNetworkDataSecret(infrav1.CloudInitDataSourceConfigDrive, map[string][]byte{"networkdata": []byte(configDriveNetworkData)})
+			setup(1)
+
+			_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			// The user data secret, which machines can share, carries no network data
+			userDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: userDataSecretName()}, userDataSecret)).To(Succeed())
+			Expect(userDataSecret.Data).To(HaveKeyWithValue("userdata", []byte("shell-script")))
+			Expect(userDataSecret.Data).ShouldNot(HaveKey("networkdata"))
+
+			// The network data is in a secret named after the machine, that cannot be changed
+			machineNetworkDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), machineNetworkDataSecret)).To(Succeed())
+			Expect(machineNetworkDataSecret.Data).To(Equal(map[string][]byte{"networkdata": []byte(configDriveNetworkData)}))
+			Expect(machineNetworkDataSecret.Immutable).To(HaveValue(BeTrue()))
+			Expect(machineNetworkDataSecret.Type).To(Equal(clusterv1.ClusterSecretType))
+			Expect(machineNetworkDataSecret.Labels).To(HaveKeyWithValue(clusterv1.ClusterNameLabel, clusterName))
+
+			// The config drive references each secret for what it holds
+			configDrive := cloudInitConfigDrive(getVM())
+			Expect(configDrive).ShouldNot(BeNil())
+			Expect(configDrive.UserDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: userDataSecretName()})))
+			Expect(configDrive.NetworkDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: machineNetworkDataSecretKey(kubevirtMachine).Name})))
+		})
+
+		It("should attach a NoCloud data source with network data when the noCloud data source is selected", func() {
+			// The camel case spelling of the key is accepted as well
+			useNetworkDataSecret(infrav1.CloudInitDataSourceNoCloud, map[string][]byte{"networkData": []byte(noCloudNetworkData)})
+			setup(1)
+
+			_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			machineNetworkDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), machineNetworkDataSecret)).To(Succeed())
+			Expect(machineNetworkDataSecret.Data).To(Equal(map[string][]byte{"networkdata": []byte(noCloudNetworkData)}))
+
+			// A NoCloud volume must be attached instead of a config drive volume
+			createdVM := getVM()
+			Expect(cloudInitConfigDrive(createdVM)).Should(BeNil())
+			noCloud := cloudInitNoCloud(createdVM)
+			Expect(noCloud).ShouldNot(BeNil())
+			Expect(noCloud.UserDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: userDataSecretName()})))
+			Expect(noCloud.NetworkDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: machineNetworkDataSecretKey(kubevirtMachine).Name})))
+		})
+
+		It("should attach inline cloud-init network data to the KubeVirt VM", func() {
+			networkData := noCloudNetworkData
+			kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud, NetworkData: &networkData}
+			setup(1)
+
+			_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			machineNetworkDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), machineNetworkDataSecret)).To(Succeed())
+			Expect(machineNetworkDataSecret.Data).To(Equal(map[string][]byte{"networkdata": []byte(noCloudNetworkData)}))
+
+			noCloud := cloudInitNoCloud(getVM())
+			Expect(noCloud).ShouldNot(BeNil())
+			Expect(noCloud.NetworkDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: machineNetworkDataSecretKey(kubevirtMachine).Name})))
+		})
+
+		It("should keep the network data of machines that share a bootstrap data secret apart", func() {
+			firstNetworkData := "version: 2\nethernets:\n  eth0:\n    addresses: [192.0.2.10/24]\n"
+			secondNetworkData := "version: 2\nethernets:\n  eth0:\n    addresses: [192.0.2.11/24]\n"
+
+			kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud, NetworkData: &firstNetworkData}
+
+			// A second machine on the same bootstrap data secret, with network data of its own
+			secondKubevirtMachine := testing.NewKubevirtMachine("second-kubevirt-machine", "second-machine")
+			secondKubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceNoCloud, NetworkData: &secondNetworkData}
+			secondMachine := testing.NewMachine(clusterName, "second-machine", secondKubevirtMachine)
+			secondMachine.Spec.Bootstrap.DataSecretName = &bootstrapSecretName
+
+			// And a third one on it, with none
+			thirdKubevirtMachine := testing.NewKubevirtMachine("third-kubevirt-machine", "third-machine")
+			thirdMachine := testing.NewMachine(clusterName, "third-machine", thirdKubevirtMachine)
+			thirdMachine.Spec.Bootstrap.DataSecretName = &bootstrapSecretName
+
+			setupClient(kubevirt.DefaultMachineFactory{}, []client.Object{
+				cluster, kubevirtCluster, sshKeySecret, bootstrapSecret,
+				machine, kubevirtMachine, secondMachine, secondKubevirtMachine, thirdMachine, thirdKubevirtMachine,
+			})
+
+			contexts := []*context.MachineContext{machineContext}
+			for _, other := range []struct {
+				machine         *clusterv1.Machine
+				kubevirtMachine *infrav1.KubevirtMachine
+			}{{secondMachine, secondKubevirtMachine}, {thirdMachine, thirdKubevirtMachine}} {
+				contexts = append(contexts, &context.MachineContext{
+					Context:         machineContext.Context,
+					Cluster:         cluster,
+					KubevirtCluster: kubevirtCluster,
+					Machine:         other.machine,
+					KubevirtMachine: other.kubevirtMachine,
+					Logger:          testLogger,
+				})
+			}
+
+			// Reconciled twice over, in turn, as the controller would on each pass
+			for range 2 {
+				for _, machineCtx := range contexts {
+					Expect(kubevirtMachineReconciler.reconcileKubevirtBootstrapSecret(machineCtx, fakeClient, kubevirtMachine.Namespace, nil)).To(Succeed())
+					Expect(kubevirtMachineReconciler.reconcileKubevirtNetworkDataSecret(machineCtx, fakeClient, kubevirtMachine.Namespace)).To(Succeed())
+				}
+			}
+
+			firstSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), firstSecret)).To(Succeed())
+			Expect(firstSecret.Data).To(HaveKeyWithValue("networkdata", []byte(firstNetworkData)))
+
+			secondSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(secondKubevirtMachine), secondSecret)).To(Succeed())
+			Expect(secondSecret.Data).To(HaveKeyWithValue("networkdata", []byte(secondNetworkData)))
+
+			err := fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(thirdKubevirtMachine), &corev1.Secret{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue(), "a machine without network data must not get a network data secret")
+
+			// The shared user data secret is left to the user data
+			userDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKey{Namespace: kubevirtMachine.Namespace, Name: bootstrapSecretName + "-userdata"}, userDataSecret)).To(Succeed())
+			Expect(userDataSecret.Data).To(Equal(map[string][]byte{"userdata": []byte("shell-script")}))
+		})
+
+		It("should keep the network data a machine was prepared with when the referenced secret changes or goes away", func() {
+			useNetworkDataSecret(infrav1.CloudInitDataSourceNoCloud, map[string][]byte{"networkdata": []byte(noCloudNetworkData)})
+			setup(0)
+
+			Expect(kubevirtMachineReconciler.reconcileKubevirtNetworkDataSecret(machineContext, fakeClient, kubevirtMachine.Namespace)).To(Succeed())
+
+			// The source changes: the machine keeps what it was prepared with
+			source := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(networkDataSecret), source)).To(Succeed())
+			source.Data["networkdata"] = []byte("version: 2\nethernets:\n  eth0:\n    addresses: [198.51.100.10/24]\n")
+			Expect(fakeClient.Update(gocontext.Background(), source)).To(Succeed())
+			Expect(kubevirtMachineReconciler.reconcileKubevirtNetworkDataSecret(machineContext, fakeClient, kubevirtMachine.Namespace)).To(Succeed())
+
+			machineNetworkDataSecret := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), machineNetworkDataSecret)).To(Succeed())
+			Expect(machineNetworkDataSecret.Data).To(HaveKeyWithValue("networkdata", []byte(noCloudNetworkData)))
+
+			// The source goes away, as after a "clusterctl move" that left it behind: the machine
+			// that was already prepared is not disturbed
+			Expect(fakeClient.Delete(gocontext.Background(), source)).To(Succeed())
+			Expect(kubevirtMachineReconciler.reconcileKubevirtNetworkDataSecret(machineContext, fakeClient, kubevirtMachine.Namespace)).To(Succeed())
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), machineNetworkDataSecret)).To(Succeed())
+			Expect(machineNetworkDataSecret.Data).To(HaveKeyWithValue("networkdata", []byte(noCloudNetworkData)))
+		})
+
+		It("should label a referenced network data secret for clusterctl move, and keep its other labels", func() {
+			useNetworkDataSecret(infrav1.CloudInitDataSourceNoCloud, map[string][]byte{"networkdata": []byte(noCloudNetworkData)})
+			networkDataSecret.Labels = map[string]string{"hello": "world"}
+			setup(0)
+
+			Expect(kubevirtMachineReconciler.reconcileKubevirtNetworkDataSecret(machineContext, fakeClient, kubevirtMachine.Namespace)).To(Succeed())
+
+			source := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(networkDataSecret), source)).To(Succeed())
+			Expect(source.Labels).To(Equal(map[string]string{"hello": "world", "clusterctl.cluster.x-k8s.io/move": ""}))
+			Expect(source.Data).To(HaveKeyWithValue("networkdata", []byte(noCloudNetworkData)))
+		})
+
+		It("should wait, and report an error, while the referenced network data secret does not exist", func() {
+			kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{
+				DataSource:           infrav1.CloudInitDataSourceNoCloud,
+				NetworkDataSecretRef: &corev1.LocalObjectReference{Name: networkDataSecretName},
+			}
+			setup(1)
+
+			out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).Should(HaveOccurred())
+			Expect(err.Error()).To(HavePrefix("failed to prepare cloud-init network data"))
+			Expect(out).To(Equal(ctrl.Result{RequeueAfter: 10 * time.Second}))
+
+			condition := vmProvisionedCondition()
+			Expect(condition).ShouldNot(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(infrav1.WaitingForNetworkDataReason))
+			Expect(condition.Message).To(ContainSubstring(networkDataSecretName))
+
+			// Waiting for a secret is not worth an event
+			Expect(fakeRecorder.Events).To(BeEmpty())
+			expectNoVM()
+		})
+
+		DescribeTable("should stop, without an error, on network data that cannot be used",
+			func(dataSource infrav1.CloudInitDataSource, data map[string][]byte, expectedMessage string) {
+				useNetworkDataSecret(dataSource, data)
+				setup(1)
+
+				out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+
+				// Nothing a retry could change: no error, no requeue
+				Expect(err).ShouldNot(HaveOccurred())
+				Expect(out).To(Equal(ctrl.Result{}))
+
+				condition := vmProvisionedCondition()
+				Expect(condition).ShouldNot(BeNil())
+				Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+				Expect(condition.Reason).To(Equal(infrav1.InvalidNetworkDataReason))
+				Expect(condition.Message).To(ContainSubstring(expectedMessage))
+
+				var event string
+				Expect(fakeRecorder.Events).To(Receive(&event))
+				Expect(event).To(HavePrefix(corev1.EventTypeWarning + " " + infrav1.InvalidNetworkDataReason + " "))
+				Expect(event).To(ContainSubstring(expectedMessage))
+
+				err = fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), &corev1.Secret{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "unusable network data must not be copied to the infra cluster")
+				expectNoVM()
+			},
+			Entry("a secret without a network data key", infrav1.CloudInitDataSourceNoCloud,
+				map[string][]byte{"wrong-key": []byte(noCloudNetworkData)}, "is missing the networkdata key"),
+			Entry("a secret with an empty network data value", infrav1.CloudInitDataSourceNoCloud,
+				map[string][]byte{"networkdata": {}}, "network data is empty"),
+			Entry("a config drive document that is not JSON", infrav1.CloudInitDataSourceConfigDrive,
+				map[string][]byte{"networkdata": []byte(noCloudNetworkData)}, "must be a JSON object in the OpenStack network_data.json format"),
+			Entry("a NoCloud document that is not a YAML mapping", infrav1.CloudInitDataSourceNoCloud,
+				map[string][]byte{"networkdata": []byte("- not\n- a mapping\n")}, "must be a YAML mapping in the cloud-init network configuration format"),
+		)
+
+		It("should stop on inline network data that is not well formed, as a machine admitted without the webhook can carry", func() {
+			networkData := noCloudNetworkData
+			kubevirtMachine.Spec.CloudInit = &infrav1.CloudInitSpec{DataSource: infrav1.CloudInitDataSourceConfigDrive, NetworkData: &networkData}
+			setup(1)
+
+			out, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(out).To(Equal(ctrl.Result{}))
+			Expect(vmProvisionedCondition().Reason).To(Equal(infrav1.InvalidNetworkDataReason))
+			Expect(vmProvisionedCondition().Message).To(ContainSubstring("inline networkData"))
+			expectNoVM()
+		})
+
+		It("should provision the machine once unusable network data is corrected", func() {
+			useNetworkDataSecret(infrav1.CloudInitDataSourceNoCloud, map[string][]byte{"wrong-key": []byte(noCloudNetworkData)})
+			setup(2)
+
+			_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(vmProvisionedCondition().Reason).To(Equal(infrav1.InvalidNetworkDataReason))
+			expectNoVM()
+
+			source := &corev1.Secret{}
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(networkDataSecret), source)).To(Succeed())
+			source.Data = map[string][]byte{"networkdata": []byte(noCloudNetworkData)}
+			Expect(fakeClient.Update(gocontext.Background(), source)).To(Succeed())
+
+			// The corrected secret carries the key, so the watch lets it through to the machine
+			Expect(hasNetworkDataKey(source)).To(BeTrue())
+
+			_, err = kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(cloudInitNoCloud(getVM()).NetworkDataSecretRef).To(HaveValue(Equal(corev1.LocalObjectReference{Name: machineNetworkDataSecretKey(kubevirtMachine).Name})))
+		})
+
+		It("should delete the network data secret of a machine with the machine", func() {
+			useNetworkDataSecret(infrav1.CloudInitDataSourceNoCloud, map[string][]byte{"networkdata": []byte(noCloudNetworkData)})
+			setup(2)
+
+			_, err := kubevirtMachineReconciler.reconcileNormal(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), &corev1.Secret{})).To(Succeed())
+
+			_, err = kubevirtMachineReconciler.reconcileDelete(machineContext)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			err = fakeClient.Get(gocontext.Background(), machineNetworkDataSecretKey(kubevirtMachine), &corev1.Secret{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+			// The secret of the user is not the controller's to delete
+			Expect(fakeClient.Get(gocontext.Background(), client.ObjectKeyFromObject(networkDataSecret), &corev1.Secret{})).To(Succeed())
+		})
 	})
 
 	It("should ensure deletion of KubevirtMachine garbage collects everything successfully", func() {
@@ -1515,3 +1907,31 @@ var _ = Describe("updateNodeProviderID", func() {
 		Expect(kubevirtMachine.Status.NodeUpdated).To(BeFalse())
 	})
 })
+
+// cloudInitConfigDrive returns the cloud-init config drive source of the given virtual machine,
+// or nil when the virtual machine has no config drive volume.
+func cloudInitConfigDrive(vm *kubevirtv1.VirtualMachine) *kubevirtv1.CloudInitConfigDriveSource {
+	if vm.Spec.Template == nil {
+		return nil
+	}
+	for _, volume := range vm.Spec.Template.Spec.Volumes {
+		if volume.CloudInitConfigDrive != nil {
+			return volume.CloudInitConfigDrive
+		}
+	}
+	return nil
+}
+
+// cloudInitNoCloud returns the cloud-init NoCloud source of the given virtual machine,
+// or nil when the virtual machine has no NoCloud volume.
+func cloudInitNoCloud(vm *kubevirtv1.VirtualMachine) *kubevirtv1.CloudInitNoCloudSource {
+	if vm.Spec.Template == nil {
+		return nil
+	}
+	for _, volume := range vm.Spec.Template.Spec.Volumes {
+		if volume.CloudInitNoCloud != nil {
+			return volume.CloudInitNoCloud
+		}
+	}
+	return nil
+}

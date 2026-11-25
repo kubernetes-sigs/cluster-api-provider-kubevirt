@@ -111,6 +111,62 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			Expect(res.Result.Code).To(Equal(int32(http.StatusOK)))
 		})
 
+		DescribeTable("inline cloud-init network data in a create request", func(cloudInit *v1alpha1.CloudInitSpec, expectedDenial string) {
+			newTemplate := &v1alpha1.KubevirtMachineTemplate{
+				Spec: v1alpha1.KubevirtMachineTemplateSpec{
+					Template: v1alpha1.KubevirtMachineTemplateResource{
+						Spec: v1alpha1.KubevirtMachineSpec{CloudInit: cloudInit},
+					},
+				},
+			}
+
+			res := wh.Handle(ctx, newRequest(admissionv1.Create, newTemplate, nil, v1alpha1Codec))
+			if expectedDenial == "" {
+				Expect(res.Allowed).To(BeTrue())
+				return
+			}
+			Expect(res.Allowed).To(BeFalse())
+			Expect(res.Result.Message).To(ContainSubstring("invalid cloudInit.networkData"))
+			Expect(res.Result.Message).To(ContainSubstring(expectedDenial))
+		},
+			Entry("allows a NoCloud network configuration", &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceNoCloud,
+				NetworkData: ptr.To("version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"),
+			}, ""),
+			Entry("allows a config drive network_data.json", &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceConfigDrive,
+				NetworkData: ptr.To(`{"links": [], "networks": []}`),
+			}, ""),
+			Entry("allows a data source without network data", &v1alpha1.CloudInitSpec{
+				DataSource: v1alpha1.CloudInitDataSourceNoCloud,
+			}, ""),
+			Entry("rejects a NoCloud network configuration on a config drive", &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceConfigDrive,
+				NetworkData: ptr.To("version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"),
+			}, "must be a JSON object in the OpenStack network_data.json format"),
+			Entry("rejects a NoCloud document that is not a mapping", &v1alpha1.CloudInitSpec{
+				DataSource:  v1alpha1.CloudInitDataSourceNoCloud,
+				NetworkData: ptr.To("- not\n- a mapping\n"),
+			}, "must be a YAML mapping in the cloud-init network configuration format"),
+		)
+
+		It("should leave the network data of a template carrying an excluded annotation alone", func() {
+			newTemplate := &v1alpha1.KubevirtMachineTemplate{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"example.com/exclude": "true"}},
+				Spec: v1alpha1.KubevirtMachineTemplateSpec{
+					Template: v1alpha1.KubevirtMachineTemplateResource{
+						Spec: v1alpha1.KubevirtMachineSpec{CloudInit: &v1alpha1.CloudInitSpec{
+							DataSource:  v1alpha1.CloudInitDataSourceConfigDrive,
+							NetworkData: ptr.To("version: 2"),
+						}},
+					},
+				},
+			}
+
+			res := wh.Handle(ctx, newRequest(admissionv1.Create, newTemplate, nil, v1alpha1Codec))
+			Expect(res.Allowed).To(BeTrue())
+		})
+
 		It("should always return OK for delete request", func() {
 			oldTemplate := &v1alpha1.KubevirtMachineTemplate{
 				Spec: v1alpha1.KubevirtMachineTemplateSpec{
@@ -187,6 +243,32 @@ var _ = Describe("Template Validation - ensure immutability in update request", 
 			res := wh.Handle(ctx, req)
 			Expect(res.Allowed).To(BeTrue())
 		})
+
+		DescribeTable("cloud-init template changes", func(dryRun bool, allowed bool) {
+			oldTemplate := &v1alpha1.KubevirtMachineTemplate{
+				Spec: v1alpha1.KubevirtMachineTemplateSpec{
+					Template: v1alpha1.KubevirtMachineTemplateResource{
+						Spec: v1alpha1.KubevirtMachineSpec{
+							CloudInit: &v1alpha1.CloudInitSpec{DataSource: v1alpha1.CloudInitDataSourceConfigDrive},
+						},
+					},
+				},
+			}
+			newTemplate := oldTemplate.DeepCopy()
+			newTemplate.Spec.Template.Spec.CloudInit.DataSource = v1alpha1.CloudInitDataSourceNoCloud
+			newTemplate.Spec.Template.Spec.CloudInit.NetworkData = ptr.To("version: 2")
+			req := newRequest(admissionv1.Update, oldTemplate, newTemplate, v1alpha1Codec)
+			req.DryRun = ptr.To(dryRun)
+
+			res := wh.Handle(ctx, req)
+			Expect(res.Allowed).To(Equal(allowed))
+			if !allowed {
+				Expect(res.Result.Message).To(Equal(immutableWarning))
+			}
+		},
+			Entry("allows topology dry-run changes", true, true),
+			Entry("rejects persisted changes", false, false),
+		)
 	})
 })
 
