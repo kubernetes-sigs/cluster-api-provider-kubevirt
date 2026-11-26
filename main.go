@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"math/rand"
 	"os"
 	"time"
@@ -72,6 +73,7 @@ var (
 	webhookCertDir              string
 	watchNamespace              string
 	excludeAnnotations          []string
+	enableRemediation           bool
 
 	managerOptions = flags.ManagerOptions{}
 )
@@ -129,6 +131,8 @@ func initFlags(fs *pflag.FlagSet) {
 		"Namespace that the controller watches to reconcile cluster-api objects. If unspecified, the controller watches for cluster-api objects across all namespaces.")
 	fs.StringSliceVar(&excludeAnnotations, "exclude-annotations", nil,
 		"Comma-separated list of annotation names. Objects carrying any of these annotations are excluded from reconciliation and webhook validation.")
+	fs.BoolVar(&enableRemediation, "enable-remediation", false,
+		"Enable the KubevirtRemediation controller (MachineHealthCheck external remediation). Requires the KubevirtRemediation and KubevirtRemediationTemplate CRDs to be installed.")
 
 	feature.MutableGates.AddFlag(fs)
 
@@ -203,7 +207,10 @@ func main() {
 
 	setupChecks(mgr)
 	excludedAnnotations := annotationfilter.New(excludeAnnotations)
-	setupReconcilers(ctx, mgr, excludedAnnotations)
+	if err := setupReconcilers(ctx, mgr, excludedAnnotations); err != nil {
+		setupLog.Error(err, "unable to create controller")
+		os.Exit(1)
+	}
 	setupWebhooks(mgr, excludedAnnotations)
 
 	// +kubebuilder:scaffold:builder
@@ -226,11 +233,10 @@ func setupChecks(mgr ctrl.Manager) {
 	}
 }
 
-func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations annotationfilter.Filter) {
+func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations annotationfilter.Filter) error {
 	noCachedClient, err := k8sclient.New(mgr.GetConfig(), k8sclient.Options{Scheme: mgr.GetClient().Scheme()})
 	if err != nil {
-		setupLog.Error(err, "unable to create controller; failed to generate no-cached client")
-		os.Exit(1)
+		return fmt.Errorf("failed to generate no-cached client: %w", err)
 	}
 
 	controllerNS := resolveControllerNamespace()
@@ -244,8 +250,7 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}, ctrl.Log.WithName("controllers").WithName("KubevirtMachine")); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "reconciler")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtMachine controller: %w", err)
 	}
 
 	if err := (&controllers.KubevirtClusterReconciler{
@@ -255,8 +260,19 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations
 		Log:                 ctrl.Log.WithName("controllers").WithName("KubevirtCluster"),
 		ExcludedAnnotations: excludedAnnotations,
 	}).SetupWithManager(ctx, mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "KubevirtCluster")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtCluster controller: %w", err)
+	}
+
+	// Opt-in: watching a kind whose CRD is not installed makes the cache sync
+	// time out and stops the whole manager, which would break installations
+	// that upgrade the controller image separately from the CRDs.
+	if enableRemediation {
+		if err := (&controllers.KubevirtRemediationReconciler{
+			Client:       mgr.GetClient(),
+			InfraCluster: infracluster.New(mgr.GetClient(), noCachedClient, controllerNS),
+		}).SetupWithManager(ctx, mgr); err != nil {
+			return fmt.Errorf("KubevirtRemediation controller: %w", err)
+		}
 	}
 
 	if err := (&controllers.KubevirtMachineTemplateReconciler{
@@ -265,9 +281,10 @@ func setupReconcilers(ctx context.Context, mgr ctrl.Manager, excludedAnnotations
 	}).SetupWithManager(ctx, mgr, controller.Options{
 		MaxConcurrentReconciles: concurrency,
 	}); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "KubevirtMachineTemplate")
-		os.Exit(1)
+		return fmt.Errorf("KubevirtMachineTemplate controller: %w", err)
 	}
+
+	return nil
 }
 
 func setupWebhooks(mgr ctrl.Manager, excludedAnnotations annotationfilter.Filter) {

@@ -42,6 +42,8 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&KubevirtClusterTemplate{}, &KubevirtClusterTemplateList{},
 		&KubevirtMachine{}, &KubevirtMachineList{},
 		&KubevirtMachineTemplate{}, &KubevirtMachineTemplateList{},
+		&KubevirtRemediation{}, &KubevirtRemediationList{},
+		&KubevirtRemediationTemplate{}, &KubevirtRemediationTemplateList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil

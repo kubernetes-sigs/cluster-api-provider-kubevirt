@@ -1,0 +1,120 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: kubevirtremediations.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: KubevirtRemediation
+    listKind: KubevirtRemediationList
+    plural: kubevirtremediations
+    shortNames:
+    - kvr
+    singular: kubevirtremediation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Current phase of the remediation
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: Restarts issued so far
+      jsonPath: .status.retryCount
+      name: Retry count
+      type: string
+    - description: Maximum restarts before giving up
+      jsonPath: .spec.strategy.retryLimit
+      name: Retry limit
+      type: string
+    - description: Timestamp of the last restart
+      jsonPath: .status.lastRemediated
+      name: Last Remediated
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          KubevirtRemediation is the Schema for the kubevirtremediations API.
+          It is created by the Cluster API MachineHealthCheck controller (from a
+          KubevirtRemediationTemplate referenced in spec.remediation.templateRef)
+          when a Machine fails its health check, and deleted by the same controller
+          once the Machine passes again.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KubevirtRemediationSpec defines the desired state of KubevirtRemediation.
+            properties:
+              strategy:
+                description: strategy field defines the remediation strategy.
+                properties:
+                  retryLimit:
+                    default: 1
+                    description: |-
+                      retryLimit sets the maximum number of restarts to attempt before
+                      handing the Machine back to Cluster API for replacement.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  timeoutSeconds:
+                    default: 600
+                    description: |-
+                      timeoutSeconds is how long to wait after a restart for the node to
+                      become healthy before retrying or giving up. The Machine is considered
+                      healthy again when the MachineHealthCheck deletes this remediation
+                      object, so the timeout only has to outlast a normal boot.
+                    format: int32
+                    minimum: 60
+                    type: integer
+                  type:
+                    default: Reboot
+                    description: type of remediation. Only Reboot is supported.
+                    enum:
+                    - Reboot
+                    type: string
+                type: object
+            type: object
+          status:
+            description: KubevirtRemediationStatus defines the observed state of KubevirtRemediation.
+            properties:
+              lastRemediated:
+                description: lastRemediated identifies when the last restart was issued.
+                format: date-time
+                type: string
+              phase:
+                description: phase represents the current phase of remediation.
+                enum:
+                - Running
+                - Waiting
+                - Failed
+                type: string
+              retryCount:
+                description: retryCount is the number of restarts issued so far.
+                format: int32
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
